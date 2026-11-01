@@ -229,6 +229,16 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 - **WHEN** l'évaluation FHIRPath d'une contrainte retourne une erreur
 - **THEN** aucun Diagnostic ne SHALL être émis pour cette contrainte (l'erreur est ignorée)
 
+#### Scenario: Expression non analysable émet INVARIANT_PARSE
+
+- **WHEN** l'expression FHIRPath d'une contrainte ne peut pas être analysée (erreur de syntaxe)
+- **THEN** un Diagnostic avec code `INVARIANT_PARSE` et severity `Warning` SHALL être émis, et la contrainte SHALL être ignorée
+
+#### Scenario: Severity `information` mappée en Warning
+
+- **WHEN** une contrainte violée a `severity="information"`
+- **THEN** le Diagnostic `INVARIANT_<key>` SHALL avoir la severity `Warning`
+
 #### Scenario: Contrainte sans expression ignorée
 
 - **WHEN** une contrainte n'a pas de champ `expression`

@@ -48,219 +48,93 @@ pub(crate) fn check_type(
         return;
     }
 
-    match fhir_type {
-        "boolean" => {
-            if !matches!(value, Value::Bool(_)) {
-                diagnostics.push(
-                    Diagnostic::error(
-                        "TYPE_001",
-                        format!("Expected boolean at '{path}'"),
-                        path.to_owned(),
-                    )
-                    .with_location(span),
-                );
-            }
-        }
-        "integer" => {
-            if !matches!(value, Value::Integer(_)) {
-                diagnostics.push(
-                    Diagnostic::error(
-                        "TYPE_001",
-                        format!("Expected integer at '{path}'"),
-                        path.to_owned(),
-                    )
-                    .with_location(span),
-                );
-            }
-        }
+    let expected = |what: &str| ("TYPE_001", format!("Expected {what} at '{path}'"));
+    let string_format = |is_valid: fn(&str) -> bool| match value {
+        Value::Str(s) if is_valid(s) => None,
+        Value::Str(s) => Some((
+            "TYPE_003",
+            format!("Invalid {fhir_type} format at '{path}': '{s}'"),
+        )),
+        _ => Some(expected(&format!("{fhir_type} string"))),
+    };
+
+    let error: Option<(&str, String)> = match fhir_type {
+        "boolean" if !matches!(value, Value::Bool(_)) => Some(expected("boolean")),
+        "integer" if !matches!(value, Value::Integer(_)) => Some(expected("integer")),
         "unsignedInt" => match value {
-            Value::Integer(n) if *n < 0 => {
-                diagnostics.push(
-                    Diagnostic::error(
-                        "TYPE_002",
-                        format!("Expected non-negative integer at '{path}', got {n}"),
-                        path.to_owned(),
-                    )
-                    .with_location(span),
-                );
-            }
-            Value::Integer(_) => {}
-            _ => {
-                diagnostics.push(
-                    Diagnostic::error(
-                        "TYPE_001",
-                        format!("Expected integer at '{path}'"),
-                        path.to_owned(),
-                    )
-                    .with_location(span),
-                );
-            }
+            Value::Integer(n) if *n < 0 => Some((
+                "TYPE_002",
+                format!("Expected non-negative integer at '{path}', got {n}"),
+            )),
+            Value::Integer(_) => None,
+            _ => Some(expected("integer")),
         },
         "positiveInt" => match value {
-            Value::Integer(n) if *n <= 0 => {
-                diagnostics.push(
-                    Diagnostic::error(
-                        "TYPE_002",
-                        format!("Expected positive integer at '{path}', got {n}"),
-                        path.to_owned(),
-                    )
-                    .with_location(span),
-                );
-            }
-            Value::Integer(_) => {}
-            _ => {
-                diagnostics.push(
-                    Diagnostic::error(
-                        "TYPE_001",
-                        format!("Expected integer at '{path}'"),
-                        path.to_owned(),
-                    )
-                    .with_location(span),
-                );
-            }
+            Value::Integer(n) if *n <= 0 => Some((
+                "TYPE_002",
+                format!("Expected positive integer at '{path}', got {n}"),
+            )),
+            Value::Integer(_) => None,
+            _ => Some(expected("integer")),
         },
-        "decimal" => {
-            if !matches!(value, Value::Decimal(_) | Value::Integer(_)) {
-                diagnostics.push(
-                    Diagnostic::error(
-                        "TYPE_001",
-                        format!("Expected decimal number at '{path}'"),
-                        path.to_owned(),
-                    )
-                    .with_location(span),
-                );
+        "decimal" if !matches!(value, Value::Decimal(_) | Value::Integer(_)) => {
+            Some(expected("decimal number"))
+        }
+        "date" => string_format(is_valid_date),
+        "dateTime" | "instant" => string_format(is_valid_datetime),
+        "time" => string_format(is_valid_time),
+        "code" => match value {
+            Value::Str(s) if s.chars().any(char::is_whitespace) => Some((
+                "TYPE_004",
+                format!("Code at '{path}' must not contain whitespace: '{s}'"),
+            )),
+            Value::Str(_) => None,
+            _ => Some(expected("code string")),
+        },
+        "id" => match value {
+            Value::Str(s) if !is_valid_id(s) => {
+                Some(("TYPE_005", format!("Invalid id format at '{path}': '{s}'")))
             }
-        }
-        "date" => check_string_format(value, path, span, "date", is_valid_date, diagnostics),
-        "dateTime" | "instant" => {
-            check_string_format(value, path, span, fhir_type, is_valid_datetime, diagnostics);
-        }
-        "time" => check_string_format(value, path, span, "time", is_valid_time, diagnostics),
-        "code" => {
-            if let Value::Str(s) = value {
-                if s.chars().any(char::is_whitespace) {
-                    diagnostics.push(
-                        Diagnostic::error(
-                            "TYPE_004",
-                            format!("Code at '{path}' must not contain whitespace: '{s}'"),
-                            path.to_owned(),
-                        )
-                        .with_location(span),
-                    );
-                }
-            } else {
-                diagnostics.push(
-                    Diagnostic::error(
-                        "TYPE_001",
-                        format!("Expected code string at '{path}'"),
-                        path.to_owned(),
-                    )
-                    .with_location(span),
-                );
-            }
-        }
-        "id" => {
-            if let Value::Str(s) = value {
-                if !is_valid_id(s) {
-                    diagnostics.push(
-                        Diagnostic::error(
-                            "TYPE_005",
-                            format!("Invalid id format at '{path}': '{s}'"),
-                            path.to_owned(),
-                        )
-                        .with_location(span),
-                    );
-                }
-            } else {
-                diagnostics.push(
-                    Diagnostic::error(
-                        "TYPE_001",
-                        format!("Expected id string at '{path}'"),
-                        path.to_owned(),
-                    )
-                    .with_location(span),
-                );
-            }
-        }
+            Value::Str(_) => None,
+            _ => Some(expected("id string")),
+        },
         "string" | "markdown" | "base64Binary" | "xhtml" | "uri" | "url" | "canonical" | "oid"
         | "uuid"
             if !matches!(value, Value::Str(_)) =>
         {
-            diagnostics.push(
-                Diagnostic::error(
-                    "TYPE_001",
-                    format!("Expected string at '{path}'"),
-                    path.to_owned(),
-                )
-                .with_location(span),
-            );
+            Some(expected("string"))
         }
         // Complex and unknown types — skip deep validation here.
-        _ => {}
-    }
-}
+        _ => None,
+    };
 
-fn check_string_format(
-    value: &Value,
-    path: &str,
-    span: Span,
-    type_name: &str,
-    is_valid: fn(&str) -> bool,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    if let Value::Str(s) = value {
-        if !is_valid(s) {
-            diagnostics.push(
-                Diagnostic::error(
-                    "TYPE_003",
-                    format!("Invalid {type_name} format at '{path}': '{s}'"),
-                    path.to_owned(),
-                )
-                .with_location(span),
-            );
-        }
-    } else {
-        diagnostics.push(
-            Diagnostic::error(
-                "TYPE_001",
-                format!("Expected {type_name} string at '{path}'"),
-                path.to_owned(),
-            )
-            .with_location(span),
-        );
+    if let Some((code, message)) = error {
+        diagnostics.push(Diagnostic::error(code, message, path.to_owned()).with_location(span));
     }
 }
 
 /// FHIR date: `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`.
 fn is_valid_date(s: &str) -> bool {
+    // Non-ASCII input would make the byte slicing below panic.
+    if !s.is_ascii() {
+        return false;
+    }
+    let digits = |r: std::ops::Range<usize>| s[r].bytes().all(|c| c.is_ascii_digit());
+    let in_range = |r: std::ops::Range<usize>, max: u8| {
+        digits(r.clone()) && s[r].parse::<u8>().is_ok_and(|n| (1..=max).contains(&n))
+    };
     match s.len() {
-        4 => s.chars().all(|c| c.is_ascii_digit()),
-        7 => parse_ym(s),
-        10 => parse_ymd(s),
+        4 => digits(0..4),
+        7 => digits(0..4) && &s[4..5] == "-" && in_range(5..7, 12),
+        10 => {
+            digits(0..4)
+                && &s[4..5] == "-"
+                && &s[7..8] == "-"
+                && in_range(5..7, 12)
+                && in_range(8..10, 31)
+        }
         _ => false,
     }
-}
-
-fn parse_ym(s: &str) -> bool {
-    let (year, rest) = s.split_at(4);
-    let Some(month) = rest.strip_prefix('-') else {
-        return false;
-    };
-    year.chars().all(|c| c.is_ascii_digit())
-        && month.parse::<u8>().is_ok_and(|m| (1..=12).contains(&m))
-}
-
-fn parse_ymd(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    if bytes.get(4) != Some(&b'-') || bytes.get(7) != Some(&b'-') {
-        return false;
-    }
-    let year = &s[..4];
-    let month = &s[5..7];
-    let day = &s[8..10];
-    year.chars().all(|c| c.is_ascii_digit())
-        && month.parse::<u8>().is_ok_and(|m| (1..=12).contains(&m))
-        && day.parse::<u8>().is_ok_and(|d| (1..=31).contains(&d))
 }
 
 /// FHIR dateTime: date with optional `T` followed by a valid time component.
@@ -269,58 +143,27 @@ fn is_valid_datetime(s: &str) -> bool {
         return true;
     }
     if let Some(t_pos) = s.find('T') {
-        return is_valid_date(&s[..t_pos]) && is_valid_time_component(&s[t_pos + 1..]);
+        return is_valid_date(&s[..t_pos]) && is_valid_time(&s[t_pos + 1..]);
     }
     false
 }
 
-/// Validate the time portion of a FHIR dateTime (`hh:mm:ss[.sss][Z|+hh:mm|-hh:mm]`).
-fn is_valid_time_component(s: &str) -> bool {
-    // Must start with HH:MM:SS
-    if s.len() < 8 {
-        return false;
-    }
-    let b = s.as_bytes();
-    if b[2] != b':' || b[5] != b':' {
-        return false;
-    }
-    let hh: u8 = match s[0..2].parse() {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    let mm: u8 = match s[3..5].parse() {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    let ss: u8 = match s[6..8].parse() {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    hh <= 23 && mm <= 59 && ss <= 59
-}
-
-/// FHIR time: `HH:MM:SS[.sss]` (no timezone in the `time` data type).
+/// `hh:mm:ss[...]`, shared by `time` and the time part of `dateTime`.
+/// Only the leading `hh:mm:ss` is checked (fraction / timezone are not validated).
 fn is_valid_time(s: &str) -> bool {
-    if s.len() < 8 {
+    // Non-ASCII input would make the byte slicing below panic.
+    if !s.is_ascii() || s.len() < 8 {
         return false;
     }
     let b = s.as_bytes();
     if b[2] != b':' || b[5] != b':' {
         return false;
     }
-    let hh: u8 = match s[0..2].parse() {
-        Ok(v) => v,
-        Err(_) => return false,
+    let part = |r: std::ops::Range<usize>, max: u8| {
+        s[r.clone()].bytes().all(|c| c.is_ascii_digit())
+            && s[r].parse::<u8>().is_ok_and(|n| n <= max)
     };
-    let mm: u8 = match s[3..5].parse() {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    let ss: u8 = match s[6..8].parse() {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    hh <= 23 && mm <= 59 && ss <= 59
+    part(0..2, 23) && part(3..5, 59) && part(6..8, 59)
 }
 
 /// FHIR id: `[A-Za-z0-9\-\.]{1,64}`.
@@ -500,5 +343,28 @@ mod tests {
         validate(&resource, &sd, &mut d);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "TYPE_003");
+    }
+
+    #[test]
+    fn non_ascii_date_and_time_do_not_panic() {
+        for s in [
+            "abcé-0",
+            "２０２４-01-01",
+            "é024-01-01",
+            "é:00:00",
+            "2024-01-01Té:00:00",
+        ] {
+            assert!(!is_valid_date(s));
+            assert!(!is_valid_datetime(s));
+            assert!(!is_valid_time(s));
+        }
+    }
+
+    #[test]
+    fn valid_time_and_datetime() {
+        assert!(is_valid_time("12:30:59"));
+        assert!(!is_valid_time("24:00:00"));
+        assert!(is_valid_datetime("2024-01-01T12:30:59Z"));
+        assert!(!is_valid_datetime("2024-01-01T+1:30:59Z"));
     }
 }
