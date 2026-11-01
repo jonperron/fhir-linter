@@ -165,3 +165,27 @@ fn missing_required_field_path_is_correct() {
         "Expected CARDINALITY_001 with path containing 'status'",
     );
 }
+
+// ── Terminology validation ────────────────────────────────────────────────────
+
+fn codes(registry: &Registry, json: &str, code: &str) -> usize {
+    let resource = parse_json(json).unwrap();
+    validate(&resource, registry)
+        .iter()
+        .filter(|d| d.code.as_ref() == code)
+        .count()
+}
+
+#[test]
+fn invalid_code_with_required_binding_produces_terminology_001() {
+    let registry = load_registry();
+    let json = r#"{"resourceType":"Observation","status":"bogus","code":{"text":"x"}}"#;
+    assert_eq!(codes(&registry, json, "TERMINOLOGY_001"), 1);
+}
+
+#[test]
+fn valid_code_with_required_binding_passes_terminology() {
+    let registry = load_registry();
+    let json = r#"{"resourceType":"Observation","status":"final","code":{"text":"x"}}"#;
+    assert_eq!(codes(&registry, json, "TERMINOLOGY_001"), 0);
+}

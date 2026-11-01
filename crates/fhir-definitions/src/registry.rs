@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::loader;
-use crate::model::{CodeSystem, StructureDefinition, ValueSet};
+use crate::model::{CodeSystem, Include, StructureDefinition, ValueSet};
 
 /// Indexed registry of FHIR R5 definitions, built once and shared via `Arc`.
 ///
@@ -67,6 +67,72 @@ impl Registry {
     /// Look up a `CodeSystem` by its canonical URL.
     pub fn code_system(&self, url: &str) -> Option<&CodeSystem> {
         self.code_systems.get(url)
+    }
+
+    /// Whether `code` (optionally qualified by `system`) belongs to the ValueSet.
+    ///
+    /// Returns `None` when membership cannot be decided from the loaded
+    /// definitions (unknown ValueSet/CodeSystem, filters, excludes, fragments).
+    /// With `system == None` any system of the ValueSet may match.
+    pub fn value_set_contains(&self, url: &str, system: Option<&str>, code: &str) -> Option<bool> {
+        self.vs_contains(url, system, code, 0)
+    }
+
+    fn vs_contains(&self, url: &str, system: Option<&str>, code: &str, depth: u8) -> Option<bool> {
+        // Depth cap guards against cyclic ValueSet imports.
+        if depth > 8 {
+            return None;
+        }
+        let vs = self.value_sets.get(url)?;
+        let mut undecided = false;
+        for inc in &vs.includes {
+            match self.include_contains(inc, system, code, depth) {
+                Some(true) => return if vs.has_exclude { None } else { Some(true) },
+                Some(false) => {}
+                None => undecided = true,
+            }
+        }
+        if undecided { None } else { Some(false) }
+    }
+
+    fn include_contains(
+        &self,
+        inc: &Include,
+        system: Option<&str>,
+        code: &str,
+        depth: u8,
+    ) -> Option<bool> {
+        if inc.has_filter {
+            return None;
+        }
+        if !inc.value_sets.is_empty() {
+            let mut result = Some(true);
+            for vs in &inc.value_sets {
+                match self.vs_contains(vs, system, code, depth + 1) {
+                    Some(false) => return Some(false),
+                    None => result = None,
+                    Some(true) => {}
+                }
+            }
+            if inc.system.is_none() {
+                return result;
+            }
+        }
+        let inc_system = inc.system.as_deref()?;
+        if system.is_some_and(|s| s != inc_system) {
+            return Some(false);
+        }
+        if !inc.codes.is_empty() {
+            return Some(inc.codes.iter().any(|c| c.as_ref() == code));
+        }
+        let cs = self.code_systems.get(inc_system)?;
+        if cs.codes.contains(code) {
+            Some(true)
+        } else if cs.complete {
+            Some(false)
+        } else {
+            None
+        }
     }
 
     /// Total number of indexed `StructureDefinition` entries.
