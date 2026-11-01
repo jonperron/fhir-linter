@@ -57,33 +57,6 @@ Le système SHALL permettre de résoudre un `ValueSet` par son URL canonique exa
 
 ---
 
-### Requirement: Résolution de CodeSystem par URL canonique
-
-Le système SHALL permettre de résoudre un `CodeSystem` par son URL canonique exacte.
-
-#### Scenario: URL connue retourne Some CodeSystem
-
-- **WHEN** `registry.code_system(url)` est appelé avec l'URL canonique d'un CodeSystem chargé
-- **THEN** il SHALL retourner `Some(&CodeSystem)` avec les champs `url` et `name` correctement renseignés
-
-#### Scenario: URL inconnue retourne None pour CodeSystem
-
-- **WHEN** `registry.code_system(url)` est appelé avec une URL non présente
-- **THEN** il SHALL retourner `None`
-
----
-
-### Requirement: Compteurs de ressources indexées
-
-Le système SHALL exposer des méthodes retournant le nombre d'entrées indexées.
-
-#### Scenario: Compteurs positifs après chargement
-
-- **WHEN** le registry est chargé depuis les définitions FHIR R5 officielles
-- **THEN** `structure_definition_count()`, `value_set_count()` et `code_system_count()` SHALL retourner des valeurs positives
-
----
-
 ### Requirement: Thread-safety via Arc
 
 Le `Registry` SHALL être partageable entre threads via `Arc<Registry>` sans nécessiter de synchronisation externe après construction.

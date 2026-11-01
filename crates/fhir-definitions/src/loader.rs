@@ -33,7 +33,9 @@ pub fn load_bundle(
 
     for entry in entries {
         let resource = &entry["resource"];
-        let resource_type = resource["resourceType"].as_str().unwrap_or("");
+        let Some(resource_type) = resource["resourceType"].as_str() else {
+            continue;
+        };
 
         match resource_type {
             "StructureDefinition" => {
@@ -83,7 +85,7 @@ fn parse_structure_definition(resource: &Value) -> Option<StructureDefinition> {
 fn parse_element_definition(elem: &Value) -> Option<ElementDefinition> {
     let path: Arc<str> = elem["path"].as_str()?.into();
     let min = u32::try_from(elem["min"].as_u64().unwrap_or(0)).unwrap_or(0);
-    let max: Arc<str> = elem["max"].as_str().unwrap_or("*").into();
+    let max: Arc<str> = elem["max"].as_str()?.into();
     let types = elem["type"]
         .as_array()
         .map(|type_list| {
@@ -124,13 +126,14 @@ fn parse_constraint(c: &Value) -> Option<Constraint> {
     })
 }
 
+/// Strip a canonical version suffix ("http://x/foo|5.0.0" becomes "http://x/foo").
+fn strip_version(s: &str) -> Arc<str> {
+    Arc::from(s.split_once('|').map_or(s, |(url, _)| url))
+}
+
 fn parse_binding(b: &Value) -> Option<Binding> {
     let strength: Arc<str> = b["strength"].as_str()?.into();
-    let value_set = b["valueSet"].as_str().map(|s| {
-        // Strip version suffix (e.g. "http://...ValueSet/foo|5.0.0" → "http://...ValueSet/foo")
-        let s = s.split('|').next().unwrap_or(s);
-        Arc::from(s)
-    });
+    let value_set = b["valueSet"].as_str().map(strip_version);
     Some(Binding {
         strength,
         value_set,
@@ -173,7 +176,7 @@ fn parse_include(inc: &Value) -> Include {
             .map(|a| {
                 a.iter()
                     .filter_map(|x| x.as_str())
-                    .map(|s| Arc::from(s.split('|').next().unwrap_or(s)))
+                    .map(strip_version)
                     .collect()
             })
             .unwrap_or_default(),
@@ -210,12 +213,27 @@ fn collect_concepts(concepts: &Value, out: &mut HashSet<Arc<str>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
-    fn write_temp(name: &str, content: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(name);
+    /// Temp file removed on drop; name is pid-scoped to avoid cross-run collisions.
+    struct TempFile(std::path::PathBuf);
+
+    impl std::ops::Deref for TempFile {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    fn write_temp(name: &str, content: &str) -> TempFile {
+        let path = std::env::temp_dir().join(format!("{}_{name}", std::process::id()));
         std::fs::write(&path, content).unwrap();
-        path
+        TempFile(path)
     }
 
     #[test]
