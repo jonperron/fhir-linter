@@ -245,3 +245,54 @@ fn conditional_and_abstract_references() {
         r#"{"resourceType":"Patient","managingOrganization":{"reference":"DomainResource/1"}}"#;
     assert_eq!(codes(&registry, abs, "REFERENCE_001"), 1);
 }
+
+// ── Nested validation ─────────────────────────────────────────────────────────
+
+fn codes_for(json: &str) -> Vec<(String, String)> {
+    let resource = parse_json(json).unwrap();
+    validate(&resource, &load_registry())
+        .into_iter()
+        .map(|d| (d.code.to_string(), d.path))
+        .collect()
+}
+
+#[test]
+fn unknown_element_in_complex_type_is_reported() {
+    let found = codes_for(r#"{"resourceType":"Patient","name":[{"family":"A","bogus":1}]}"#);
+    assert!(found.contains(&("STRUCTURE_001".into(), "Patient.name[0].bogus".into())));
+}
+
+#[test]
+fn unknown_element_in_backbone_element_is_reported() {
+    let found = codes_for(r#"{"resourceType":"Patient","contact":[{"bogus":1}]}"#);
+    assert!(found.contains(&("STRUCTURE_001".into(), "Patient.contact[0].bogus".into())));
+}
+
+#[test]
+fn missing_required_nested_element_is_reported() {
+    let found = codes_for(
+        r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"component":[{"valueString":"v"}]}"#,
+    );
+    assert!(found.contains(&(
+        "CARDINALITY_001".into(),
+        "Observation.component[0].code".into()
+    )));
+}
+
+#[test]
+fn bad_primitive_in_nested_element_is_reported() {
+    let found = codes_for(r#"{"resourceType":"Patient","name":[{"period":{"start":"nope"}}]}"#);
+    assert!(
+        found
+            .iter()
+            .any(|(c, p)| c == "TYPE_003" && p == "Patient.name[0].period.start")
+    );
+}
+
+#[test]
+fn valid_nested_resource_has_no_nested_errors() {
+    let found = codes_for(
+        r#"{"resourceType":"Patient","name":[{"family":"A","given":["B"]}],"contact":[{"name":{"family":"C"}}]}"#,
+    );
+    assert!(found.is_empty(), "{found:?}");
+}

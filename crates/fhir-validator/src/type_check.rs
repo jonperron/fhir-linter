@@ -32,7 +32,7 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
     }
 }
 
-fn check_type(
+pub(crate) fn check_type(
     value: &Value,
     fhir_type: &str,
     path: &str,
