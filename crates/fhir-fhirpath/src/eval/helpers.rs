@@ -259,14 +259,17 @@ pub(super) fn eval_type_name(expr: &Expr) -> Result<String, EvalError> {
 // ── Tree traversal ────────────────────────────────────────────────────────────
 
 pub(super) fn collect_descendants(v: &Value, out: &mut Collection) {
-    // Iterative so hostile deeply nested input cannot overflow the stack.
+    // Iterative depth-first pre-order, so hostile deep input cannot overflow the stack.
     let mut stack: Vec<&Value> = vec![v];
     while let Some(current) = stack.pop() {
         if let Value::Object(fields) = current {
-            for child in fields.values().flatten() {
-                out.push(child.clone());
+            let children: Vec<&Value> = fields.values().flatten().collect();
+            for child in children.into_iter().rev() {
                 stack.push(child);
             }
+        }
+        if !std::ptr::eq(current, v) {
+            out.push(current.clone());
         }
     }
 }

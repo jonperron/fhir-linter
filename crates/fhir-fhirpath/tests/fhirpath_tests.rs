@@ -2311,3 +2311,27 @@ fn exists_short_circuits_before_erroring_item() {
     let r = evaluate("(1 | 'x').exists($this = 1)", &[]).unwrap();
     assert_eq!(r, vec![Value::Bool(true)]);
 }
+
+#[test]
+fn descendants_is_depth_first_preorder() {
+    let leaf = |n: &str| {
+        let mut m: IndexMap<Arc<str>, Collection> = IndexMap::new();
+        m.insert(Arc::from("v"), vec![Value::String(Arc::from(n))]);
+        Value::Object(Arc::new(m))
+    };
+    let mut a = IndexMap::new();
+    a.insert(Arc::from("k"), vec![leaf("a1"), leaf("a2")]);
+    let mut root: IndexMap<Arc<str>, Collection> = IndexMap::new();
+    root.insert(Arc::from("x"), vec![Value::Object(Arc::new(a))]);
+    root.insert(Arc::from("y"), vec![leaf("b")]);
+    let r = evaluate("descendants().v", &[Value::Object(Arc::new(root))]).unwrap();
+    let got: Vec<String> = r.iter().map(|v| v.to_string()).collect();
+    assert_eq!(got.len(), 3);
+    assert!(got[0].contains("a1") && got[1].contains("a2") && got[2].contains('b'));
+}
+
+#[test]
+fn decode_base64_ignores_whitespace() {
+    let r = evaluate("'aGVs\nbG8='.decode('base64')", &[]).unwrap();
+    assert_eq!(r, vec![Value::String(Arc::from("hello"))]);
+}

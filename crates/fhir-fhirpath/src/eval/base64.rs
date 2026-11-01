@@ -44,6 +44,12 @@ fn base64_decode_with(input: &[u8], alphabet: &[u8]) -> Option<Vec<u8>> {
     for (i, &c) in alphabet.iter().enumerate() {
         table[c as usize] = i as i8;
     }
+    let cleaned: Vec<u8> = input
+        .iter()
+        .copied()
+        .filter(|c| !c.is_ascii_whitespace())
+        .collect();
+    let input = cleaned.as_slice();
     let data = match input.iter().position(|&c| c == b'=') {
         Some(pad) if input[pad..].iter().all(|&c| c == b'=') => &input[..pad],
         Some(_) => return None,
