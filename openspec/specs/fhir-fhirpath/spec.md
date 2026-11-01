@@ -58,6 +58,21 @@ Le système SHALL implémenter une grammaire PEG via `pest` couvrant l'intégral
 - **WHEN** l'expression contient un opérateur (`+`, `-`, `*`, `/`, `div`, `mod`, `&`, `=`, `!=`, `~`, `!~`, `<`, `<=`, `>`, `>=`, `and`, `or`, `xor`, `implies`, `in`, `contains`, `is`, `as`, `|`)
 - **THEN** le parser SHALL produire le nœud AST avec la bonne associativité et priorité
 
+#### Scenario: Priorité de is/as et de l'union
+
+- **WHEN** l'expression combine `|` avec `is` ou `as` (ex. `a | b is X`)
+- **THEN** `is`/`as` SHALL lier plus fort que `|` (`a | (b is X)`)
+
+#### Scenario: Limites de taille et d'imbrication
+
+- **WHEN** l'expression dépasse 16 KiB ou plus de 64 niveaux d'imbrication de `(` / `[` (hors chaînes, backticks et commentaires)
+- **THEN** `parse` SHALL retourner `Err(ParseError::Syntax(...))` sans dépasser la pile
+
+#### Scenario: Identifiants débutant par true/false
+
+- **WHEN** l'expression contient un identifiant tel que `trueValue`
+- **THEN** il SHALL être analysé comme identifiant et non comme littéral booléen
+
 #### Scenario: Appels de fonctions
 
 - **WHEN** l'expression contient un appel de fonction ou méthode (ex. `name.exists()`, `where(active = true)`)

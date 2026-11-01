@@ -42,19 +42,37 @@ fn check_limits(input: &str) -> Result<(), ParseError> {
             "expression longer than {MAX_INPUT_LEN} bytes"
         )));
     }
-    let (mut depth, mut in_string, mut escaped) = (0usize, false, false);
-    for c in input.chars() {
-        if in_string {
-            match (escaped, c) {
-                (true, _) => escaped = false,
-                (false, '\\') => escaped = true,
-                (false, '\'') => in_string = false,
-                _ => {}
-            }
-            continue;
-        }
+    let mut depth = 0usize;
+    let mut chars = input.chars().peekable();
+    while let Some(c) = chars.next() {
         match c {
-            '\'' => in_string = true,
+            // Quoted spans: skip to the closing delimiter, honouring backslash escapes.
+            '\'' | '`' => {
+                while let Some(d) = chars.next() {
+                    if d == '\\' {
+                        chars.next();
+                    } else if d == c {
+                        break;
+                    }
+                }
+            }
+            '/' if chars.peek() == Some(&'/') => {
+                for d in chars.by_ref() {
+                    if d == '\n' {
+                        break;
+                    }
+                }
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut prev = ' ';
+                for d in chars.by_ref() {
+                    if prev == '*' && d == '/' {
+                        break;
+                    }
+                    prev = d;
+                }
+            }
             '(' | '[' => {
                 depth += 1;
                 if depth > MAX_NESTING {
@@ -489,6 +507,20 @@ mod tests {
     fn parens_inside_strings_do_not_count() {
         let s = format!("'{}'", "(".repeat(500));
         assert!(parse(&s).is_ok());
+    }
+
+    #[test]
+    fn apostrophes_in_comments_do_not_hide_nesting() {
+        let deep = format!("// it's\n{}1{}", "(".repeat(500), ")".repeat(500));
+        assert!(parse(&deep).is_err());
+        let block = format!("/* it's */ {}1{}", "(".repeat(500), ")".repeat(500));
+        assert!(parse(&block).is_err());
+        assert!(parse("1 /* ((((( */").is_ok());
+    }
+
+    #[test]
+    fn repeated_unary_operators_are_syntax_errors() {
+        assert!(parse(&format!("{}1", "- ".repeat(5000))).is_err());
     }
 
     #[test]
