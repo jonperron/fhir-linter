@@ -32,7 +32,7 @@ Always read the relevant spec before implementing or modifying a feature.
 | `definitions/r5/` | Bundled FHIR R5 JSON artifacts |
 | `tests/fixtures/` | Official FHIR test cases (submodule) |
 | `scripts/download-definitions.sh` | Fetches & checksums FHIR R5 definitions |
-| `fhir-linter.toml` | User-facing linter rule configuration |
+| `fhir-linter.toml` | User-supplied linter rule config (not committed; schema in `crates/fhir-linter/src/config.rs`) |
 
 ## Architecture
 
