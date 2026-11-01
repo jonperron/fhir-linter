@@ -186,7 +186,10 @@ fn parse_code_system(resource: &Value) -> Option<CodeSystem> {
     let mut codes = HashSet::new();
     collect_concepts(&resource["concept"], &mut codes);
     // Only a complete, enumerated system can prove a code absent.
-    let complete = resource["content"].as_str() == Some("complete") && !codes.is_empty();
+    // Case-insensitive systems are never proven absent: lookup is exact-match.
+    let complete = resource["content"].as_str() == Some("complete")
+        && resource["caseSensitive"].as_bool() != Some(false)
+        && !codes.is_empty();
     Some(CodeSystem {
         url,
         name,

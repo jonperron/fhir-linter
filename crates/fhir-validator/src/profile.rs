@@ -38,7 +38,8 @@ pub fn validate(
             continue;
         };
         let profile_type = sd.snapshot.first().map(|e| e.path.as_ref());
-        if profile_type != Some(resource_type) {
+        // Profiles on abstract parents (e.g. DomainResource) apply to every subtype.
+        if profile_type != Some(resource_type) && !sd.is_abstract {
             diagnostics.push(
                 Diagnostic::error(
                     "PROFILE_002",
@@ -48,7 +49,15 @@ pub fn validate(
                 .with_location(node.span),
             );
         } else if sd.url != base.url {
-            cardinality::validate(resource, sd, diagnostics);
+            // Keep only findings the base check did not already report.
+            let mut found = Vec::new();
+            cardinality::validate(resource, sd, &mut found);
+            found.retain(|f| {
+                !diagnostics
+                    .iter()
+                    .any(|d| d.code == f.code && d.path == f.path)
+            });
+            diagnostics.extend(found);
         }
     }
 }

@@ -117,6 +117,9 @@ impl Registry {
             if inc.system.is_none() {
                 return result;
             }
+            // Both system and valueSet: the system check below can only narrow a
+            // positive answer, so an undecided intersection stays undecided.
+            result?;
         }
         let inc_system = inc.system.as_deref()?;
         if system.is_some_and(|s| s != inc_system) {

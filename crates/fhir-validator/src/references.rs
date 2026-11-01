@@ -77,11 +77,11 @@ fn check(
     if reference.contains(':') {
         return None;
     }
-    let type_name = reference.split('/').next().unwrap_or(reference);
+    let type_name = reference.split(['/', '?']).next().unwrap_or(reference);
     let url = format!("http://hl7.org/fhir/StructureDefinition/{type_name}");
     let known = registry
         .structure_definition(&url)
-        .is_some_and(|sd| sd.kind.as_ref() == "resource");
+        .is_some_and(|sd| sd.kind.as_ref() == "resource" && !sd.is_abstract);
     (!known).then(|| {
         (
             "REFERENCE_001",

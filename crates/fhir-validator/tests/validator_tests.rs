@@ -235,3 +235,13 @@ fn profile_for_other_resource_type_produces_profile_002() {
     let json = r#"{"resourceType":"Patient","meta":{"profile":["http://hl7.org/fhir/StructureDefinition/Observation"]}}"#;
     assert_eq!(codes(&registry, json, "PROFILE_002"), 1);
 }
+
+#[test]
+fn conditional_and_abstract_references() {
+    let registry = load_registry();
+    let ok = r#"{"resourceType":"Patient","managingOrganization":{"reference":"Organization?identifier=1"}}"#;
+    assert_eq!(codes(&registry, ok, "REFERENCE_001"), 0);
+    let abs =
+        r#"{"resourceType":"Patient","managingOrganization":{"reference":"DomainResource/1"}}"#;
+    assert_eq!(codes(&registry, abs, "REFERENCE_001"), 1);
+}
