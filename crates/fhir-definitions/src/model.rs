@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// A lightweight StructureDefinition — only the fields the validator needs.
@@ -43,16 +44,35 @@ pub struct Binding {
     pub value_set: Option<Arc<str>>,
 }
 
-/// A lightweight ValueSet (url + name only; compose details are looked up on demand).
+/// A lightweight ValueSet: identity plus the `compose.include` entries needed
+/// for membership checks.
 #[derive(Debug, Clone)]
 pub struct ValueSet {
     pub url: Arc<str>,
     pub name: Arc<str>,
+    pub includes: Vec<Include>,
+    /// True when the compose has `exclude` entries; membership is then not decidable.
+    pub has_exclude: bool,
 }
 
-/// A lightweight CodeSystem.
+/// One `compose.include` entry of a ValueSet.
+#[derive(Debug, Clone, Default)]
+pub struct Include {
+    pub system: Option<Arc<str>>,
+    /// Explicitly enumerated codes; empty means "the whole system" (unless `has_filter`).
+    pub codes: Vec<Arc<str>>,
+    /// True when a `filter` restricts the system; membership is then not decidable.
+    pub has_filter: bool,
+    /// Canonical URLs of ValueSets this include is intersected with.
+    pub value_sets: Vec<Arc<str>>,
+}
+
+/// A lightweight CodeSystem with its flattened concept codes.
 #[derive(Debug, Clone)]
 pub struct CodeSystem {
     pub url: Arc<str>,
     pub name: Arc<str>,
+    pub codes: HashSet<Arc<str>>,
+    /// False when the system is a fragment/not-present, so absence of a code proves nothing.
+    pub complete: bool,
 }

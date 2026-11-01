@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::Value;
 
 use crate::model::{
-    Binding, CodeSystem, Constraint, ElementDefinition, StructureDefinition, ValueSet,
+    Binding, CodeSystem, Constraint, ElementDefinition, Include, StructureDefinition, ValueSet,
 };
 use crate::{Error, Result};
 
@@ -140,13 +140,71 @@ fn parse_binding(b: &Value) -> Option<Binding> {
 fn parse_value_set(resource: &Value) -> Option<ValueSet> {
     let url: Arc<str> = resource["url"].as_str()?.into();
     let name: Arc<str> = resource["name"].as_str()?.into();
-    Some(ValueSet { url, name })
+    let compose = &resource["compose"];
+    let includes = compose["include"]
+        .as_array()
+        .map(|list| list.iter().map(parse_include).collect())
+        .unwrap_or_default();
+    let has_exclude = compose["exclude"].as_array().is_some_and(|e| !e.is_empty());
+    Some(ValueSet {
+        url,
+        name,
+        includes,
+        has_exclude,
+    })
+}
+
+fn parse_include(inc: &Value) -> Include {
+    let strings = |v: &Value, key: &str| -> Vec<Arc<str>> {
+        v.as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x[key].as_str().map(Arc::from))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    Include {
+        system: inc["system"].as_str().map(Arc::from),
+        codes: strings(&inc["concept"], "code"),
+        has_filter: inc["filter"].as_array().is_some_and(|f| !f.is_empty()),
+        value_sets: inc["valueSet"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str())
+                    .map(|s| Arc::from(s.split('|').next().unwrap_or(s)))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
 }
 
 fn parse_code_system(resource: &Value) -> Option<CodeSystem> {
     let url: Arc<str> = resource["url"].as_str()?.into();
     let name: Arc<str> = resource["name"].as_str()?.into();
-    Some(CodeSystem { url, name })
+    let mut codes = HashSet::new();
+    collect_concepts(&resource["concept"], &mut codes);
+    // Only a complete, enumerated system can prove a code absent.
+    // Case-insensitive systems are never proven absent: lookup is exact-match.
+    let complete = resource["content"].as_str() == Some("complete")
+        && resource["caseSensitive"].as_bool() != Some(false)
+        && !codes.is_empty();
+    Some(CodeSystem {
+        url,
+        name,
+        codes,
+        complete,
+    })
+}
+
+fn collect_concepts(concepts: &Value, out: &mut HashSet<Arc<str>>) {
+    for c in concepts.as_array().into_iter().flatten() {
+        if let Some(code) = c["code"].as_str() {
+            out.insert(Arc::from(code));
+        }
+        collect_concepts(&c["concept"], out);
+    }
 }
 
 #[cfg(test)]

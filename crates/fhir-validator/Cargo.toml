@@ -18,3 +18,4 @@ fhir-fhirpath    = { workspace = true }
 [dev-dependencies]
 rstest   = { workspace = true }
 proptest = { workspace = true }
+serde_json = { workspace = true }

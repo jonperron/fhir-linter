@@ -9,7 +9,7 @@ mod model;
 mod registry;
 
 pub use model::{
-    Binding, CodeSystem, Constraint, ElementDefinition, StructureDefinition, ValueSet,
+    Binding, CodeSystem, Constraint, ElementDefinition, Include, StructureDefinition, ValueSet,
 };
 pub use registry::Registry;
 

@@ -236,14 +236,114 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 
 ---
 
-### Requirement: Couche terminologie stub
+### Requirement: Validation terminologique — binding required (TERMINOLOGY_001)
 
-Le système SHALL disposer d'une couche terminologie appelée dans le pipeline de validation, mais PEUT ne pas produire de diagnostics tant que l'expansion des ValueSets n'est pas implémentée.
+Le système SHALL émettre un Diagnostic d'erreur `TERMINOLOGY_001` lorsqu'un élément de premier niveau, à type unique `code`, `Coding` ou `CodeableConcept`, possède un binding de force `required` dont le ValueSet est connu et que le code est prouvé hors du ValueSet. Les éléments imbriqués, les éléments à types multiples et les autres forces de binding SHALL être ignorés. Une appartenance indécidable (`Registry::value_set_contains` retourne `None`) NE DOIT JAMAIS être signalée. Pour un `CodeableConcept`, un seul `coding` appartenant au ValueSet suffit ; l'erreur n'est émise que si tous les `coding` sont prouvés hors du ValueSet.
 
-#### Scenario: Aucun diagnostic terminologique en l'état
+#### Scenario: Code hors du ValueSet requis
 
-- **WHEN** `validate` est appelé sur n'importe quelle ressource valide
-- **THEN** la couche terminologie SHALL être invoquée sans erreur et ne produit actuellement aucun Diagnostic
+- **WHEN** un `code` lié en `required` à un ValueSet connu contient une valeur absente de ce ValueSet
+- **THEN** un Diagnostic `TERMINOLOGY_001` SHALL être émis avec le `path` de l'élément (index inclus pour les tableaux)
+
+#### Scenario: Code appartenant au ValueSet
+
+- **WHEN** le code appartient au ValueSet
+- **THEN** aucun Diagnostic terminologique SHALL être émis
+
+#### Scenario: Appartenance indécidable
+
+- **WHEN** le ValueSet est inconnu, utilise des filtres, des exclusions ou un CodeSystem fragmentaire/inconnu
+- **THEN** aucun Diagnostic SHALL être émis
+
+#### Scenario: CodeableConcept avec un coding valide
+
+- **WHEN** un `CodeableConcept` contient au moins un `coding` appartenant au ValueSet
+- **THEN** aucun Diagnostic SHALL être émis
+
+---
+
+### Requirement: Validation des références — type inconnu (REFERENCE_001)
+
+Le système SHALL émettre `REFERENCE_001` (erreur) lorsque `Reference.reference` d'un élément de premier niveau de type `Reference` est une référence relative dont le type n'est pas un type de ressource concret connu du Registry (type inconnu ou abstrait). Les références conditionnelles (`Patient?identifier=...`) SHALL être acceptées si le type est valide. Les références absolues et `urn:` SHALL être ignorées (non résolues).
+
+#### Scenario: Type de ressource inconnu
+
+- **WHEN** `reference` vaut `Foo/123`
+- **THEN** un Diagnostic `REFERENCE_001` SHALL être émis avec `path` se terminant par `.reference`
+
+#### Scenario: Type abstrait
+
+- **WHEN** `reference` vaut `DomainResource/1`
+- **THEN** un Diagnostic `REFERENCE_001` SHALL être émis
+
+#### Scenario: Référence conditionnelle, absolue ou urn
+
+- **WHEN** `reference` vaut `Patient?identifier=x`, `http://example.org/Patient/1` ou `urn:uuid:...`
+- **THEN** aucun Diagnostic SHALL être émis
+
+---
+
+### Requirement: Validation des références — ressource contenue absente (REFERENCE_002)
+
+Le système SHALL émettre `REFERENCE_002` (erreur) lorsqu'une référence `#id` ne correspond à aucun `id` dans `contained`. La référence `#` seule (la ressource elle-même) SHALL être acceptée.
+
+#### Scenario: Contained introuvable
+
+- **WHEN** `reference` vaut `#p1` et `contained` ne contient aucune ressource d'`id` `p1`
+- **THEN** un Diagnostic `REFERENCE_002` SHALL être émis
+
+#### Scenario: Contained présent
+
+- **WHEN** `contained` contient une ressource d'`id` `p1`
+- **THEN** aucun Diagnostic SHALL être émis
+
+---
+
+### Requirement: Validation de profil — profil inconnu (PROFILE_001)
+
+Le système SHALL émettre un Diagnostic de sévérité warning `PROFILE_001` pour chaque URL de `meta.profile` inconnue du Registry (suffixe `|version` ignoré pour la résolution), avec le `path` `<Type>.meta.profile[i]`.
+
+#### Scenario: Profil inconnu
+
+- **WHEN** `meta.profile` contient une URL absente du Registry
+- **THEN** un Diagnostic `PROFILE_001` de sévérité warning SHALL être émis
+
+---
+
+### Requirement: Validation de profil — type incompatible (PROFILE_002) et cardinalité du profil
+
+Le système SHALL émettre `PROFILE_002` (erreur) lorsqu'un profil connu de `meta.profile` s'applique à un autre type de ressource que celui de la ressource, sauf si le profil porte sur un parent abstrait (ex. `DomainResource`). Pour un profil connu compatible et distinct de la définition de base, les règles de cardinalité du profil SHALL être appliquées ; les constats déjà rapportés par la validation de base (même code et même `path`) SHALL être dédupliqués.
+
+#### Scenario: Profil d'un autre type
+
+- **WHEN** une ressource `Patient` déclare un profil dont le type est `Observation`
+- **THEN** un Diagnostic `PROFILE_002` SHALL être émis
+
+#### Scenario: Profil sur parent abstrait
+
+- **WHEN** le profil est défini sur un type abstrait (ex. `DomainResource`)
+- **THEN** aucun `PROFILE_002` SHALL être émis
+
+#### Scenario: Cardinalité du profil dédupliquée
+
+- **WHEN** un élément requis par le profil est aussi requis par la base et absent
+- **THEN** un seul Diagnostic `CARDINALITY_001` SHALL être émis pour ce `path`
+
+---
+
+### Requirement: Exécution des manifestes de test officiels
+
+Le crate `fhir-validator` SHALL fournir un test d'intégration exécutant le manifeste `validator/manifest.json` de `fhir-test-cases` pour les cas R5 JSON autonomes (avec `java.errorCount` et sans `supporting`, `profile`, `profiles`, `packages`, `logical`). Chaque cas est jugé sur « présence d'erreurs » contre « erreurs attendues » ; le taux de réussite SHALL être au moins 0,6 (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le manifeste est absent, le test SHALL être ignoré.
+
+#### Scenario: Taux de réussite sous le plancher
+
+- **WHEN** le taux de réussite est inférieur à 0,6
+- **THEN** le test SHALL échouer
+
+#### Scenario: Sous-module absent
+
+- **WHEN** le manifeste est introuvable
+- **THEN** le test SHALL se terminer sans échec
 
 ---
 

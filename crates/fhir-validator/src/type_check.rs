@@ -183,17 +183,17 @@ fn check_type(
             }
         }
         "string" | "markdown" | "base64Binary" | "xhtml" | "uri" | "url" | "canonical" | "oid"
-        | "uuid" => {
-            if !matches!(value, Value::Str(_)) {
-                diagnostics.push(
-                    Diagnostic::error(
-                        "TYPE_001",
-                        format!("Expected string at '{path}'"),
-                        path.to_owned(),
-                    )
-                    .with_location(span),
-                );
-            }
+        | "uuid"
+            if !matches!(value, Value::Str(_)) =>
+        {
+            diagnostics.push(
+                Diagnostic::error(
+                    "TYPE_001",
+                    format!("Expected string at '{path}'"),
+                    path.to_owned(),
+                )
+                .with_location(span),
+            );
         }
         // Complex and unknown types — skip deep validation here.
         _ => {}

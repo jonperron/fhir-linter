@@ -160,3 +160,39 @@ Le crate `fhir-definitions` SHALL exporter `Constraint` et `Binding` dans son AP
 - **WHEN** un crate dépendant importe `use fhir_definitions::{Binding, Constraint}`
 - **THEN** la compilation SHALL réussir sans erreur
 
+---
+
+### Requirement: ValueSet includes et CodeSystem codes
+
+Le type `ValueSet` SHALL exposer `includes: Vec<Include>` (chaque `Include` : `system`, `codes`, `has_filter`, `value_sets`) et `has_exclude: bool`. Le type `CodeSystem` SHALL exposer `codes: HashSet<Arc<str>>` (concepts aplatis) et `complete: bool` (faux pour un fragment ou contenu non présent). `Include` SHALL être exporté au premier niveau de `fhir-definitions`.
+
+#### Scenario: Include chargé depuis compose
+
+- **WHEN** un ValueSet déclare `compose.include` avec `system` et `concept`
+- **THEN** `includes` SHALL contenir un `Include` avec ce `system` et ces `codes`
+
+#### Scenario: Concepts imbriqués d'un CodeSystem
+
+- **WHEN** un CodeSystem déclare des concepts imbriqués
+- **THEN** `codes` SHALL contenir tous les codes, y compris ceux des niveaux enfants
+
+---
+
+### Requirement: Appartenance d'un code à un ValueSet
+
+Le système SHALL fournir `Registry::value_set_contains(url, system: Option<&str>, code) -> Option<bool>`. Le résultat SHALL être `Some(true)` / `Some(false)` lorsque l'appartenance est décidable depuis les définitions chargées, et `None` sinon : ValueSet ou CodeSystem inconnu, `filter`, `exclude`, CodeSystem incomplet, ou imports de ValueSets cycliques (profondeur limitée). Avec `system == None`, n'importe quel système du ValueSet MAY correspondre.
+
+#### Scenario: Code énuméré
+
+- **WHEN** le ValueSet énumère explicitement le code
+- **THEN** le résultat SHALL être `Some(true)`, et `Some(false)` pour un code absent
+
+#### Scenario: Système entier
+
+- **WHEN** l'include référence un CodeSystem complet sans liste de codes
+- **THEN** l'appartenance SHALL être décidée d'après `CodeSystem.codes`
+
+#### Scenario: Indécidable
+
+- **WHEN** le ValueSet est inconnu ou utilise un filtre
+- **THEN** le résultat SHALL être `None`
