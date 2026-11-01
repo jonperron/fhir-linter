@@ -20,6 +20,9 @@ pub(super) fn check_arity(name: &str, args: &[Expr], expected: usize) -> Result<
 // ── Arithmetic ────────────────────────────────────────────────────────────────
 
 pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collection, EvalError> {
+    if let (Value::String(a), Value::String(b), ArithOp::Add) = (lv, rv, &op) {
+        return Ok(vec![Value::String(Arc::from(format!("{a}{b}")))]);
+    }
     let a = lv
         .as_decimal()
         .ok_or_else(|| EvalError::Type("arithmetic requires numbers".into()))?;
@@ -30,41 +33,20 @@ pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collecti
         ArithOp::Add => a + b,
         ArithOp::Sub => a - b,
         ArithOp::Mul => a * b,
-        ArithOp::Div => {
-            if b == 0.0 {
-                return Err(EvalError::DivisionByZero);
-            }
-            a / b
-        }
-        ArithOp::Mod => {
-            if b == 0.0 {
-                return Err(EvalError::DivisionByZero);
-            }
-            a % b
-        }
-        ArithOp::DivInt => unreachable!(),
+        ArithOp::Div | ArithOp::Mod if b == 0.0 => return Err(EvalError::DivisionByZero),
+        ArithOp::Div => a / b,
+        ArithOp::Mod => a % b,
+        ArithOp::DivInt => return Err(EvalError::Type("div is not a numeric_op".into())),
     };
-    // Preserve Long type when both operands are Long and result is exact.
-    if matches!(lv, Value::Long(_))
-        && matches!(rv, Value::Long(_))
-        && result.fract() == 0.0
-        && matches!(
-            op,
-            ArithOp::Add | ArithOp::Sub | ArithOp::Mul | ArithOp::Mod
-        )
-    {
-        return Ok(vec![Value::Long(result as i64)]);
-    }
-    // Preserve integer type when both operands are integers and result is exact.
-    if matches!(lv, Value::Integer(_))
-        && matches!(rv, Value::Integer(_))
-        && result.fract() == 0.0
-        && matches!(
-            op,
-            ArithOp::Add | ArithOp::Sub | ArithOp::Mul | ArithOp::Mod
-        )
-    {
-        return Ok(vec![Value::Integer(result as i64)]);
+    // Keep the integer type when both operands share it and the operation is closed over it.
+    if !matches!(op, ArithOp::Div) {
+        match (lv, rv) {
+            (Value::Long(_), Value::Long(_)) => return Ok(vec![Value::Long(result as i64)]),
+            (Value::Integer(_), Value::Integer(_)) => {
+                return Ok(vec![Value::Integer(result as i64)]);
+            }
+            _ => {}
+        }
     }
     Ok(vec![Value::Decimal(result)])
 }
@@ -73,7 +55,6 @@ pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collecti
 
 pub(super) fn values_equal(a: &Value, b: &Value) -> Option<bool> {
     match (a, b) {
-        (Value::Null, Value::Null) => None,
         (Value::Null, _) | (_, Value::Null) => None,
         (Value::Bool(x), Value::Bool(y)) => Some(x == y),
         (Value::Integer(x), Value::Integer(y)) => Some(x == y),
@@ -91,6 +72,12 @@ pub(super) fn values_equal(a: &Value, b: &Value) -> Option<bool> {
         (Value::Quantity(xv, xu), Value::Quantity(yv, yu)) => Some(xv == yv && xu == yu),
         _ => None,
     }
+}
+
+/// Membership using FHIRPath equality (`1 = 1.0`); complex values fall back to structural equality.
+pub(super) fn contains_value(col: &[Value], v: &Value) -> bool {
+    col.iter()
+        .any(|x| values_equal(x, v).unwrap_or_else(|| x == v))
 }
 
 pub(super) fn values_equivalent(a: &Value, b: &Value) -> bool {
@@ -195,7 +182,7 @@ pub(super) fn value_is_type(v: &Value, type_name: &str) -> bool {
 
 // ── String helpers ────────────────────────────────────────────────────────────
 
-pub(super) fn string_or_empty(col: &Collection) -> Arc<str> {
+pub(super) fn string_or_empty(col: &[Value]) -> Arc<str> {
     col.first()
         .and_then(|v| v.as_string())
         .unwrap_or_else(|| Arc::from(""))
@@ -206,7 +193,7 @@ pub(super) fn string_transform(
     f: impl Fn(&str) -> String,
 ) -> Result<Collection, EvalError> {
     match focus.first().and_then(|v| v.as_string()) {
-        Some(s) => Ok(vec![Value::String(Arc::from(f(&s).as_str()))]),
+        Some(s) => Ok(vec![Value::String(Arc::from(f(&s)))]),
         None => Ok(vec![]),
     }
 }
@@ -252,10 +239,6 @@ pub(super) fn single_integer(col: &Collection, context: &str) -> Result<i64, Eva
     }
 }
 
-pub(super) fn eval_integer_arg(col: &Collection, context: &str) -> Result<i64, EvalError> {
-    single_integer(col, context)
-}
-
 pub(super) fn eval_string_arg(col: &Collection, context: &str) -> Result<Arc<str>, EvalError> {
     match col.first().and_then(|v| v.as_string()) {
         Some(s) => Ok(s),
@@ -263,7 +246,7 @@ pub(super) fn eval_string_arg(col: &Collection, context: &str) -> Result<Arc<str
     }
 }
 
-pub(super) fn eval_type_name(expr: &Expr, _ctx: &[Value]) -> Result<String, EvalError> {
+pub(super) fn eval_type_name(expr: &Expr) -> Result<String, EvalError> {
     // For ofType(TypeName), the argument is an identifier, not evaluated
     match expr {
         Expr::Ident(name) => Ok(name.clone()),
@@ -276,12 +259,31 @@ pub(super) fn eval_type_name(expr: &Expr, _ctx: &[Value]) -> Result<String, Eval
 // ── Tree traversal ────────────────────────────────────────────────────────────
 
 pub(super) fn collect_descendants(v: &Value, out: &mut Collection) {
-    if let Value::Object(fields) = v {
-        for children in fields.values() {
-            for child in children {
+    // Iterative so hostile deeply nested input cannot overflow the stack.
+    let mut stack: Vec<&Value> = vec![v];
+    while let Some(current) = stack.pop() {
+        if let Value::Object(fields) = current {
+            for child in fields.values().flatten() {
                 out.push(child.clone());
-                collect_descendants(child, out);
+                stack.push(child);
             }
         }
     }
+}
+
+/// Check that a function received between `min` and `max` arguments (inclusive).
+pub(super) fn check_arity_range(
+    name: &str,
+    args: &[Expr],
+    min: usize,
+    max: usize,
+) -> Result<(), EvalError> {
+    if args.len() < min || args.len() > max {
+        return Err(EvalError::Arity {
+            name: name.to_owned(),
+            expected: if args.len() < min { min } else { max },
+            got: args.len(),
+        });
+    }
+    Ok(())
 }
