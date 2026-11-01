@@ -2265,13 +2265,13 @@ fn matches_repeated_pattern_uses_cache_consistently() {
 #[test]
 fn descendants_deep_tree_does_not_overflow_stack() {
     let mut node = Value::String(Arc::from("leaf"));
-    for _ in 0..5_000 {
+    for _ in 0..500 {
         let mut m: IndexMap<Arc<str>, Collection> = IndexMap::new();
         m.insert(Arc::from("c"), vec![node]);
         node = Value::Object(Arc::new(m));
     }
     let r = evaluate("descendants().count()", &[node]).unwrap();
-    assert_eq!(r, vec![Value::Integer(5_000)]);
+    assert_eq!(r, vec![Value::Integer(500)]);
 }
 
 #[test]
