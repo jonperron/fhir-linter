@@ -8,6 +8,8 @@
 mod cardinality;
 mod diagnostic;
 mod invariants;
+mod profile;
+mod references;
 mod structural;
 mod terminology;
 mod type_check;
@@ -42,6 +44,8 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
     type_check::validate(resource, sd, &mut diagnostics);
     terminology::validate(resource, sd, registry, &mut diagnostics);
     invariants::validate(resource, sd, &mut diagnostics);
+    references::validate(resource, sd, registry, &mut diagnostics);
+    profile::validate(resource, sd, registry, &mut diagnostics);
 
     diagnostics
 }

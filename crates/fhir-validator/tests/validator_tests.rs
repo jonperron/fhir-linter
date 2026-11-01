@@ -189,3 +189,49 @@ fn valid_code_with_required_binding_passes_terminology() {
     let json = r#"{"resourceType":"Observation","status":"final","code":{"text":"x"}}"#;
     assert_eq!(codes(&registry, json, "TERMINOLOGY_001"), 0);
 }
+
+// ── Reference validation ──────────────────────────────────────────────────────
+
+#[test]
+fn reference_to_unknown_type_produces_reference_001() {
+    let registry = load_registry();
+    let json = r#"{"resourceType":"Patient","managingOrganization":{"reference":"Bogus/1"}}"#;
+    assert_eq!(codes(&registry, json, "REFERENCE_001"), 1);
+}
+
+#[test]
+fn reference_to_known_type_and_absolute_url_pass() {
+    let registry = load_registry();
+    let json = r#"{"resourceType":"Patient","generalPractitioner":[{"reference":"Practitioner/1"},{"reference":"http://x.org/anything/2"}]}"#;
+    assert_eq!(codes(&registry, json, "REFERENCE_001"), 0);
+}
+
+#[test]
+fn unresolved_contained_reference_produces_reference_002() {
+    let registry = load_registry();
+    let json = r##"{"resourceType":"Patient","managingOrganization":{"reference":"#org"}}"##;
+    assert_eq!(codes(&registry, json, "REFERENCE_002"), 1);
+}
+
+#[test]
+fn resolved_contained_reference_passes() {
+    let registry = load_registry();
+    let json = r##"{"resourceType":"Patient","contained":[{"resourceType":"Organization","id":"org"}],"managingOrganization":{"reference":"#org"}}"##;
+    assert_eq!(codes(&registry, json, "REFERENCE_002"), 0);
+}
+
+// ── Profile validation ────────────────────────────────────────────────────────
+
+#[test]
+fn unknown_profile_produces_profile_001_warning() {
+    let registry = load_registry();
+    let json = r#"{"resourceType":"Patient","meta":{"profile":["http://example.org/p"]}}"#;
+    assert_eq!(codes(&registry, json, "PROFILE_001"), 1);
+}
+
+#[test]
+fn profile_for_other_resource_type_produces_profile_002() {
+    let registry = load_registry();
+    let json = r#"{"resourceType":"Patient","meta":{"profile":["http://hl7.org/fhir/StructureDefinition/Observation"]}}"#;
+    assert_eq!(codes(&registry, json, "PROFILE_002"), 1);
+}
