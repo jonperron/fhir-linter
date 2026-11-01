@@ -65,7 +65,8 @@ impl Registry {
     }
 
     /// Look up a `CodeSystem` by its canonical URL.
-    pub fn code_system(&self, url: &str) -> Option<&CodeSystem> {
+    #[cfg(test)]
+    pub(crate) fn code_system(&self, url: &str) -> Option<&CodeSystem> {
         self.code_systems.get(url)
     }
 
@@ -139,17 +140,20 @@ impl Registry {
     }
 
     /// Total number of indexed `StructureDefinition` entries.
-    pub fn structure_definition_count(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn structure_definition_count(&self) -> usize {
         self.structure_definitions.len()
     }
 
     /// Total number of indexed `ValueSet` entries.
-    pub fn value_set_count(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn value_set_count(&self) -> usize {
         self.value_sets.len()
     }
 
     /// Total number of indexed `CodeSystem` entries.
-    pub fn code_system_count(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn code_system_count(&self) -> usize {
         self.code_systems.len()
     }
 }
@@ -158,14 +162,18 @@ impl Registry {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::sync::LazyLock;
 
     fn definitions_dir() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5")
     }
 
+    static REGISTRY: LazyLock<Registry> =
+        LazyLock::new(|| Registry::from_definitions_dir(definitions_dir()).unwrap());
+
     #[test]
     fn registry_structure_definition_lookup_is_case_sensitive() {
-        let registry = Registry::from_definitions_dir(definitions_dir()).unwrap();
+        let registry = &*REGISTRY;
         assert!(
             registry
                 .structure_definition("http://hl7.org/fhir/StructureDefinition/patient")
@@ -175,7 +183,7 @@ mod tests {
 
     #[test]
     fn registry_loads_patient_structure_definition() {
-        let registry = Registry::from_definitions_dir(definitions_dir()).unwrap();
+        let registry = &*REGISTRY;
         let sd = registry
             .structure_definition("http://hl7.org/fhir/StructureDefinition/Patient")
             .expect("Patient StructureDefinition should be present");
@@ -186,7 +194,7 @@ mod tests {
 
     #[test]
     fn registry_resolves_valueset_by_url() {
-        let registry = Registry::from_definitions_dir(definitions_dir()).unwrap();
+        let registry = &*REGISTRY;
         let vs = registry
             .value_set("http://hl7.org/fhir/ValueSet/administrative-gender")
             .expect("administrative-gender ValueSet should be present");
@@ -198,7 +206,7 @@ mod tests {
 
     #[test]
     fn registry_loads_multiple_structure_definitions() {
-        let registry = Registry::from_definitions_dir(definitions_dir()).unwrap();
+        let registry = &*REGISTRY;
         assert!(
             registry.structure_definition_count() > 100,
             "should load more than 100 StructureDefinitions, got {}",
@@ -208,7 +216,7 @@ mod tests {
 
     #[test]
     fn registry_loads_code_systems() {
-        let registry = Registry::from_definitions_dir(definitions_dir()).unwrap();
+        let registry = &*REGISTRY;
         assert!(
             registry.code_system_count() > 0,
             "should load at least one CodeSystem"
@@ -217,7 +225,7 @@ mod tests {
 
     #[test]
     fn patient_snapshot_contains_identifier_element() {
-        let registry = Registry::from_definitions_dir(definitions_dir()).unwrap();
+        let registry = &*REGISTRY;
         let sd = registry
             .structure_definition("http://hl7.org/fhir/StructureDefinition/Patient")
             .unwrap();
@@ -236,7 +244,7 @@ mod tests {
 
     #[test]
     fn registry_returns_none_for_unknown_url() {
-        let registry = Registry::from_definitions_dir(definitions_dir()).unwrap();
+        let registry = &*REGISTRY;
         assert!(
             registry
                 .structure_definition("http://example.com/unknown")
@@ -248,7 +256,7 @@ mod tests {
 
     #[test]
     fn structure_definition_has_base_definition() {
-        let registry = Registry::from_definitions_dir(definitions_dir()).unwrap();
+        let registry = &*REGISTRY;
         let sd = registry
             .structure_definition("http://hl7.org/fhir/StructureDefinition/Patient")
             .unwrap();
@@ -260,7 +268,7 @@ mod tests {
 
     #[test]
     fn registry_value_set_count_is_positive() {
-        let registry = Registry::from_definitions_dir(definitions_dir()).unwrap();
+        let registry = &*REGISTRY;
         assert!(
             registry.value_set_count() > 0,
             "should load at least one ValueSet, got {}",
@@ -270,7 +278,7 @@ mod tests {
 
     #[test]
     fn registry_code_system_has_url_and_name() {
-        let registry = Registry::from_definitions_dir(definitions_dir()).unwrap();
+        let registry = &*REGISTRY;
         let cs = registry
             .code_system("http://hl7.org/fhir/administrative-gender")
             .expect("administrative-gender CodeSystem should be present");
@@ -280,7 +288,7 @@ mod tests {
 
     #[test]
     fn registry_value_set_has_name() {
-        let registry = Registry::from_definitions_dir(definitions_dir()).unwrap();
+        let registry = &*REGISTRY;
         let vs = registry
             .value_set("http://hl7.org/fhir/ValueSet/administrative-gender")
             .expect("administrative-gender ValueSet should be present");
@@ -289,7 +297,7 @@ mod tests {
 
     #[test]
     fn element_definition_types_are_populated() {
-        let registry = Registry::from_definitions_dir(definitions_dir()).unwrap();
+        let registry = &*REGISTRY;
         let sd = registry
             .structure_definition("http://hl7.org/fhir/StructureDefinition/Patient")
             .unwrap();
@@ -311,7 +319,7 @@ mod tests {
 
     #[test]
     fn structure_definition_is_abstract_for_resource_type() {
-        let registry = Registry::from_definitions_dir(definitions_dir()).unwrap();
+        let registry = &*REGISTRY;
         let sd = registry
             .structure_definition("http://hl7.org/fhir/StructureDefinition/Resource")
             .expect("Resource StructureDefinition should be present");
@@ -323,7 +331,7 @@ mod tests {
 
     #[test]
     fn structure_definition_is_not_abstract_for_patient() {
-        let registry = Registry::from_definitions_dir(definitions_dir()).unwrap();
+        let registry = &*REGISTRY;
         let sd = registry
             .structure_definition("http://hl7.org/fhir/StructureDefinition/Patient")
             .unwrap();

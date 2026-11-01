@@ -7,7 +7,8 @@ use crate::value::{Collection, Value};
 use super::Evaluator;
 use super::base64::{base64_decode, base64_decode_url, base64_encode, base64_encode_url};
 use super::helpers::{
-    check_arity, eval_integer_arg, eval_string_arg, json_unescape, string_transform,
+    check_arity, check_arity_range, eval_string_arg, json_unescape, single_integer,
+    string_or_empty, string_transform,
 };
 use super::regex::{regex_matches, regex_matches_full, regex_replace_all};
 
@@ -152,29 +153,23 @@ impl Evaluator {
                 }
             }
             "substring" => {
-                if args.is_empty() || args.len() > 2 {
-                    return Err(EvalError::Arity {
-                        name: name.to_owned(),
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
+                check_arity_range(name, args, 1, 2)?;
                 let s = match focus.first().and_then(|v| v.as_string()) {
                     Some(s) => s,
                     None => return Ok(Some(vec![])),
                 };
                 let chars: Vec<char> = s.chars().collect();
-                let start_i = eval_integer_arg(&self.eval(&args[0], ctx)?, "substring start")?;
+                let start_i = single_integer(&self.eval(&args[0], ctx)?, "substring start")?;
                 if start_i < 0 {
                     return Ok(Some(vec![]));
                 }
                 let start = start_i as usize;
                 let end = if args.len() == 2 {
-                    let len_i = eval_integer_arg(&self.eval(&args[1], ctx)?, "substring length")?;
+                    let len_i = single_integer(&self.eval(&args[1], ctx)?, "substring length")?;
                     if len_i <= 0 {
                         return Ok(Some(vec![Value::String(Arc::from(""))]));
                     }
-                    (start + len_i as usize).min(chars.len())
+                    (start.saturating_add(len_i as usize)).min(chars.len())
                 } else {
                     chars.len()
                 };
@@ -195,34 +190,19 @@ impl Evaluator {
                 }
             }
             "matches" => {
-                if args.is_empty() || args.len() > 2 {
-                    return Err(EvalError::Arity {
-                        name: name.to_owned(),
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
+                check_arity_range(name, args, 1, 2)?;
                 let pattern = eval_string_arg(&self.eval(&args[0], ctx)?, "matches pattern")?;
                 let flags = if args.len() == 2 {
                     eval_string_arg(&self.eval(&args[1], ctx)?, "matches flags")?
                 } else {
                     Arc::from("")
                 };
-                let text = focus
-                    .first()
-                    .and_then(|v| v.as_string())
-                    .unwrap_or_else(|| Arc::from(""));
+                let text = string_or_empty(focus);
                 let matched = regex_matches(&text, &pattern, &flags)?;
                 vec![Value::Bool(matched)]
             }
             "replaceMatches" => {
-                if args.len() < 2 || args.len() > 3 {
-                    return Err(EvalError::Arity {
-                        name: name.to_owned(),
-                        expected: 2,
-                        got: args.len(),
-                    });
-                }
+                check_arity_range(name, args, 2, 3)?;
                 let pattern =
                     eval_string_arg(&self.eval(&args[0], ctx)?, "replaceMatches pattern")?;
                 let replacement =
@@ -241,23 +221,14 @@ impl Evaluator {
                 }
             }
             "matchesFull" => {
-                if args.is_empty() || args.len() > 2 {
-                    return Err(EvalError::Arity {
-                        name: name.to_owned(),
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
+                check_arity_range(name, args, 1, 2)?;
                 let pattern = eval_string_arg(&self.eval(&args[0], ctx)?, "matchesFull pattern")?;
                 let flags = if args.len() == 2 {
                     eval_string_arg(&self.eval(&args[1], ctx)?, "matchesFull flags")?
                 } else {
                     Arc::from("")
                 };
-                let text = focus
-                    .first()
-                    .and_then(|v| v.as_string())
-                    .unwrap_or_else(|| Arc::from(""));
+                let text = string_or_empty(focus);
                 let matched = regex_matches_full(&text, &pattern, &flags)?;
                 vec![Value::Bool(matched)]
             }
@@ -311,13 +282,7 @@ impl Evaluator {
                 }
             }
             "join" => {
-                if args.len() > 1 {
-                    return Err(EvalError::Arity {
-                        name: name.to_owned(),
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
+                check_arity_range(name, args, 0, 1)?;
                 let sep = if args.is_empty() {
                     Arc::from("")
                 } else {
@@ -363,8 +328,12 @@ impl Evaluator {
                                 )));
                             }
                         };
-                        let decoded = String::from_utf8(bytes)
-                            .map_err(|_| EvalError::Type("decode: invalid UTF-8".into()))?;
+                        let decoded = bytes
+                            .ok_or_else(|| EvalError::Type("decode: invalid base64".into()))
+                            .and_then(|b| {
+                                String::from_utf8(b)
+                                    .map_err(|_| EvalError::Type("decode: invalid UTF-8".into()))
+                            })?;
                         vec![Value::String(Arc::from(decoded.as_str()))]
                     }
                     None => vec![],

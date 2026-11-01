@@ -5,6 +5,9 @@ use indexmap::IndexMap;
 use crate::line_index::LineIndex;
 use crate::types::{Node, ParseError, Resource, Span, Value};
 
+/// Maximum object/array nesting accepted (guards against stack overflow).
+const MAX_DEPTH: usize = 128;
+
 /// Parse a FHIR JSON resource from a source string.
 ///
 /// Returns a [`Resource`] on success, or a [`ParseError`] if the source is
@@ -72,6 +75,7 @@ struct Scanner<'src, 'idx> {
     source: &'src [u8],
     pos: usize,
     line_index: &'idx LineIndex,
+    depth: usize,
 }
 
 impl<'src, 'idx> Scanner<'src, 'idx> {
@@ -80,6 +84,7 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
             source: source.as_bytes(),
             pos: 0,
             line_index,
+            depth: 0,
         }
     }
 
@@ -401,7 +406,29 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
 
     // ── Object scanning ───────────────────────────────────────────────────
 
+    fn enter(&mut self) -> Result<(), ParseError> {
+        self.depth += 1;
+        if self.depth > MAX_DEPTH {
+            return Err(self.error_at(self.pos, "maximum nesting depth exceeded"));
+        }
+        Ok(())
+    }
+
     fn scan_object(&mut self) -> Result<IndexMap<Arc<str>, Node>, ParseError> {
+        self.enter()?;
+        let r = self.scan_object_inner();
+        self.depth -= 1;
+        r
+    }
+
+    fn scan_array(&mut self) -> Result<Vec<Node>, ParseError> {
+        self.enter()?;
+        let r = self.scan_array_inner();
+        self.depth -= 1;
+        r
+    }
+
+    fn scan_object_inner(&mut self) -> Result<IndexMap<Arc<str>, Node>, ParseError> {
         debug_assert_eq!(self.source[self.pos], b'{');
         self.pos += 1;
 
@@ -418,6 +445,7 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
             if self.current_byte() != Some(b'"') {
                 return Err(self.error_at(self.pos, "expected string key in object"));
             }
+            let key_pos = self.pos;
             let key = self.scan_string()?;
 
             self.skip_whitespace();
@@ -427,7 +455,9 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
             self.pos += 1;
 
             let node = self.scan_node()?;
-            map.insert(key, node);
+            if map.insert(key, node).is_some() {
+                return Err(self.error_at(key_pos, "duplicate object key"));
+            }
 
             self.skip_whitespace();
             match self.current_byte() {
@@ -445,7 +475,7 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
 
     // ── Array scanning ────────────────────────────────────────────────────
 
-    fn scan_array(&mut self) -> Result<Vec<Node>, ParseError> {
+    fn scan_array_inner(&mut self) -> Result<Vec<Node>, ParseError> {
         debug_assert_eq!(self.source[self.pos], b'[');
         self.pos += 1;
 
@@ -665,5 +695,25 @@ mod tests {
         let source = "{\"resourceType\": \"Basic\", \"note\": \"\\uD800\"}";
         let result = parse_json(source);
         assert!(matches!(result, Err(ParseError::JsonError { .. })));
+    }
+}
+
+#[cfg(test)]
+mod depth_dup_tests {
+    use super::*;
+
+    #[test]
+    fn deep_nesting_is_an_error_not_a_stack_overflow() {
+        let src = format!(
+            "{{\"resourceType\":\"X\",\"a\":{}{}}}",
+            "[".repeat(100_000),
+            "]".repeat(100_000)
+        );
+        assert!(parse_json(&src).is_err());
+    }
+
+    #[test]
+    fn duplicate_key_is_rejected() {
+        assert!(parse_json(r#"{"resourceType":"X","id":"a","id":"b"}"#).is_err());
     }
 }

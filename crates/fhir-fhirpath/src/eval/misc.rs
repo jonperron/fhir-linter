@@ -5,7 +5,7 @@ use crate::error::EvalError;
 use crate::value::{Collection, Value};
 
 use super::Evaluator;
-use super::helpers::{check_arity, eval_string_arg};
+use super::helpers::{check_arity, check_arity_range, eval_string_arg};
 
 impl Evaluator {
     /// Handle miscellaneous functions (logic, system, FHIR-specific stubs).
@@ -43,13 +43,7 @@ impl Evaluator {
                 }
             }
             "iif" => {
-                if args.len() < 2 || args.len() > 3 {
-                    return Err(EvalError::Arity {
-                        name: name.to_owned(),
-                        expected: 2,
-                        got: args.len(),
-                    });
-                }
+                check_arity_range(name, args, 2, 3)?;
                 let cond = self.eval(&args[0], focus)?;
                 let truthy = cond.iter().any(Value::is_truthy);
                 let result = if truthy {

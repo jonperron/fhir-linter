@@ -1,6 +1,7 @@
-/// Abstract Syntax Tree for FHIRPath 3.0 expressions.
-///
-/// The AST is produced by `parser::parse` and consumed by `eval::Evaluator`.
+//! Abstract Syntax Tree for FHIRPath expressions.
+//!
+//! The AST is produced by `parser::parse` and consumed by the evaluator in `eval`.
+
 /// A FHIRPath expression node.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {

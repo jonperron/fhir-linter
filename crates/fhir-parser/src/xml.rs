@@ -7,6 +7,9 @@ use quick_xml::events::Event;
 use crate::line_index::LineIndex;
 use crate::types::{Node, ParseError, Resource, Span, Value};
 
+/// Maximum element nesting accepted (guards against stack overflow).
+const MAX_DEPTH: usize = 128;
+
 /// Parse a FHIR XML resource from a source string.
 ///
 /// Returns a [`Resource`] on success, or a [`ParseError`] if the source is
@@ -34,7 +37,7 @@ pub fn parse_xml(source: &str) -> Result<Resource, ParseError> {
         {
             Event::Start(ref e) => {
                 let resource_type = local_name_arc(e.local_name().as_ref(), &line_index, pos)?;
-                let mut fields = parse_children(&mut reader, &line_index)?;
+                let mut fields = parse_children(&mut reader, &line_index, 1)?;
 
                 let id = match fields.shift_remove("id") {
                     None => None,
@@ -90,7 +93,16 @@ pub fn parse_xml(source: &str) -> Result<Resource, ParseError> {
 fn parse_children(
     reader: &mut Reader<&[u8]>,
     line_index: &LineIndex,
+    depth: usize,
 ) -> Result<IndexMap<Arc<str>, Node>, ParseError> {
+    if depth > MAX_DEPTH {
+        let (line, col) = line_index.location(reader.buffer_position() as u32);
+        return Err(ParseError::XmlError {
+            message: "maximum nesting depth exceeded".into(),
+            line,
+            col,
+        });
+    }
     // Accumulate sibling nodes keyed by local name, preserving insertion order.
     let mut groups: IndexMap<Arc<str>, Vec<Node>> = IndexMap::new();
 
@@ -112,7 +124,7 @@ fn parse_children(
                     }
                 } else {
                     let attrs = collect_attrs(e, line_index, pos)?;
-                    let children = parse_children(reader, line_index)?;
+                    let children = parse_children(reader, line_index, depth + 1)?;
                     build_complex_node(attrs, children, span)
                 };
                 groups.entry(name).or_default().push(node);
@@ -138,7 +150,7 @@ fn parse_children(
         }
     }
 
-    collapse_groups(groups)
+    Ok(collapse_groups(groups))
 }
 
 /// Build a `Node` from an element's attributes and child-element map.
@@ -186,13 +198,11 @@ fn build_complex_node(
 
 /// Collapse a map of `name -> Vec<Node>` into `name -> Node`, turning
 /// multi-node groups into `Value::Array`.
-fn collapse_groups(
-    groups: IndexMap<Arc<str>, Vec<Node>>,
-) -> Result<IndexMap<Arc<str>, Node>, ParseError> {
+fn collapse_groups(groups: IndexMap<Arc<str>, Vec<Node>>) -> IndexMap<Arc<str>, Node> {
     let mut result: IndexMap<Arc<str>, Node> = IndexMap::with_capacity(groups.len());
     for (name, mut nodes) in groups {
         if nodes.len() == 1 {
-            result.insert(name, nodes.remove(0));
+            result.insert(name, nodes.swap_remove(0));
         } else {
             let span = nodes[0].span;
             result.insert(
@@ -204,7 +214,7 @@ fn collapse_groups(
             );
         }
     }
-    Ok(result)
+    result
 }
 
 // -- XHTML handling ------------------------------------------------------------
@@ -659,5 +669,17 @@ mod tests {
         let resource = parse_xml(source).unwrap();
         assert_eq!(&*resource.resource_type, "Observation");
         assert_eq!(resource.id.as_deref(), Some("obs1"));
+    }
+}
+
+#[cfg(test)]
+mod depth_tests {
+    use super::*;
+
+    #[test]
+    fn deep_nesting_is_an_error_not_a_stack_overflow() {
+        let n = 100_000;
+        let src = format!("<P>{}{}</P>", "<a>".repeat(n), "</a>".repeat(n));
+        assert!(parse_xml(&src).is_err());
     }
 }

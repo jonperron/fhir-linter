@@ -13,7 +13,6 @@ impl Evaluator {
         name: &str,
         args: &[Expr],
         focus: &[Value],
-        _ctx: &[Value],
     ) -> Option<Result<Collection, EvalError>> {
         self.try_type_conv(name, args, focus).transpose()
     }

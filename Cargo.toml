@@ -1,4 +1,5 @@
 [workspace]
+resolver = "3"
 members = [
     "crates/fhir-definitions",
     "crates/fhir-parser",
@@ -54,8 +55,6 @@ proptest    = "1"
 assert_cmd  = "2"
 predicates  = "3"
 
-# Benchmarks
-criterion   = { version = "0.5", features = ["html_reports"] }
 
 # Internal crates
 fhir-definitions = { path = "crates/fhir-definitions" }

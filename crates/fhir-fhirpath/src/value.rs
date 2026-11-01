@@ -1,8 +1,8 @@
-/// FHIRPath runtime value.
-///
-/// FHIRPath is a collection-oriented language: every expression evaluates to a
-/// *collection* of zero or more values.  The `Collection` type alias is used
-/// throughout the evaluator.
+//! FHIRPath runtime value.
+//!
+//! FHIRPath is a collection-oriented language: every expression evaluates to a
+//! *collection* of zero or more values.  The `Collection` type alias is used
+//! throughout the evaluator.
 use std::fmt;
 use std::sync::Arc;
 
@@ -76,14 +76,6 @@ impl Value {
     pub fn as_integer(&self) -> Option<i64> {
         match self {
             Value::Integer(n) => Some(*n),
-            _ => None,
-        }
-    }
-
-    /// Coerce to `i64` for Long values (not Integer).
-    pub fn as_long(&self) -> Option<i64> {
-        match self {
-            Value::Long(n) => Some(*n),
             _ => None,
         }
     }

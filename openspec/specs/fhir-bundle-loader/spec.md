@@ -40,6 +40,16 @@ Le système SHALL ignorer les ressources dont les champs obligatoires sont absen
 - **WHEN** une `StructureDefinition` dans un bundle n'a pas de champ `url`
 - **THEN** cette entrée SHALL être ignorée silencieusement
 
+#### Scenario: Entrée sans resourceType
+
+- **WHEN** une entrée de bundle n'a pas de champ `resourceType`
+- **THEN** cette entrée SHALL être ignorée
+
+#### Scenario: ElementDefinition sans max
+
+- **WHEN** un élément du snapshot n'a pas de champ `max`
+- **THEN** cet élément SHALL être ignoré (aucune valeur par défaut `"*"`)
+
 #### Scenario: ElementDefinition sans path
 
 - **WHEN** un élément dans le snapshot d'une `StructureDefinition` n'a pas de champ `path`
