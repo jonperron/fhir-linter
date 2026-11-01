@@ -356,3 +356,19 @@ Le système SHALL appliquer les vérifications de type à chaque élément d'un 
 - **WHEN** un champ de type `boolean[]` contient `[true, "not-a-bool"]`
 - **THEN** un Diagnostic TYPE_001 SHALL être émis avec `path` contenant `[1]` (index de l'élément invalide)
 
+
+---
+
+### Requirement: Validation des éléments imbriqués
+
+Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001), de cardinalité (CARDINALITY_001/002) et de type primitif (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants, références et profil restent limitées au premier niveau ; les `contentReference` et les ressources contenues ne sont pas parcourus.
+
+#### Scenario: Élément inconnu dans un type complexe
+
+- **WHEN** `Patient.name[0]` contient un champ `bogus`
+- **THEN** un Diagnostic STRUCTURE_001 SHALL être émis avec `path` = `Patient.name[0].bogus`
+
+#### Scenario: Élément requis manquant dans un BackboneElement
+
+- **WHEN** `Observation.component[0]` n'a pas de `code`
+- **THEN** un Diagnostic CARDINALITY_001 SHALL être émis avec `path` = `Observation.component[0].code`
