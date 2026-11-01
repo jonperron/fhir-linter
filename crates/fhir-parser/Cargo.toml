@@ -13,5 +13,3 @@ quick-xml        = { workspace = true }
 indexmap         = { workspace = true }
 thiserror        = { workspace = true }
 
-[dev-dependencies]
-rstest = { workspace = true }

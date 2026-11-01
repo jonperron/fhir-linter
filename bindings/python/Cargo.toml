@@ -14,8 +14,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3           = { workspace = true }
-fhir-validator = { workspace = true }
-fhir-linter    = { workspace = true }
 
-[dev-dependencies]
-rstest = { workspace = true }
