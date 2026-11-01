@@ -19,8 +19,8 @@ mod string_fns;
 mod type_conv;
 
 use helpers::{
-    bool_col, numeric_op, three_valued_and, three_valued_or, value_is_type, values_equal,
-    values_equivalent,
+    bool_col, contains_value, numeric_op, three_valued_and, three_valued_or, value_is_type,
+    values_equal, values_equivalent,
 };
 
 /// Evaluate a FHIRPath expression against a context value.
@@ -98,8 +98,14 @@ impl Evaluator {
                     return Ok(vec![]);
                 }
                 match &col[0] {
-                    Value::Integer(n) => Ok(vec![Value::Integer(-n)]),
-                    Value::Long(n) => Ok(vec![Value::Long(-n)]),
+                    Value::Integer(n) => n
+                        .checked_neg()
+                        .map(|r| vec![Value::Integer(r)])
+                        .ok_or_else(|| EvalError::Type("integer overflow in negation".into())),
+                    Value::Long(n) => n
+                        .checked_neg()
+                        .map(|r| vec![Value::Long(r)])
+                        .ok_or_else(|| EvalError::Type("integer overflow in negation".into())),
                     Value::Decimal(d) => Ok(vec![Value::Decimal(-d)]),
                     v => Err(EvalError::Type(format!("cannot negate {}", v.type_name()))),
                 }
@@ -177,7 +183,7 @@ impl Evaluator {
                 let mut ls = self.eval(l, ctx)?;
                 let rs = self.eval(r, ctx)?;
                 for v in rs {
-                    if !ls.contains(&v) {
+                    if !contains_value(&ls, &v) {
                         ls.push(v);
                     }
                 }
@@ -189,7 +195,7 @@ impl Evaluator {
                 if lc.is_empty() {
                     return Ok(vec![]);
                 }
-                let result = lc.iter().all(|v| rc.contains(v));
+                let result = lc.iter().all(|v| contains_value(&rc, v));
                 Ok(vec![Value::Bool(result)])
             }
             Expr::Contains(lhs, rhs) => {
@@ -198,7 +204,7 @@ impl Evaluator {
                 if rc.is_empty() {
                     return Ok(vec![]);
                 }
-                let result = rc.iter().all(|v| lc.contains(v));
+                let result = rc.iter().all(|v| contains_value(&lc, v));
                 Ok(vec![Value::Bool(result)])
             }
         }
@@ -236,7 +242,7 @@ impl Evaluator {
         if let Some(r) = self.call_math_function(name, args, focus, ctx) {
             return r;
         }
-        if let Some(r) = self.call_type_function(name, args, focus, ctx) {
+        if let Some(r) = self.call_type_function(name, args, focus) {
             return r;
         }
         if let Some(r) = self.call_misc_function(name, args, focus, ctx) {

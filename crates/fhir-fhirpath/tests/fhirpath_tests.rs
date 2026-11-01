@@ -728,9 +728,8 @@ fn single_on_one_element_succeeds() {
 }
 
 #[test]
-fn single_on_empty_returns_error() {
-    let result = evaluate("{}.single()", &[]);
-    assert!(matches!(result, Err(fhir_fhirpath::EvalError::Type(_))));
+fn single_on_empty_returns_empty() {
+    assert!(evaluate("{}.single()", &[]).unwrap().is_empty());
 }
 
 #[test]
@@ -1371,8 +1370,8 @@ fn repeat_traverses_multi_level_hierarchy() {
 
     let ctx = vec![Value::Object(Arc::new(root))];
     let result = fhir_fhirpath::evaluate("$this.repeat(child)", &ctx).unwrap();
-    // root + child_obj + grandchild_obj = 3 items
-    assert_eq!(result.len(), 3);
+    // only projected items: child_obj + grandchild_obj (not the input root)
+    assert_eq!(result.len(), 2);
 }
 
 // ── Arithmetic edge cases ─────────────────────────────────────────────────────
@@ -2220,4 +2219,119 @@ fn unescape_json_string() {
     // JSON-unescaping backslash+n yields an actual newline character.
     let result = evaluate(r#"'hello\\nworld'.unescape('json')"#, &[]).unwrap();
     assert_eq!(result, vec![Value::String(Arc::from("hello\nworld"))]);
+}
+
+// ── T4 regression tests ──────────────────────────────────────────────────────
+
+fn is_err(expr: &str) -> bool {
+    evaluate(expr, &[]).is_err()
+}
+
+#[test]
+fn substring_huge_length_does_not_panic() {
+    let r = evaluate("'abc'.substring(1, 9223372036854775807)", &[]).unwrap();
+    assert_eq!(r, vec![Value::String(Arc::from("bc"))]);
+}
+
+#[test]
+fn negating_i64_min_is_error_not_panic() {
+    assert!(is_err("-(-9223372036854775807L - 1L)"));
+    assert!(is_err("(-9223372036854775807L - 1L).abs()"));
+}
+
+#[test]
+fn abs_supports_long() {
+    assert_eq!(evaluate("(-3L).abs()", &[]).unwrap(), vec![Value::Long(3)]);
+}
+
+#[test]
+fn matches_full_multiline_flag_is_still_anchored() {
+    let r = evaluate("'a\nb'.matchesFull('a', 'm')", &[]).unwrap();
+    assert_eq!(r, vec![Value::Bool(false)]);
+    let r = evaluate("'abc'.matchesFull('a|abc')", &[]).unwrap();
+    assert_eq!(r, vec![Value::Bool(true)]);
+}
+
+#[test]
+fn matches_repeated_pattern_uses_cache_consistently() {
+    for _ in 0..3 {
+        assert_eq!(
+            evaluate("'abc'.matches('b')", &[]).unwrap(),
+            vec![Value::Bool(true)]
+        );
+    }
+}
+
+#[test]
+fn descendants_deep_tree_does_not_overflow_stack() {
+    let mut node = Value::String(Arc::from("leaf"));
+    for _ in 0..500 {
+        let mut m: IndexMap<Arc<str>, Collection> = IndexMap::new();
+        m.insert(Arc::from("c"), vec![node]);
+        node = Value::Object(Arc::new(m));
+    }
+    let r = evaluate("descendants().count()", &[node]).unwrap();
+    assert_eq!(r, vec![Value::Integer(500)]);
+}
+
+#[test]
+fn set_ops_use_fhirpath_equality() {
+    assert_eq!(
+        evaluate("(1 | 1.0).count()", &[]).unwrap(),
+        vec![Value::Integer(1)]
+    );
+    assert_eq!(
+        evaluate("(1 | 2).intersect(1.0 | 3).count()", &[]).unwrap(),
+        vec![Value::Integer(1)]
+    );
+    assert_eq!(
+        evaluate("(1).subsetOf(1.0)", &[]).unwrap(),
+        vec![Value::Bool(true)]
+    );
+}
+
+#[test]
+fn string_plus_concatenates() {
+    assert_eq!(
+        evaluate("'a' + 'b'", &[]).unwrap(),
+        vec![Value::String(Arc::from("ab"))]
+    );
+}
+
+#[test]
+fn decode_rejects_invalid_base64() {
+    assert!(is_err("'a$b='.decode('base64')"));
+    assert!(is_err("'a'.decode('base64')"));
+    assert!(is_err("'aGVs=bG8='.decode('base64')"));
+}
+
+#[test]
+fn exists_short_circuits_before_erroring_item() {
+    // 2nd item would error on comparison with a string; first already satisfies.
+    let r = evaluate("(1 | 'x').exists($this = 1)", &[]).unwrap();
+    assert_eq!(r, vec![Value::Bool(true)]);
+}
+
+#[test]
+fn descendants_is_depth_first_preorder() {
+    let leaf = |n: &str| {
+        let mut m: IndexMap<Arc<str>, Collection> = IndexMap::new();
+        m.insert(Arc::from("v"), vec![Value::String(Arc::from(n))]);
+        Value::Object(Arc::new(m))
+    };
+    let mut a = IndexMap::new();
+    a.insert(Arc::from("k"), vec![leaf("a1"), leaf("a2")]);
+    let mut root: IndexMap<Arc<str>, Collection> = IndexMap::new();
+    root.insert(Arc::from("x"), vec![Value::Object(Arc::new(a))]);
+    root.insert(Arc::from("y"), vec![leaf("b")]);
+    let r = evaluate("descendants().v", &[Value::Object(Arc::new(root))]).unwrap();
+    let got: Vec<String> = r.iter().map(|v| v.to_string()).collect();
+    assert_eq!(got.len(), 3);
+    assert!(got[0].contains("a1") && got[1].contains("a2") && got[2].contains('b'));
+}
+
+#[test]
+fn decode_base64_ignores_whitespace() {
+    let r = evaluate("'aGVs\nbG8='.decode('base64')", &[]).unwrap();
+    assert_eq!(r, vec![Value::String(Arc::from("hello"))]);
 }

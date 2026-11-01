@@ -169,6 +169,26 @@ Le système SHALL implémenter `first()`, `last()`, `tail()`, `skip(n)`, `take(n
 - **WHEN** `single()` est évalué sur une collection de plus d'un élément
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))`
 
+#### Scenario: single sur collection vide
+
+- **WHEN** `{}.single()` est évalué
+- **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: repeat ne retourne que les éléments projetés
+
+- **WHEN** `repeat(expr)` est évalué
+- **THEN** le résultat SHALL contenir uniquement les éléments produits par la projection (jamais les éléments d'entrée) et SHALL s'arrêter quand plus aucun nouvel élément n'apparaît
+
+#### Scenario: Concaténation de chaînes avec +
+
+- **WHEN** `'a' + 'b'` est évalué
+- **THEN** le résultat SHALL être `[String("ab")]`
+
+#### Scenario: Égalité FHIRPath dans les opérateurs ensemblistes
+
+- **WHEN** `union`, `distinct`, `in`, `contains`, `intersect`, `exclude`, `subsetOf`, `supersetOf` ou `repeat` comparent des valeurs
+- **THEN** la comparaison SHALL utiliser l'égalité FHIRPath (`1 = 1.0` vaut vrai)
+
 ---
 
 ### Requirement: Fonctions de chaînes
@@ -198,6 +218,16 @@ Le paramètre optionnel `flags` accepte `i` (insensible à la casse) et `m` (mul
 - **WHEN** `'hello world'.matchesFull('hello')` est évalué
 - **THEN** le résultat SHALL être `[Bool(false)]`
 
+#### Scenario: matchesFull reste ancré avec le flag m
+
+- **WHEN** `'a\nb'.matchesFull('a', 'm')` est évalué
+- **THEN** le résultat SHALL être `[Bool(false)]` (ancrage sur tout le texte, pas par ligne)
+
+#### Scenario: decode rejette les entrées invalides
+
+- **WHEN** `decode('base64')` ou `decode('urlbase64')` reçoit des caractères hors alphabet (hors espaces ASCII ignorés) ou un contenu non UTF-8
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))`
+
 #### Scenario: lastIndexOf retourne la dernière occurrence
 
 - **WHEN** `'abcabc'.lastIndexOf('b')` est évalué
@@ -223,6 +253,11 @@ Le système SHALL implémenter `abs()`, `ceiling()`, `floor()`, `round()`, `roun
 
 - **WHEN** `(-3).abs()` est évalué
 - **THEN** le résultat SHALL être `[Integer(3)]`
+
+#### Scenario: Dépassement sur i64::MIN
+
+- **WHEN** `abs()` ou la négation unaire est appliqué à `i64::MIN` (Integer ou Long)
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))` sans paniquer
 
 #### Scenario: sqrt sur entier positif
 
@@ -322,6 +357,7 @@ Le système SHALL implémenter `children()` et `descendants()`.
 
 - **WHEN** `descendants()` est évalué sur un objet avec des objets imbriqués
 - **THEN** le résultat SHALL contenir récursivement tous les nœuds enfants et leurs descendants
+- **THEN** l'ordre SHALL être un parcours en profondeur préfixé (parent avant enfants, dans l'ordre des champs)
 
 ---
 

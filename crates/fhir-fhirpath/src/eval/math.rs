@@ -3,7 +3,7 @@ use crate::error::EvalError;
 use crate::value::{Collection, Value};
 
 use super::Evaluator;
-use super::helpers::{check_arity, eval_integer_arg};
+use super::helpers::{check_arity, single_integer};
 
 impl Evaluator {
     /// Handle mathematical functions.
@@ -29,7 +29,16 @@ impl Evaluator {
             "abs" => {
                 check_arity(name, args, 0)?;
                 match focus.first() {
-                    Some(Value::Integer(n)) => vec![Value::Integer(n.abs())],
+                    Some(Value::Integer(n)) => {
+                        vec![Value::Integer(n.checked_abs().ok_or_else(|| {
+                            EvalError::Type("integer overflow in abs()".into())
+                        })?)]
+                    }
+                    Some(Value::Long(n)) => {
+                        vec![Value::Long(n.checked_abs().ok_or_else(|| {
+                            EvalError::Type("integer overflow in abs()".into())
+                        })?)]
+                    }
                     Some(Value::Decimal(d)) => vec![Value::Decimal(d.abs())],
                     Some(v) => {
                         return Err(EvalError::Type(format!(
@@ -79,7 +88,7 @@ impl Evaluator {
                 let precision = if args.is_empty() {
                     0i64
                 } else {
-                    eval_integer_arg(&self.eval(&args[0], ctx)?, "round precision")?
+                    single_integer(&self.eval(&args[0], ctx)?, "round precision")?
                 };
                 match focus.first() {
                     Some(Value::Integer(n)) => vec![Value::Integer(*n)],

@@ -4,8 +4,8 @@ use crate::value::{Collection, Value};
 
 use super::Evaluator;
 use super::helpers::{
-    check_arity, collect_descendants, compare_values, eval_integer_arg, eval_type_name,
-    value_is_type,
+    check_arity, check_arity_range, collect_descendants, compare_values, contains_value,
+    eval_type_name, single_integer, value_is_type,
 };
 
 impl Evaluator {
@@ -39,13 +39,14 @@ impl Evaluator {
                     return Ok(Some(vec![Value::Bool(!focus.is_empty())]));
                 }
                 check_arity(name, args, 1)?;
-                let result = focus.iter().try_fold(false, |acc, item| {
-                    let truthy = self
-                        .eval(&args[0], std::slice::from_ref(item))?
-                        .iter()
-                        .any(Value::is_truthy);
-                    Ok::<bool, EvalError>(acc || truthy)
-                })?;
+                let mut result = false;
+                for item in focus {
+                    let col = self.eval(&args[0], std::slice::from_ref(item))?;
+                    if col.iter().any(Value::is_truthy) {
+                        result = true;
+                        break;
+                    }
+                }
                 vec![Value::Bool(result)]
             }
             "all" => {
@@ -53,13 +54,14 @@ impl Evaluator {
                 if focus.is_empty() {
                     return Ok(Some(vec![Value::Bool(true)]));
                 }
-                let result = focus.iter().try_fold(true, |acc, item| {
-                    let truthy = self
-                        .eval(&args[0], std::slice::from_ref(item))?
-                        .iter()
-                        .any(Value::is_truthy);
-                    Ok::<bool, EvalError>(acc && truthy)
-                })?;
+                let mut result = true;
+                for item in focus {
+                    let col = self.eval(&args[0], std::slice::from_ref(item))?;
+                    if !col.iter().any(Value::is_truthy) {
+                        result = false;
+                        break;
+                    }
+                }
                 vec![Value::Bool(result)]
             }
             "allTrue" => {
@@ -113,14 +115,15 @@ impl Evaluator {
             }
             "repeat" => {
                 check_arity(name, args, 1)?;
-                let mut seen = focus.to_vec();
+                // Only projected items are returned, never the input items themselves.
+                let mut seen: Collection = Vec::new();
                 let mut frontier = focus.to_vec();
                 loop {
                     let mut next = Vec::new();
                     for item in &frontier {
                         let col = self.eval(&args[0], std::slice::from_ref(item))?;
                         for v in col {
-                            if !seen.contains(&v) {
+                            if !contains_value(&seen, &v) {
                                 seen.push(v.clone());
                                 next.push(v);
                             }
@@ -135,7 +138,7 @@ impl Evaluator {
             }
             "ofType" => {
                 check_arity(name, args, 1)?;
-                let type_name = eval_type_name(&args[0], ctx)?;
+                let type_name = eval_type_name(&args[0])?;
                 focus
                     .iter()
                     .filter(|v| value_is_type(v, &type_name))
@@ -162,19 +165,19 @@ impl Evaluator {
             }
             "skip" => {
                 check_arity(name, args, 1)?;
-                let n = eval_integer_arg(&self.eval(&args[0], ctx)?, "skip")?;
+                let n = single_integer(&self.eval(&args[0], ctx)?, "skip")?;
                 focus.iter().skip(n.max(0) as usize).cloned().collect()
             }
             "take" => {
                 check_arity(name, args, 1)?;
-                let n = eval_integer_arg(&self.eval(&args[0], ctx)?, "take")?;
+                let n = single_integer(&self.eval(&args[0], ctx)?, "take")?;
                 focus.iter().take(n.max(0) as usize).cloned().collect()
             }
             "single" => {
                 check_arity(name, args, 0)?;
-                if focus.len() != 1 {
+                if focus.len() > 1 {
                     return Err(EvalError::Type(format!(
-                        "single() requires exactly 1 item, got {}",
+                        "single() requires at most 1 item, got {}",
                         focus.len()
                     )));
                 }
@@ -186,7 +189,7 @@ impl Evaluator {
                 check_arity(name, args, 0)?;
                 let mut seen: Collection = Vec::new();
                 for v in focus {
-                    if !seen.contains(v) {
+                    if !contains_value(&seen, v) {
                         seen.push(v.clone());
                     }
                 }
@@ -197,7 +200,7 @@ impl Evaluator {
                 let mut seen: Collection = Vec::new();
                 let mut distinct = true;
                 for v in focus {
-                    if seen.contains(v) {
+                    if contains_value(&seen, v) {
                         distinct = false;
                         break;
                     }
@@ -208,19 +211,19 @@ impl Evaluator {
             "subsetOf" => {
                 check_arity(name, args, 1)?;
                 let other = self.eval(&args[0], ctx)?;
-                vec![Value::Bool(focus.iter().all(|v| other.contains(v)))]
+                vec![Value::Bool(focus.iter().all(|v| contains_value(&other, v)))]
             }
             "supersetOf" => {
                 check_arity(name, args, 1)?;
                 let other = self.eval(&args[0], ctx)?;
-                vec![Value::Bool(other.iter().all(|v| focus.contains(v)))]
+                vec![Value::Bool(other.iter().all(|v| contains_value(focus, v)))]
             }
             "intersect" => {
                 check_arity(name, args, 1)?;
                 let other = self.eval(&args[0], ctx)?;
                 focus
                     .iter()
-                    .filter(|v| other.contains(v))
+                    .filter(|v| contains_value(&other, v))
                     .cloned()
                     .collect()
             }
@@ -229,18 +232,12 @@ impl Evaluator {
                 let other = self.eval(&args[0], ctx)?;
                 focus
                     .iter()
-                    .filter(|v| !other.contains(v))
+                    .filter(|v| !contains_value(&other, v))
                     .cloned()
                     .collect()
             }
             "combine" => {
-                if args.is_empty() || args.len() > 2 {
-                    return Err(EvalError::Arity {
-                        name: name.to_owned(),
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
+                check_arity(name, args, 1)?;
                 let other = self.eval(&args[0], ctx)?;
                 let mut result = focus.to_vec();
                 result.extend(other);
@@ -258,13 +255,7 @@ impl Evaluator {
 
             // ── Aggregation ───────────────────────────────────────────────
             "aggregate" => {
-                if args.is_empty() || args.len() > 2 {
-                    return Err(EvalError::Arity {
-                        name: name.to_owned(),
-                        expected: 2,
-                        got: args.len(),
-                    });
-                }
+                check_arity_range(name, args, 1, 2)?;
                 let mut total = if args.len() == 2 {
                     self.eval(&args[1], ctx)?
                 } else {
@@ -353,13 +344,7 @@ impl Evaluator {
                 vec![Value::Decimal(sum / count)]
             }
             "sort" => {
-                if args.len() > 1 {
-                    return Err(EvalError::Arity {
-                        name: name.to_owned(),
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
+                check_arity_range(name, args, 0, 1)?;
                 let mut items = focus.to_vec();
                 if args.is_empty() {
                     let mut sort_error: Option<EvalError> = None;
