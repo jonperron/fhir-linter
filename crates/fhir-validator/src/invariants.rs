@@ -56,7 +56,7 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
         let satisfied = matches!(result.as_slice(), [fhir_fhirpath::Value::Bool(true)]);
 
         if !satisfied {
-            // Only "warning" is downgraded; "error" and unknown values stay errors.
+            // "warning" and "information" are downgraded; "error" and unknown values stay errors.
             let severity = match constraint.severity.as_ref() {
                 "warning" | "information" => Severity::Warning,
                 _ => Severity::Error,
