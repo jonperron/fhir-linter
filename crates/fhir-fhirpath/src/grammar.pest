@@ -1,4 +1,4 @@
-// FHIRPath 3.0 Grammar (PEG via pest)
+// FHIRPath 2.0 Grammar (PEG via pest)
 // Reference: https://build.fhir.org/ig/HL7/FHIRPath/en/
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
@@ -17,7 +17,7 @@ membership_expr = { ineq_expr ~ ((in_kw | contains_kw) ~ ineq_expr)? }
 
 // ── Comparisons ─────────────────────────────────────────────────────────────
 ineq_expr = { eq_expr ~ ((lte | gte | lt | gt) ~ eq_expr)? }
-eq_expr   = { type_expr ~ ((neq | eq | tilde_eq | tilde_neq) ~ type_expr)? }
+eq_expr   = { union_expr ~ ((neq | eq | tilde_eq | tilde_neq) ~ union_expr)? }
 
 lte      = { "<=" }
 gte      = { ">=" }
@@ -29,12 +29,12 @@ tilde_eq  = { "~" }
 tilde_neq = { "!~" }
 
 // ── Type operators ─────────────────────────────────────────────────────────
-type_expr = { union_expr ~ ((is_kw | as_kw) ~ type_specifier)? }
+type_expr = { add_expr ~ ((is_kw | as_kw) ~ type_specifier)? }
 
 type_specifier = { ident ~ ("." ~ ident)* }
 
 // ── Union ──────────────────────────────────────────────────────────────────
-union_expr = { add_expr ~ (pipe ~ add_expr)* }
+union_expr = { type_expr ~ (pipe ~ type_expr)* }
 
 // ── Arithmetic ─────────────────────────────────────────────────────────────
 add_expr = { mul_expr ~ ((plus | minus | amp) ~ mul_expr)* }
@@ -88,7 +88,7 @@ as_kw       = @{ "as"       ~ !(ASCII_ALPHANUMERIC | "_") }
 literal = _{ bool_lit | quantity_lit | decimal_lit | long_lit | integer_lit | datetime_lit | date_lit | time_lit | string_lit | null_lit }
 
 null_lit    = { "{}" }
-bool_lit    = { "true" | "false" }
+bool_lit    = @{ ("true" | "false") ~ !(ASCII_ALPHANUMERIC | "_") }
 
 string_lit  = @{ "'" ~ string_char* ~ "'" }
 string_char = _{ !("'" | "\\") ~ ANY | "\\" ~ ("'" | "\\" | "n" | "r" | "t" | "u" ~ ASCII_HEX_DIGIT{4}) }

@@ -1,6 +1,6 @@
-/// FHIRPath expression parser.
-///
-/// Converts raw text into an [`Expr`] AST via the Pest grammar.
+//! FHIRPath expression parser.
+//!
+//! Converts raw text into an [`Expr`] AST via the Pest grammar.
 use pest::Parser as _;
 use pest::iterators::Pair;
 use pest_derive::Parser;
@@ -14,6 +14,7 @@ struct FhirPathParser;
 
 /// Parse a FHIRPath expression string into an [`Expr`] AST.
 pub fn parse(input: &str) -> Result<Expr, ParseError> {
+    check_limits(input)?;
     let pairs = FhirPathParser::parse(Rule::expression, input)
         .map_err(|e| ParseError::Syntax(e.to_string()))?;
 
@@ -27,6 +28,46 @@ pub fn parse(input: &str) -> Result<Expr, ParseError> {
             .next()
             .ok_or_else(|| ParseError::Syntax("empty expression".into()))?,
     )
+}
+
+/// Maximum accepted expression length in bytes.
+const MAX_INPUT_LEN: usize = 16 * 1024;
+/// Maximum nesting of `(` and `[`; deeper input would overflow the stack.
+const MAX_NESTING: usize = 64;
+
+/// Reject hostile input before pest/AST recursion can overflow the stack.
+fn check_limits(input: &str) -> Result<(), ParseError> {
+    if input.len() > MAX_INPUT_LEN {
+        return Err(ParseError::Syntax(format!(
+            "expression longer than {MAX_INPUT_LEN} bytes"
+        )));
+    }
+    let (mut depth, mut in_string, mut escaped) = (0usize, false, false);
+    for c in input.chars() {
+        if in_string {
+            match (escaped, c) {
+                (true, _) => escaped = false,
+                (false, '\\') => escaped = true,
+                (false, '\'') => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match c {
+            '\'' => in_string = true,
+            '(' | '[' => {
+                depth += 1;
+                if depth > MAX_NESTING {
+                    return Err(ParseError::Syntax(format!(
+                        "nesting deeper than {MAX_NESTING}"
+                    )));
+                }
+            }
+            ')' | ']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 fn build_expr(pair: Pair<Rule>) -> Result<Expr, ParseError> {
@@ -344,7 +385,7 @@ fn parse_quantity(pair: Pair<Rule>) -> Result<Expr, ParseError> {
     let value = num_str
         .parse::<f64>()
         .map_err(|_| ParseError::Syntax(format!("invalid quantity number: {num_str}")))?;
-    let unit = rest.trim().trim_matches('\'').to_owned();
+    let unit = strip_quotes(rest.trim()).to_owned();
     Ok(Expr::Quantity(value, unit))
 }
 
@@ -358,9 +399,16 @@ fn trim_at_t(s: &str) -> String {
     s.trim_start_matches("@T").to_owned()
 }
 
+/// Remove exactly one leading and one trailing `'` (escaped quotes inside stay intact).
+fn strip_quotes(raw: &str) -> &str {
+    raw.strip_prefix('\'')
+        .and_then(|s| s.strip_suffix('\''))
+        .unwrap_or(raw)
+}
+
 /// Unescape a FHIRPath string literal (strips surrounding `'`).
 fn unescape_string(raw: &str) -> String {
-    let inner = raw.trim_matches('\'');
+    let inner = strip_quotes(raw);
     let mut result = String::with_capacity(inner.len());
     let mut chars = inner.chars().peekable();
     while let Some(c) = chars.next() {
@@ -402,4 +450,63 @@ fn only_child(pair: Pair<Rule>) -> Result<Pair<Rule>, ParseError> {
 
 fn missing() -> ParseError {
     ParseError::Syntax("missing expected pair".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn string_with_escaped_quote_at_end() {
+        assert_eq!(parse(r"'it\''").unwrap(), Expr::String("it'".into()));
+        assert_eq!(parse(r"'\''").unwrap(), Expr::String("'".into()));
+    }
+
+    #[test]
+    fn quantity_unit_keeps_escaped_quote() {
+        assert_eq!(
+            parse(r"1 'a\''").unwrap(),
+            Expr::Quantity(1.0, r"a\'".into())
+        );
+    }
+
+    #[test]
+    fn identifiers_starting_with_bool_words() {
+        assert_eq!(parse("trueValue").unwrap(), Expr::Ident("trueValue".into()));
+        assert!(matches!(parse("falsePositive.x").unwrap(), Expr::Dot(..)));
+        assert_eq!(parse("true").unwrap(), Expr::Bool(true));
+    }
+
+    #[test]
+    fn deep_nesting_is_rejected_not_overflowed() {
+        let deep = format!("{}1{}", "(".repeat(5000), ")".repeat(5000));
+        assert!(parse(&deep).is_err());
+        let ok = format!("{}1{}", "(".repeat(10), ")".repeat(10));
+        assert!(parse(&ok).is_ok());
+    }
+
+    #[test]
+    fn parens_inside_strings_do_not_count() {
+        let s = format!("'{}'", "(".repeat(500));
+        assert!(parse(&s).is_ok());
+    }
+
+    #[test]
+    fn oversized_input_is_rejected() {
+        assert!(parse(&"1+".repeat(MAX_INPUT_LEN)).is_err());
+    }
+
+    #[test]
+    fn is_binds_tighter_than_union() {
+        match parse("a | b is X").unwrap() {
+            Expr::Union(_, rhs) => assert!(matches!(*rhs, Expr::Is(..))),
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn comparison_of_union_and_equality_still_parse() {
+        assert!(matches!(parse("a | b = c").unwrap(), Expr::Eq(..)));
+        assert!(matches!(parse("a is X = true").unwrap(), Expr::Eq(..)));
+    }
 }
