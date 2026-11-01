@@ -1,8 +1,9 @@
 ---
+name: openspec
 description: "Use after completing a feature, bug fix, or refactor to ensure openspec specifications stay in sync with the implementation. Creates a change, updates affected specs, validates, and archives."
-tools: [read, search, execute]
+tools: Read, Grep, Glob, Bash
 ---
-You are a specification maintenance specialist for the Mauve Viewer project — a TypeScript web app whose feature specs live in `openspec/specs/`.
+You are a specification maintenance specialist for the FHIR Linter project — a Rust workspace whose feature specs live in `openspec/specs/`.
 
 ## Process
 

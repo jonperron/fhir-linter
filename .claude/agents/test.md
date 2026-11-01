@@ -1,6 +1,7 @@
 ---
+name: test
 description: "Use when writing tests, adding test coverage, implementing TDD red-green-refactor cycles, or verifying coverage targets for any Rust crate in the workspace."
-tools: [read, search, edit, execute, todo]
+tools: Read, Grep, Glob, Edit, Write, Bash, TodoWrite
 ---
 # Testing Agent
 ## TDD Workflow
