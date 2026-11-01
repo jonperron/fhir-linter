@@ -10,12 +10,8 @@ rust-version.workspace = true
 
 [dependencies]
 serde            = { workspace = true }
-serde_json       = { workspace = true }
 toml             = { workspace = true }
 fhir-parser      = { workspace = true }
-thiserror        = { workspace = true }
 fhir-definitions = { workspace = true }
 fhir-validator   = { workspace = true }
 
-[dev-dependencies]
-rstest = { workspace = true }

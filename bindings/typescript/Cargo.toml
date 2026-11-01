@@ -13,8 +13,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 wasm-bindgen   = { workspace = true }
-fhir-validator = { workspace = true }
-fhir-linter    = { workspace = true }
 
-[dev-dependencies]
-rstest = { workspace = true }
