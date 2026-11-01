@@ -1,6 +1,6 @@
 ---
 description: "Use when writing Rust code. Covers naming conventions, error handling, and other Rust-specific guidelines."
-applyTo: "**/*.rs"
+paths: "**/*.rs"
 ---
 # Coding style
 

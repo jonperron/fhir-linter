@@ -1,6 +1,7 @@
 ---
+name: build
 description: "Use when building crates, implementing new features, or fixing bugs. Covers build process, dependency management, and release workflow."
-tools: [read, search, execute]
+tools: Read, Grep, Glob, Bash
 ---
 # Build Agent
 

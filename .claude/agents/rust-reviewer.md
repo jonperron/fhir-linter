@@ -1,6 +1,7 @@
 ---
+name: rust-reviewer
 description: "Use when reviewing Rust code changes for safety, correctness, idiomatic patterns, and adherence to project specs. Invoke after writing or modifying Rust code."
-tools: [read, search, execute]
+tools: Read, Grep, Glob, Bash
 ---
 ## Scope
 

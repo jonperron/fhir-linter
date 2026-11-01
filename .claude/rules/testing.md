@@ -1,6 +1,6 @@
 ---
 description: "Use when writing tests, implementing new features, or fixing bugs. Covers TDD workflow, coverage targets, and test types."
-applyTo: "**/*.rs"
+paths: "**/*.rs"
 ---
 # Testing
 
