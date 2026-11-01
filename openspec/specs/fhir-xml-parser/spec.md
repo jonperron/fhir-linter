@@ -111,6 +111,13 @@ Le système SHALL extraire l'élément `<id>` de la ressource XML vers `Resource
 
 ---
 
+### Requirement: Profondeur maximale
+
+#### Scenario: Imbrication trop profonde
+
+- **WHEN** `parse_xml` reçoit des éléments imbriqués sur plus de 128 niveaux
+- **THEN** il SHALL retourner `Err(ParseError::XmlError)` sans débordement de pile
+
 ### Requirement: Positions sources XML
 
 Le système SHALL associer une position source (`Span`) à chaque `Node` produit par le parser XML.

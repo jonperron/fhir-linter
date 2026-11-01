@@ -66,6 +66,16 @@ Le système SHALL exposer une fonction `parse_json(source: &str) -> Result<Resou
 - **WHEN** `parse_json` reçoit un objet JSON valide sans champ `"resourceType"`
 - **THEN** elle SHALL retourner `Err(ParseError::MissingResourceType)`
 
+#### Scenario: Clé d'objet dupliquée
+
+- **WHEN** `parse_json` reçoit un objet contenant deux fois la même clé
+- **THEN** elle SHALL retourner `Err(ParseError::JsonError)`
+
+#### Scenario: Imbrication trop profonde
+
+- **WHEN** `parse_json` reçoit des objets/tableaux imbriqués sur plus de 128 niveaux
+- **THEN** elle SHALL retourner `Err(ParseError::JsonError)` sans débordement de pile
+
 ---
 
 ### Requirement: Positions sources précises
