@@ -97,14 +97,18 @@ jobs:
           fail_ci_if_error: false
 
   python:
-    name: Python bindings
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -127,4 +131,4 @@ jobs:
 
       - name: Run tox
         working-directory: bindings/python
-        run: tox -e py312
+        run: tox -e py
