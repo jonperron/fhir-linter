@@ -1,0 +1,4 @@
+__pycache__/
+*.so
+.tox/
+.pytest_cache/
