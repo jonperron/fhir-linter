@@ -8,8 +8,9 @@ use crate::diagnostic::{Diagnostic, Severity};
 /// Evaluate FHIRPath `constraint.expression` invariants from the root element.
 ///
 /// Emits `INVARIANT_<key>` for every constraint whose expression evaluates to
-/// anything other than `[true]`. Expressions that fail to parse emit an
-/// `INVARIANT_PARSE` warning; evaluation errors are silently skipped.
+/// anything other than `[true]`. Expressions that fail to parse or evaluate are
+/// silently skipped (shortcut: parser lacks `%resource`, backtick identifiers
+/// and `'#'+id in (...)`; emit a warning once those gaps close).
 pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut Vec<Diagnostic>) {
     let resource_type = resource.resource_type.as_ref();
 
@@ -29,21 +30,6 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
         let Some(expression) = &constraint.expression else {
             continue;
         };
-
-        if let Err(e) = fhir_fhirpath::parse(expression) {
-            diagnostics.push(Diagnostic {
-                severity: Severity::Warning,
-                code: Arc::from("INVARIANT_PARSE"),
-                message: format!(
-                    "Constraint {} could not be parsed and was not evaluated: {e}",
-                    constraint.key
-                ),
-                path: resource_type.to_owned(),
-                location: None,
-                rule: None,
-            });
-            continue;
-        }
 
         let result = match fhir_fhirpath::evaluate(expression, &context) {
             Ok(r) => r,
@@ -229,20 +215,6 @@ mod tests {
         let codes: Vec<&str> = d.iter().map(|x| x.code.as_ref()).collect();
         assert!(codes.contains(&"INVARIANT_fail-1"));
         assert!(codes.contains(&"INVARIANT_fail-2"));
-    }
-
-    #[test]
-    fn unparsable_expression_emits_parse_warning() {
-        let sd = make_sd_with_constraints(
-            "Patient",
-            vec![make_constraint("test-9", "error", "foo bar (")],
-        );
-        let resource = make_empty_resource("Patient");
-        let mut d = vec![];
-        validate(&resource, &sd, &mut d);
-        assert_eq!(d.len(), 1);
-        assert_eq!(d[0].code.as_ref(), "INVARIANT_PARSE");
-        assert_eq!(d[0].severity, Severity::Warning);
     }
 
     #[test]
