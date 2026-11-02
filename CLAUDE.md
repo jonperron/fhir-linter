@@ -57,6 +57,7 @@ Coding rules are defined in `.claude/rules/` and loaded automatically by file pa
 
 - [Coding style](.claude/rules/coding-style.md): Guidelines for code formatting, organization, and idiomatic patterns.
 - [Python coding style](.claude/rules/python-coding-style.md): Conventions for the Python bindings (`bindings/python/`).
+- [TypeScript coding style](.claude/rules/typescript-coding-style.md): Conventions for the TypeScript bindings (`bindings/typescript/`).
 - [Testing](.claude/rules/testing.md): Best practices for writing tests, TDD workflow, coverage targets, and test types.
 - [Commit messages](.claude/rules/commit-messages.md): Conventions for writing clear, consistent commit messages that enhance project history and collaboration.
 
@@ -72,6 +73,8 @@ When completing any task on a Rust file, delegate to subagents for quality assur
 Run first the Review Agent to check for correctness, safety, and spec adherence. Then run the others if no issue found.
 
 When completing any task on a Python file, run the Python Reviewer (`.claude/agents/python-reviewer.md`) to check correctness, style, security and conventions before finishing.
+
+When completing any task on a TypeScript file, run the TypeScript Reviewer (`.claude/agents/typescript-reviewer.md`) to check correctness, style, security and conventions before finishing.
 
 When updating a library, use the following subagents:
 
