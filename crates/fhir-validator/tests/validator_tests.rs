@@ -294,10 +294,5 @@ fn valid_nested_resource_has_no_nested_errors() {
     let found = codes_for(
         r#"{"resourceType":"Patient","name":[{"family":"A","given":["B"]}],"contact":[{"name":{"family":"C"}}]}"#,
     );
-    // Patient invariants using %resource are not parseable yet and warn.
-    let errors: Vec<_> = found
-        .iter()
-        .filter(|(c, _)| c != "INVARIANT_PARSE")
-        .collect();
-    assert!(errors.is_empty(), "{found:?}");
+    assert!(found.is_empty(), "{found:?}");
 }
