@@ -65,8 +65,8 @@ Le système SHALL implémenter une grammaire PEG via `pest` couvrant l'intégral
 
 #### Scenario: Limites de taille et d'imbrication
 
-- **WHEN** l'expression dépasse 16 KiB ou plus de 64 niveaux d'imbrication de `(` / `[` (hors chaînes, backticks et commentaires)
-- **THEN** `parse` SHALL retourner `Err(ParseError::Syntax(...))` sans dépasser la pile
+- **WHEN** l'expression dépasse 1 KiB ou plus de 16 niveaux d'imbrication de `(` / `[` (hors chaînes, backticks et commentaires)
+- **THEN** `parse` SHALL retourner `Err(ParseError::Syntax(...))` sans dépasser la pile ; toute expression acceptée au maximum de ces limites (chaînes `a.a.a…`, `1+1+…`, parenthèses imbriquées) SHALL pouvoir être parsée, évaluée et libérée dans un thread de 2 Mo en debug
 
 #### Scenario: Identifiants débutant par true/false
 

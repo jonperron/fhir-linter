@@ -31,9 +31,10 @@ pub fn parse(input: &str) -> Result<Expr, ParseError> {
 }
 
 /// Maximum accepted expression length in bytes.
-const MAX_INPUT_LEN: usize = 16 * 1024;
+// Real FHIR constraints are < 400 bytes; 1 KiB keeps chains within a 2 MB debug stack.
+const MAX_INPUT_LEN: usize = 1024;
 /// Maximum nesting of `(` and `[`; deeper input would overflow the stack.
-const MAX_NESTING: usize = 64;
+const MAX_NESTING: usize = 16;
 
 /// Reject hostile input before pest/AST recursion can overflow the stack.
 fn check_limits(input: &str) -> Result<(), ParseError> {
@@ -526,6 +527,35 @@ mod tests {
     #[test]
     fn oversized_input_is_rejected() {
         assert!(parse(&"1+".repeat(MAX_INPUT_LEN)).is_err());
+    }
+
+    /// Parse, evaluate and drop the worst accepted inputs on a 2 MB stack.
+    #[test]
+    fn worst_case_accepted_inputs_fit_in_small_stack() {
+        let fit = |s: String| s[..MAX_INPUT_LEN.min(s.len())].to_string();
+        let nest = MAX_NESTING;
+        let cases = [
+            fit("a.".repeat(MAX_INPUT_LEN) + "a"),
+            fit("1+".repeat(MAX_INPUT_LEN) + "1"),
+            fit("a and ".repeat(MAX_INPUT_LEN) + "a"),
+            fit("a|".repeat(MAX_INPUT_LEN) + "a"),
+            format!("{}1{}", "(".repeat(nest), ")".repeat(nest)),
+            format!("{}1{}", "[".repeat(nest), "]".repeat(nest)),
+            format!("{}a{}", "a.where(".repeat(nest), ")".repeat(nest)),
+            format!("{}1{}", "-(".repeat(nest), ")".repeat(nest)),
+        ];
+        for c in cases {
+            std::thread::Builder::new()
+                .stack_size(2 << 20)
+                .spawn(move || {
+                    if let Ok(e) = parse(&c) {
+                        let _ = crate::eval::eval(&e, &[], &[]);
+                    }
+                })
+                .unwrap()
+                .join()
+                .expect("stack overflow or panic");
+        }
     }
 
     #[test]
