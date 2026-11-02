@@ -1,0 +1,25 @@
+[project]
+name = "fhir-linter"
+dynamic = ["version"]
+description = "Python bindings for the FHIR R5 linter and validator"
+license = "MIT"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+module-name = "fhir_linter"
+features = ["pyo3/extension-module"]
+
+[tool.ruff]
+line-length = 88

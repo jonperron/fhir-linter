@@ -1,5 +1,5 @@
 [package]
-name        = "fhir-python"
+name = "fhir-python"
 description = "Python bindings for the FHIR linter and validator (PyO3)"
 version.workspace     = true
 edition.workspace     = true
@@ -13,5 +13,8 @@ name  = "fhir_python"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3           = { workspace = true }
-
+pyo3             = { workspace = true }
+fhir-definitions = { workspace = true }
+fhir-parser      = { workspace = true }
+fhir-validator   = { workspace = true }
+fhir-linter      = { workspace = true }

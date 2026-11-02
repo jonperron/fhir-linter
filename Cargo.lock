@@ -66,11 +66,11 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "fhir-cli"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "fhir-definitions"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde_json",
  "thiserror",
@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "fhir-fhirpath"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fhir-parser",
  "indexmap",
@@ -90,7 +90,7 @@ dependencies = [
 
 [[package]]
 name = "fhir-linter"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fhir-definitions",
  "fhir-parser",
@@ -101,7 +101,7 @@ dependencies = [
 
 [[package]]
 name = "fhir-parser"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "indexmap",
  "quick-xml",
@@ -110,14 +110,18 @@ dependencies = [
 
 [[package]]
 name = "fhir-python"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
+ "fhir-definitions",
+ "fhir-linter",
+ "fhir-parser",
+ "fhir-validator",
  "pyo3",
 ]
 
 [[package]]
 name = "fhir-validator"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fhir-definitions",
  "fhir-fhirpath",
@@ -128,7 +132,7 @@ dependencies = [
 
 [[package]]
 name = "fhir-wasm"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "wasm-bindgen",
 ]
