@@ -8,7 +8,23 @@ on:
     types: [released]
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Tag matches workspace version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          [ "$TAG" = "fhir-linter-v$version" ] || { echo "tag $TAG != $version"; exit 1; }
+
+      - name: Audit dependencies
+        run: cargo install cargo-audit --locked && cargo audit
+
   wheels:
+    needs: verify
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -19,7 +35,7 @@ jobs:
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           command: build
-          args: --release --out dist -m bindings/python/Cargo.toml
+          args: --release --locked --out dist -m bindings/python/Cargo.toml
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -27,6 +43,7 @@ jobs:
           path: dist
 
   sdist:
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
