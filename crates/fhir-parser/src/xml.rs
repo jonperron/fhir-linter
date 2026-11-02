@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use quick_xml::Reader;
-use quick_xml::events::Event;
+use quick_xml::escape::resolve_predefined_entity;
+use quick_xml::events::{BytesRef, Event};
+use quick_xml::{Reader, XmlVersion};
 
 use crate::line_index::LineIndex;
 use crate::types::{Node, ParseError, Resource, Span, Value};
@@ -244,7 +245,7 @@ fn read_xhtml_text(
             }
             Event::Empty(_) => {}
             Event::Text(ref t) => {
-                let s = t.unescape().map_err(|e| {
+                let s = t.decode().map_err(|e| {
                     let (line, col) = line_index.location(pos);
                     ParseError::XmlError {
                         message: format!("invalid text in XHTML div: {e}"),
@@ -253,6 +254,18 @@ fn read_xhtml_text(
                     }
                 })?;
                 text.push_str(&s);
+            }
+            // quick-xml 0.38+ reports entity and character references separately.
+            Event::GeneralRef(ref r) => {
+                let resolved = resolve_reference(r).ok_or_else(|| {
+                    let (line, col) = line_index.location(pos);
+                    ParseError::XmlError {
+                        message: "invalid entity reference in XHTML div".into(),
+                        line,
+                        col,
+                    }
+                })?;
+                text.push_str(&resolved);
             }
             Event::CData(ref c) => {
                 // CDATA content is already literal text - no escaping needed.
@@ -295,7 +308,7 @@ fn expect_eof(reader: &mut Reader<&[u8]>, line_index: &LineIndex) -> Result<(), 
             Event::Eof => return Ok(()),
             Event::Text(ref t) => {
                 // Whitespace-only text between elements is allowed.
-                let unescaped = t.unescape().map_err(|e| {
+                let unescaped = t.decode().map_err(|e| {
                     let (line, col) = line_index.location(pos);
                     ParseError::XmlError {
                         message: format!("invalid trailing text: {e}"),
@@ -311,6 +324,14 @@ fn expect_eof(reader: &mut Reader<&[u8]>, line_index: &LineIndex) -> Result<(), 
                         col,
                     });
                 }
+            }
+            Event::GeneralRef(_) => {
+                let (line, col) = line_index.location(pos);
+                return Err(ParseError::XmlError {
+                    message: "unexpected content after root element".into(),
+                    line,
+                    col,
+                });
             }
             // Any element (start, empty) after the root is invalid.
             Event::Start(_) | Event::Empty(_) => {
@@ -328,6 +349,15 @@ fn expect_eof(reader: &mut Reader<&[u8]>, line_index: &LineIndex) -> Result<(), 
 }
 
 // -- Helpers -------------------------------------------------------------------
+
+/// Resolve a character reference or one of the five predefined entities.
+fn resolve_reference(reference: &BytesRef<'_>) -> Option<String> {
+    if let Ok(Some(c)) = reference.resolve_char_ref() {
+        return Some(c.to_string());
+    }
+    let name = reference.decode().ok()?;
+    resolve_predefined_entity(&name).map(str::to_owned)
+}
 
 /// Convert a local name byte slice to `Arc<str>`, returning an error when the
 /// bytes are not valid UTF-8 (which should not happen for well-formed XML but
@@ -372,14 +402,16 @@ fn collect_attrs(
         }
 
         let local = local_name_arc(attr.key.local_name().as_ref(), line_index, pos)?;
-        let val = attr.unescape_value().map_err(|e| {
-            let (line, col) = line_index.location(pos);
-            ParseError::XmlError {
-                message: format!("invalid attribute value: {e}"),
-                line,
-                col,
-            }
-        })?;
+        let val = attr
+            .normalized_value(XmlVersion::Implicit1_0)
+            .map_err(|e| {
+                let (line, col) = line_index.location(pos);
+                ParseError::XmlError {
+                    message: format!("invalid attribute value: {e}"),
+                    line,
+                    col,
+                }
+            })?;
 
         attrs.insert(
             local,
@@ -518,6 +550,28 @@ mod tests {
         } else {
             panic!("text should be an object");
         }
+    }
+
+    #[test]
+    fn parse_xhtml_div_resolves_entity_and_char_references() {
+        let source = concat!(
+            "<Patient xmlns=\"http://hl7.org/fhir\">",
+            "<text><status value=\"generated\"/>",
+            "<div xmlns=\"http://www.w3.org/1999/xhtml\">a &amp; b &lt; &#65;</div>",
+            "</text></Patient>",
+        );
+        let resource = parse_xml(source).unwrap();
+        let Value::Object(text) = &resource.fields.get("text").unwrap().value else {
+            panic!("text should be an object");
+        };
+        let div = text.get("div").expect("div field present");
+        assert!(matches!(&div.value, Value::Str(s) if s.as_ref() == "a & b < A"));
+    }
+
+    #[test]
+    fn reject_entity_reference_after_root() {
+        let source = "<Patient xmlns=\"http://hl7.org/fhir\"/>&amp;";
+        assert!(parse_xml(source).is_err());
     }
 
     #[test]
