@@ -100,13 +100,20 @@ fn parse(json: &str) -> PyResult<fhir_parser::Resource> {
 /// Raises `ValueError` when the JSON cannot be parsed or no definitions are found.
 #[pyfunction]
 #[pyo3(signature = (json, definitions_dir=None))]
-fn validate(json: &str, definitions_dir: Option<String>) -> PyResult<Vec<Diagnostic>> {
-    let resource = parse(json)?;
-    let registry = registry_for(definitions_dir)?;
-    Ok(fhir_validator::validate(&resource, &registry)
-        .into_iter()
-        .map(Diagnostic::from)
-        .collect())
+fn validate(
+    py: Python<'_>,
+    json: &str,
+    definitions_dir: Option<String>,
+) -> PyResult<Vec<Diagnostic>> {
+    // Release the GIL: loading the registry takes seconds.
+    py.detach(|| {
+        let resource = parse(json)?;
+        let registry = registry_for(definitions_dir)?;
+        Ok(fhir_validator::validate(&resource, &registry)
+            .into_iter()
+            .map(Diagnostic::from)
+            .collect())
+    })
 }
 
 /// Run the lint rules on a FHIR R5 JSON resource.
@@ -116,6 +123,7 @@ fn validate(json: &str, definitions_dir: Option<String>) -> PyResult<Vec<Diagnos
 #[pyfunction]
 #[pyo3(signature = (json, config_toml=None, definitions_dir=None))]
 fn lint(
+    py: Python<'_>,
     json: &str,
     config_toml: Option<&str>,
     definitions_dir: Option<String>,
@@ -125,12 +133,14 @@ fn lint(
         .transpose()
         .map_err(|e| PyValueError::new_err(format!("invalid lint config: {e}")))?
         .unwrap_or_default();
-    let resource = parse(json)?;
-    let registry = registry_for(definitions_dir)?;
-    let diagnostics = RuleRegistry::default()
-        .run(&resource, &registry, &config)
-        .map_err(PyValueError::new_err)?;
-    Ok(diagnostics.into_iter().map(Diagnostic::from).collect())
+    py.detach(|| {
+        let resource = parse(json)?;
+        let registry = registry_for(definitions_dir)?;
+        let diagnostics = RuleRegistry::default()
+            .run(&resource, &registry, &config)
+            .map_err(PyValueError::new_err)?;
+        Ok(diagnostics.into_iter().map(Diagnostic::from).collect())
+    })
 }
 
 #[pymodule]

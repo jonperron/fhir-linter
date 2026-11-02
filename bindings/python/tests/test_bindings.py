@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 import fhir_linter
 import pytest
@@ -78,3 +79,9 @@ def test_equivalent_definitions_paths_give_same_result(definitions_dir, monkeypa
     relative = fhir_linter.validate(BARE_PATIENT, definitions_dir=".")
     absolute = fhir_linter.validate(BARE_PATIENT, definitions_dir=definitions_dir)
     assert [d.code for d in relative] == [d.code for d in absolute]
+
+
+def test_concurrent_calls_from_threads():
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: fhir_linter.lint(BARE_PATIENT), range(8)))
+    assert all(len(diagnostics) == 3 for diagnostics in results)
