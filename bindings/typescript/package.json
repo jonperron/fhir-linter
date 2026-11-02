@@ -7,7 +7,7 @@
   "main": "index.js",
   "types": "index.d.ts",
   "files": ["index.js", "index.d.ts", "*.node"],
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=22" },
   "napi": { "binaryName": "fhir-linter" },
   "scripts": {
     "build": "napi build --platform --release --esm",
@@ -18,6 +18,6 @@
     "@napi-rs/cli": "^3",
     "@types/node": "^22",
     "typescript": "^5",
-    "vitest": "^3"
+    "vitest": "^5"
   }
 }

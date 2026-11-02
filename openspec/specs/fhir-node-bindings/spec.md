@@ -31,7 +31,7 @@ Le module SHALL exposer `lint(json: string, configToml?: string, definitionsDir?
 
 ### Requirement: Source des définitions
 
-Les définitions FHIR R5 ne sont pas embarquées. Le répertoire SHALL être `definitionsDir`, à défaut la variable d'environnement `FHIR_DEFINITIONS_DIR`. Le `Registry` SHALL être construit une fois par répertoire puis partagé.
+Les définitions FHIR R5 ne sont pas embarquées. `definitionsDir` SHALL provenir d'une source de confiance (aucune restriction de chemin ; un répertoire distinct charge un registre supplémentaire, jamais évincé). Le répertoire SHALL être `definitionsDir`, à défaut la variable d'environnement `FHIR_DEFINITIONS_DIR`. Le `Registry` SHALL être construit une fois par répertoire puis partagé.
 
 #### Scenario: Aucun répertoire ou répertoire illisible
 
