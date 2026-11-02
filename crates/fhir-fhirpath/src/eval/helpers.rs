@@ -23,6 +23,9 @@ pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collecti
     if let (Value::String(a), Value::String(b), ArithOp::Add) = (lv, rv, &op) {
         return Ok(vec![Value::String(Arc::from(format!("{a}{b}")))]);
     }
+    if let Some(result) = integer_op(lv, rv, &op)? {
+        return Ok(vec![result]);
+    }
     let a = lv
         .as_decimal()
         .ok_or_else(|| EvalError::Type("arithmetic requires numbers".into()))?;
@@ -38,17 +41,32 @@ pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collecti
         ArithOp::Mod => a % b,
         ArithOp::DivInt => return Err(EvalError::Type("div is not a numeric_op".into())),
     };
-    // Keep the integer type when both operands share it and the operation is closed over it.
-    if !matches!(op, ArithOp::Div) {
-        match (lv, rv) {
-            (Value::Long(_), Value::Long(_)) => return Ok(vec![Value::Long(result as i64)]),
-            (Value::Integer(_), Value::Integer(_)) => {
-                return Ok(vec![Value::Integer(result as i64)]);
-            }
-            _ => {}
-        }
-    }
     Ok(vec![Value::Decimal(result)])
+}
+
+/// Exact i64 arithmetic for Integer/Long operands; `None` when a Decimal is involved or for `/`.
+fn integer_op(lv: &Value, rv: &Value, op: &ArithOp) -> Result<Option<Value>, EvalError> {
+    let (a, b, is_long) = match (lv, rv) {
+        (Value::Integer(a), Value::Integer(b)) => (*a, *b, false),
+        (Value::Long(a), Value::Long(b))
+        | (Value::Integer(a), Value::Long(b))
+        | (Value::Long(a), Value::Integer(b)) => (*a, *b, true),
+        _ => return Ok(None),
+    };
+    let result = match op {
+        ArithOp::Add => a.checked_add(b),
+        ArithOp::Sub => a.checked_sub(b),
+        ArithOp::Mul => a.checked_mul(b),
+        ArithOp::Mod if b == 0 => return Err(EvalError::DivisionByZero),
+        ArithOp::Mod => a.checked_rem(b),
+        _ => return Ok(None),
+    }
+    .ok_or_else(|| EvalError::Type("integer overflow".into()))?;
+    Ok(Some(if is_long {
+        Value::Long(result)
+    } else {
+        Value::Integer(result)
+    }))
 }
 
 // ── Equality / comparison ─────────────────────────────────────────────────────

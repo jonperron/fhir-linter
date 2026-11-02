@@ -259,6 +259,11 @@ Le système SHALL implémenter `abs()`, `ceiling()`, `floor()`, `round()`, `roun
 - **WHEN** `abs()` ou la négation unaire est appliqué à `i64::MIN` (Integer ou Long)
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))` sans paniquer
 
+#### Scenario: Arithmétique entière exacte
+
+- **WHEN** `+`, `-`, `*` ou `mod` est appliqué à deux `Integer`/`Long` (Integer/Long mixte donne `Long`)
+- **THEN** le calcul SHALL être fait en `i64` (exact au-delà de 2^53), et un dépassement SHALL retourner `Err(EvalError::Type(...))`; `f64` n'est utilisé que si un `Decimal` est impliqué
+
 #### Scenario: sqrt sur entier positif
 
 - **WHEN** `4.sqrt()` est évalué

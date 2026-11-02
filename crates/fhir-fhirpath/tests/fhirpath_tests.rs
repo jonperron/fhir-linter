@@ -1956,6 +1956,32 @@ fn div_by_zero_returns_error() {
     assert!(matches!(err, fhir_fhirpath::EvalError::DivisionByZero));
 }
 
+#[test]
+fn integer_arithmetic_is_exact_above_2_pow_53() {
+    assert_eq!(
+        evaluate("9007199254740993 + 0", &[]).unwrap(),
+        vec![Value::Integer(9007199254740993)]
+    );
+    assert_eq!(
+        evaluate("9007199254740993L - 1L", &[]).unwrap(),
+        vec![Value::Long(9007199254740992)]
+    );
+}
+
+#[test]
+fn integer_arithmetic_overflow_returns_error() {
+    for expr in [
+        "9223372036854775807L + 1L",
+        "9223372036854775807L * 2L",
+        "(-9223372036854775807L - 1L) - 1L",
+    ] {
+        assert!(
+            matches!(evaluate(expr, &[]), Err(fhir_fhirpath::EvalError::Type(_))),
+            "{expr}"
+        );
+    }
+}
+
 // ── FHIRPath 3.0 — Long type ──────────────────────────────────────────────────
 
 #[test]
