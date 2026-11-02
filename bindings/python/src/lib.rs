@@ -3,6 +3,7 @@
 //! Exposes `validate()` and `lint()`, both returning a list of `Diagnostic`.
 use std::collections::HashMap;
 use std::env;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -71,6 +72,9 @@ fn registry_for(definitions_dir: Option<String>) -> PyResult<Arc<Registry>> {
                 "no FHIR definitions: pass definitions_dir or set {DEFINITIONS_DIR_ENV}"
             ))
         })?;
+
+    // Key on the resolved path so `defs`, `./defs` and symlinks share one registry.
+    let dir = fs::canonicalize(&dir).unwrap_or(dir);
 
     let mut cache = CACHE
         .get_or_init(Mutex::default)

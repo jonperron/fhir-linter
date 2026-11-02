@@ -71,3 +71,10 @@ def test_missing_definitions_raises_value_error(monkeypatch):
 def test_unreadable_definitions_dir_raises_runtime_error(tmp_path):
     with pytest.raises(RuntimeError, match="cannot load definitions"):
         fhir_linter.validate(BARE_PATIENT, definitions_dir=str(tmp_path))
+
+
+def test_equivalent_definitions_paths_give_same_result(definitions_dir, monkeypatch):
+    monkeypatch.chdir(definitions_dir)
+    relative = fhir_linter.validate(BARE_PATIENT, definitions_dir=".")
+    absolute = fhir_linter.validate(BARE_PATIENT, definitions_dir=definitions_dir)
+    assert [d.code for d in relative] == [d.code for d in absolute]
