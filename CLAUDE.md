@@ -56,6 +56,7 @@ tests/fixtures/       # git submodule → github.com/FHIR/fhir-test-cases
 Coding rules are defined in `.claude/rules/` and loaded automatically by file pattern:
 
 - [Coding style](.claude/rules/coding-style.md): Guidelines for code formatting, organization, and idiomatic patterns.
+- [Python coding style](.claude/rules/python-coding-style.md): Conventions for the Python bindings (`bindings/python/`).
 - [Testing](.claude/rules/testing.md): Best practices for writing tests, TDD workflow, coverage targets, and test types.
 - [Commit messages](.claude/rules/commit-messages.md): Conventions for writing clear, consistent commit messages that enhance project history and collaboration.
 
@@ -69,6 +70,8 @@ When completing any task on a Rust file, delegate to subagents for quality assur
 - **Testing Agent**: Use the testing agent (`.claude/agents/test.md`) to write tests, implement TDD cycles, and verify coverage targets.
 
 Run first the Review Agent to check for correctness, safety, and spec adherence. Then run the others if no issue found.
+
+When completing any task on a Python file, run the Python Reviewer (`.claude/agents/python-reviewer.md`) to check correctness, style, security and conventions before finishing.
 
 When updating a library, use the following subagents:
 
