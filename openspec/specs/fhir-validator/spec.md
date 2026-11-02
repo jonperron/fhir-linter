@@ -371,7 +371,7 @@ Le système SHALL appliquer les vérifications de type à chaque élément d'un 
 
 ### Requirement: Validation des éléments imbriqués
 
-Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001), de cardinalité (CARDINALITY_001/002) et de type primitif (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants, références et profil restent limitées au premier niveau ; les `contentReference` et les ressources contenues ne sont pas parcourus.
+Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001), de cardinalité (CARDINALITY_001/002) et de type primitif (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants, références et profil restent limitées au premier niveau ; les `contentReference` (ignorés sans erreur, jamais signalés STRUCTURE_001) et les ressources contenues ne sont pas parcourus. Un enfant requis présent uniquement sous la forme `_nom` (extension de primitif) SHALL être considéré présent.
 
 #### Scenario: Élément inconnu dans un type complexe
 
