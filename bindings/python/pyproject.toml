@@ -3,6 +3,7 @@ name = "fhir-linter"
 dynamic = ["version"]
 description = "Python bindings for the FHIR R5 linter and validator"
 license = "MIT"
+readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Rust",
