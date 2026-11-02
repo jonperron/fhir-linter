@@ -296,3 +296,25 @@ fn valid_nested_resource_has_no_nested_errors() {
     );
     assert!(found.is_empty(), "{found:?}");
 }
+
+#[test]
+fn content_reference_element_is_not_unknown() {
+    let found = codes_for(
+        r#"{"resourceType":"Questionnaire","status":"draft","item":[{"linkId":"1","type":"group","item":[{"linkId":"2","type":"string"}]}]}"#,
+    );
+    assert!(
+        !found.iter().any(|(code, _)| code == "STRUCTURE_001"),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn required_child_present_only_as_primitive_extension_is_not_missing() {
+    let found = codes_for(
+        r#"{"resourceType":"Questionnaire","status":"draft","item":[{"_linkId":{"extension":[{"url":"http://example.org/x","valueString":"v"}]},"type":"string"}]}"#,
+    );
+    assert!(
+        !found.iter().any(|(code, _)| code == "CARDINALITY_001"),
+        "{found:?}"
+    );
+}

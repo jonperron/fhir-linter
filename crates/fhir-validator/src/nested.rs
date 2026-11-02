@@ -12,7 +12,7 @@ use crate::type_check::check_type;
 /// and primitive type (`TYPE_*`) checks recursively. Terminology, invariants,
 /// references and profile layers remain top-level only.
 ///
-/// shortcut: `contentReference` elements and contained/embedded resources are
+/// shortcut: `contentReference` elements (skipped silently) and contained/embedded resources are
 /// not descended into; upgrade when recursive structures need validating.
 pub fn validate(
     resource: &Resource,
@@ -23,7 +23,7 @@ pub fn validate(
     let resource_type = resource.resource_type.as_ref();
     for (name, node) in &resource.fields {
         let path = format!("{resource_type}.{name}");
-        let Some((elem, ty)) = resolve(sd, &path, name) else {
+        let Some((elem, Some(ty))) = resolve(sd, &path, name) else {
             continue;
         };
         descend(node, elem, &ty, sd, registry, &path, diagnostics);
@@ -31,22 +31,23 @@ pub fn validate(
 }
 
 /// Find the element for `name` under `parent_path`, and the single type it has
-/// for this instance (the suffix picks the type of a `[x]` element).
+/// for this instance (the suffix picks the type of a `[x]` element). The type is
+/// `None` for typeless elements such as `contentReference`; `None` overall means not found.
 fn resolve<'a>(
     sd: &'a StructureDefinition,
     path: &str,
     name: &str,
-) -> Option<(&'a ElementDefinition, Arc<str>)> {
+) -> Option<(&'a ElementDefinition, Option<Arc<str>>)> {
     let direct = sd.snapshot.iter().find(|e| e.path.as_ref() == path);
     if let Some(e) = direct {
-        return Some((e, e.types.first()?.clone()));
+        return Some((e, e.types.first().cloned()));
     }
     let parent = path.strip_suffix(name)?;
     sd.snapshot.iter().find_map(|e| {
         let base = e.path.strip_prefix(parent)?.strip_suffix("[x]")?;
         let suffix = name.strip_prefix(base)?;
         let ty = e.types.iter().find(|t| capitalise(t) == suffix)?;
-        Some((e, ty.clone()))
+        Some((e, Some(ty.clone())))
     })
 }
 
@@ -113,7 +114,10 @@ fn walk(
     };
 
     for (elem, rest) in children() {
-        if rest.ends_with("[x]") || fields.contains_key(rest) {
+        if rest.ends_with("[x]")
+            || fields.contains_key(rest)
+            || fields.contains_key(format!("_{rest}").as_str())
+        {
             continue;
         }
         if elem.min > 0 {
@@ -145,6 +149,8 @@ fn walk(
             );
             continue;
         };
+        // contentReference element: no type to check here.
+        let Some(ty) = ty else { continue };
 
         if let (Ok(max), Value::Array(items)) = (elem.max.parse::<usize>(), &node.value) {
             if items.len() > max {
