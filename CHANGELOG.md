@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.3.0](https://github.com/jonperron/fihr-linter/compare/fhir-linter-v0.2.0...fhir-linter-v0.3.0) (2026-11-02)
+
+
+### Features
+
+* **fhir-linter:** add rule registry, TOML config and first rules ([ed25744](https://github.com/jonperron/fihr-linter/commit/ed25744fa5017d08f2afb37069ce8a9cc1ece701))
+* **fhir-validator:** add references and profile layers ([815504d](https://github.com/jonperron/fihr-linter/commit/815504d3e7d6e7f12d7b94b8ac13d256640e0c8d))
+* **fhir-validator:** complete phase 5 validator layers ([a4b3362](https://github.com/jonperron/fihr-linter/commit/a4b3362e46aac0a5f503840c695156392565236d))
+* **fhir-validator:** implement terminology layer ([de23f1b](https://github.com/jonperron/fihr-linter/commit/de23f1b07baa69bdc311b09a628a125a11d4a95d))
+* **fhir-validator:** validate nested elements ([b043b79](https://github.com/jonperron/fihr-linter/commit/b043b79e03b818c96f1d157bc528c4567d6276ba))
+* nested validation (phase 5) and linter (phase 6) ([a859adc](https://github.com/jonperron/fihr-linter/commit/a859adc9b0c104c0a555bd5f2a64e8a98254427c))
+
+
+### Bug Fixes
+
+* **fhir-fhirpath:** harden evaluator (panics, equality, regex) ([1bfc557](https://github.com/jonperron/fihr-linter/commit/1bfc5576c7e50d0be13157391f78649187230a5b))
+* **fhir-fhirpath:** harden evaluator panics, set equality and regex ([274eaf3](https://github.com/jonperron/fihr-linter/commit/274eaf3dd81f9994102745b7aeb21b1ec092ddd7))
+* **fhir-fhirpath:** harden parser string, bool and nesting handling ([96805eb](https://github.com/jonperron/fihr-linter/commit/96805ebc20c2309ddc9ecc954662f81ec2c3ff7b))
+* **fhir-fhirpath:** harden parser string, bool and nesting handling ([9751612](https://github.com/jonperron/fihr-linter/commit/9751612ea1d4036b224dc416d2c1eedc7f1aeb3f))
+* **fhir-fhirpath:** make nesting guard skip comments and backticks ([3381cfc](https://github.com/jonperron/fihr-linter/commit/3381cfc3d5861c8cea81c472adf1f8ea14cbcbb8))
+* **fhir-fhirpath:** restore descendants order and tolerate base64 whitespace ([3e222be](https://github.com/jonperron/fihr-linter/commit/3e222beec5510ce2e58e6ed33e5181533bd68aec))
+* **fhir-fhirpath:** tighten parser limits to prevent stack overflow ([868f773](https://github.com/jonperron/fihr-linter/commit/868f773b86c228b57091db35883a0f449a0ca067))
+* **fhir-fhirpath:** tighten parser limits to prevent stack overflow ([504559e](https://github.com/jonperron/fihr-linter/commit/504559efac4650194aa3656696eafa3b7ab3ba49))
+* **fhir-fhirpath:** use checked i64 arithmetic for integers ([82eb980](https://github.com/jonperron/fihr-linter/commit/82eb9808fd6b3c91aeb37f83355b864b302dbe43))
+* **fhir-fhirpath:** use checked i64 arithmetic for integers ([3bf0ead](https://github.com/jonperron/fihr-linter/commit/3bf0eadfb0a7a6e2990073209e40dea94ecd2f79))
+* **fhir-parser:** cap nesting depth and harden definitions loader ([fbb6e1e](https://github.com/jonperron/fihr-linter/commit/fbb6e1e09159f29bc1d1636ffd3f05dee43f5193))
+* **fhir-parser:** cap nesting depth and harden definitions loader ([8c37ca4](https://github.com/jonperron/fihr-linter/commit/8c37ca4d8383dda8ef9b7b571f3294eba5ad200b))
+* **fhir-validator:** address phase 5 review findings ([415c1ad](https://github.com/jonperron/fihr-linter/commit/415c1ad7acde523b5f03d1e714f7866370df422b))
+* **fhir-validator:** handle contentReference and primitive extensions ([69402ec](https://github.com/jonperron/fihr-linter/commit/69402ecee9d35ccfaa3aee346ca28554a2c98b8f))
+* **fhir-validator:** handle contentReference and primitive extensions ([58c08db](https://github.com/jonperron/fihr-linter/commit/58c08db50825842d11cb9a55f7ba99642a452d79))
+* **fhir-validator:** non-ascii panic, dedupe, INVARIANT_PARSE ([2cccbb2](https://github.com/jonperron/fihr-linter/commit/2cccbb21c878f5e7c09caa03068980dfc2736972))
+* **fhir-validator:** prevent non-ascii panic and warn on unparsable invariants ([7bdccbd](https://github.com/jonperron/fihr-linter/commit/7bdccbd625cf2378049ed9bccd73bbe4d54f5d9d))
+* **fhir-validator:** skip unparseable invariants silently ([fcc3789](https://github.com/jonperron/fihr-linter/commit/fcc37896b08de072f2de49d5493cc9f4970f2d57))
+* **fhir-validator:** skip unparseable invariants silently ([5dd7973](https://github.com/jonperron/fihr-linter/commit/5dd7973bbf210f7a2a04e3488e4016646fe64517))
+
 ## [0.2.0](https://github.com/jonperron/fihr-linter/compare/fhir-linter-v0.1.0...fhir-linter-v0.2.0) (2026-11-01)
 
 
