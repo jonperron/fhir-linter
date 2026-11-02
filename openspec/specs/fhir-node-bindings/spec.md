@@ -3,9 +3,7 @@
 ## Purpose
 
 Addon Node.js natif (napi-rs) exposant le validateur et le linter. Paquet npm `fhir-linter`, ESM, Node.js uniquement.
-
 ## Requirements
-
 ### Requirement: Fonction validate
 
 Le module SHALL exposer `validate(json: string, definitionsDir?: string): Promise<Diagnostic[]>` qui analyse une ressource FHIR R5 JSON et résout avec les diagnostics de `fhir_validator::validate`. Le calcul SHALL s'exécuter hors de la boucle d'événements.
@@ -41,3 +39,9 @@ Les définitions FHIR R5 ne sont pas embarquées. `definitionsDir` SHALL proveni
 ### Requirement: Type Diagnostic
 
 `Diagnostic` SHALL être un objet avec `severity` (`error`, `warning`, `information`, `hint`), `code`, `message`, `path`, `line`, `col`, `offset` (absents sans localisation) et `rule` (absent pour le validateur).
+
+#### Scenario: Diagnostic du validateur
+
+- **WHEN** `validate` retourne un finding sans localisation
+- **THEN** `line`, `col`, `offset` et `rule` SHALL être absents du Diagnostic
+
