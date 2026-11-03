@@ -1,6 +1,6 @@
 [package]
-name        = "fhir-wasm"
-description = "TypeScript/WASM bindings for the FHIR linter and validator (wasm-bindgen)"
+name        = "fhir-node"
+description = "Node.js bindings for the FHIR linter and validator (napi-rs)"
 version.workspace     = true
 edition.workspace     = true
 authors.workspace     = true
@@ -9,8 +9,16 @@ repository.workspace  = true
 rust-version.workspace = true
 
 [lib]
+name = "fhir_node"
 crate-type = ["cdylib"]
 
 [dependencies]
-wasm-bindgen   = { workspace = true }
+napi             = { workspace = true }
+napi-derive      = { workspace = true }
+fhir-definitions = { workspace = true }
+fhir-parser      = { workspace = true }
+fhir-validator   = { workspace = true }
+fhir-linter      = { workspace = true }
 
+[build-dependencies]
+napi-build = { workspace = true }
