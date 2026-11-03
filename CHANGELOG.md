@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.4.0](https://github.com/jonperron/fihr-linter/compare/fhir-linter-v0.3.0...fhir-linter-v0.4.0) (2026-11-03)
+
+
+### Features
+
+* **python:** expose validate and lint via pyo3 ([e3452f0](https://github.com/jonperron/fihr-linter/commit/e3452f048ead3068520538a3bfb1c2591e1d2f73))
+* **python:** phase 8 python bindings ([8e6ae2a](https://github.com/jonperron/fihr-linter/commit/8e6ae2ac93d41bf387e09d05c6406857f11b27b4))
+* **typescript:** add node addon bindings with validate and lint ([b1b4510](https://github.com/jonperron/fihr-linter/commit/b1b45104b9834b3651201c4e4674448cf9a27c58))
+* **typescript:** node addon bindings (phase 9) ([03c1c9e](https://github.com/jonperron/fihr-linter/commit/03c1c9e2300b87af29f2824761a16ed2e00bc0d0))
+* update readme ([6d6a579](https://github.com/jonperron/fihr-linter/commit/6d6a5791bc49df609894b3c66433f3ba800bd344))
+* update readme ([dfa1ace](https://github.com/jonperron/fihr-linter/commit/dfa1acefb8bda9eeba5b99c724d4cdd8635c710b))
+
+
+### Bug Fixes
+
+* **deps:** bump quick-xml to 0.41 ([54b7a18](https://github.com/jonperron/fihr-linter/commit/54b7a182252b524cbe6cb5f0eb0a9608dfcd60a2))
+* **python:** build abi3 wheels for all python &gt;= 3.10 ([fa23b40](https://github.com/jonperron/fihr-linter/commit/fa23b40f1b32c8df4055ca97e991c17fc779ac8a))
+* **python:** share one registry per resolved definitions path ([013ee68](https://github.com/jonperron/fihr-linter/commit/013ee68595997e107d7becdde5be16cfc83bd9d0))
+* **typescript:** address cross-review findings ([f2c14f5](https://github.com/jonperron/fihr-linter/commit/f2c14f5bfc7e7538c4ba418f8b4c102fd4cf0597))
+
+
+### Performance Improvements
+
+* **python:** release the GIL during validate and lint ([edb2d6c](https://github.com/jonperron/fihr-linter/commit/edb2d6c6d8fc8bb7b5435e72a2a1749a86a86964))
+
 ## [0.3.0](https://github.com/jonperron/fihr-linter/compare/fhir-linter-v0.2.0...fhir-linter-v0.3.0) (2026-11-02)
 
 
