@@ -515,3 +515,35 @@ fn nested_integer_beyond_i64_produces_type_001() {
     );
     assert_has(&found, "TYPE_001", "Observation.component[0].valueInteger");
 }
+
+// ── Resource and element ids ──────────────────────────────────────────────────
+
+#[test]
+fn invalid_resource_id_produces_type_005() {
+    let found = codes_for(r#"{"resourceType":"Patient","id":"has space!"}"#);
+    assert_has(&found, "TYPE_005", "Patient.id");
+}
+
+#[test]
+fn valid_resource_id_produces_no_type_error() {
+    let found = codes_for(r#"{"resourceType":"Patient","id":"p-1.a"}"#);
+    assert!(
+        !found.iter().any(|(code, _)| code.starts_with("TYPE_")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn non_string_element_id_produces_type_001() {
+    let found = codes_for(r#"{"resourceType":"Patient","name":[{"id":5,"family":"x"}]}"#);
+    assert_has(&found, "TYPE_001", "Patient.name[0].id");
+}
+
+#[test]
+fn element_id_is_a_string_not_an_id() {
+    let found = codes_for(r#"{"resourceType":"Patient","name":[{"id":"n:1","family":"x"}]}"#);
+    assert!(
+        !found.iter().any(|(code, _)| code.starts_with("TYPE_")),
+        "{found:?}"
+    );
+}

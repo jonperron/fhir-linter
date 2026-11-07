@@ -12,6 +12,16 @@ use crate::nested::resolve;
 pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut Vec<Diagnostic>) {
     let resource_type = resource.resource_type.as_ref();
 
+    // The parser lifts `id` out of `fields` (already rejecting non-strings), without a span.
+    if let Some(id) = resource.id.as_deref().filter(|id| !is_valid_id(id)) {
+        let path = format!("{resource_type}.id");
+        diagnostics.push(Diagnostic::error(
+            "TYPE_005",
+            format!("Invalid id format at '{path}': '{id}'"),
+            path,
+        ));
+    }
+
     for (field_name, node) in &resource.fields {
         let path = format!("{resource_type}.{field_name}");
 

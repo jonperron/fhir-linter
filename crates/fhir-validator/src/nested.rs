@@ -152,7 +152,9 @@ fn walk(
         if elem.path.ends_with("[x]") {
             check_cardinality(elem, Some(node), &child_path, diagnostics);
         }
-        check_type(&node.value, &ty, &child_path, node.span, diagnostics);
+        // Element.id is a `string`; R5 snapshots label many as `id` in the fhir-type extension.
+        let check_as = if name == "id" { "string" } else { ty.as_ref() };
+        check_type(&node.value, check_as, &child_path, node.span, diagnostics);
         descend(node, elem, &ty, sd, registry, &child_path, diagnostics);
     }
 }
