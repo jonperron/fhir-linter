@@ -69,7 +69,7 @@ Le système SHALL émettre exactement un `Diagnostic` avec code `STRUCTURE_000` 
 
 ### Requirement: Validation structurelle — élément inconnu (STRUCTURE_001)
 
-Le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_001` et severity `Error` pour chaque champ de la ressource qui ne correspond à aucun chemin de profondeur 1 dans le snapshot de la StructureDefinition.
+Le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_001` et severity `Error` pour chaque champ de la ressource qui ne correspond à aucun chemin de profondeur 1 dans le snapshot de la StructureDefinition. Le suffixe d'un champ polymorphique (`value[x]`) SHALL être valide uniquement s'il nomme l'un des types déclarés de l'élément (aucune liste de suffixes codée en dur). Un nom de champ contenant `.`, `[` ou `]` SHALL toujours être signalé, sans résolution, au premier niveau comme dans les `BackboneElement`.
 
 #### Scenario: Élément inconnu détecté
 
@@ -91,11 +91,21 @@ Le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_001` et severity
 - **WHEN** une ressource contient `valueBoolean` et la StructureDefinition déclare `value[x]`
 - **THEN** aucun Diagnostic `STRUCTURE_001` ne SHALL être émis
 
+#### Scenario: Suffixe polymorphique hors des types déclarés
+
+- **WHEN** une Observation contient `valueAddress` et `Observation.value[x]` ne déclare pas le type `Address`
+- **THEN** un Diagnostic `STRUCTURE_001` SHALL être émis pour `valueAddress`
+
+#### Scenario: Nom d'élément contenant '.', '[' ou ']'
+
+- **WHEN** une ressource (ou un BackboneElement) contient un champ `component.code` ou le littéral `value[x]`
+- **THEN** un Diagnostic `STRUCTURE_001` SHALL être émis pour ce champ
+
 ---
 
 ### Requirement: Validation de cardinalité — élément requis absent (CARDINALITY_001)
 
-Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severity `Error` pour chaque élément déclaré avec `min > 0` dans le snapshot et absent de la ressource.
+Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severity `Error` pour chaque élément déclaré avec `min > 0` dans le snapshot et absent de la ressource. Un élément requis de type primitif (nom de type commençant par une minuscule) présent uniquement sous la forme `_nom` (extension de primitif) SHALL être considéré présent ; pour un type complexe, `_nom` ne SHALL PAS compter comme présence. Lorsque la valeur est absente et que `_nom` est un tableau plus long que le maximum fini, un `CARDINALITY_002` SHALL être émis (path et position de `_nom`). Un nom d'élément contenant `.`, `[` ou `]` (y compris préfixé par `_`) SHALL produire `STRUCTURE_001`. Un choix `[x]` SHALL être vérifié selon le seul type désigné par son suffixe, et un `integer64` SHALL être une chaîne conforme à `[0]|[-+]?[1-9][0-9]*` et représentable sur 64 bits signés (`TYPE_003` sinon, `TYPE_001` si non chaîne).
 
 #### Scenario: Élément requis absent
 
@@ -106,6 +116,26 @@ Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severi
 
 - **WHEN** une ressource est fournie sans un champ optionnel (min=0)
 - **THEN** aucun Diagnostic `CARDINALITY_001` ne SHALL être émis pour ce champ
+
+#### Scenario: Primitif requis présent uniquement via _champ
+
+- **WHEN** un primitif requis est fourni uniquement sous la forme `_nom` (sans `nom`)
+- **THEN** aucun Diagnostic `CARDINALITY_001` ne SHALL être émis pour ce champ
+
+#### Scenario: Élément complexe requis présent uniquement via _champ
+
+- **WHEN** `Observation.code` est fourni uniquement sous la forme `_code`
+- **THEN** un Diagnostic `CARDINALITY_001` SHALL être émis pour `Observation.code`
+
+#### Scenario: Extension de primitif en tableau au-delà du maximum
+
+- **WHEN** `Patient` contient `_birthDate: [{}, {}]` sans `birthDate`
+- **THEN** un Diagnostic `CARDINALITY_002` SHALL être émis avec `path` = `Patient.birthDate`
+
+#### Scenario: Clé préfixée par _ avec ponctuation
+
+- **WHEN** une ressource ou un `Observation.component[0]` contient la clé `_a.b` ou `_value[x]`
+- **THEN** un Diagnostic `STRUCTURE_001` SHALL être émis, alors que `_status` reste accepté
 
 #### Scenario: Placeholders polymorphiques ignorés
 
@@ -132,7 +162,12 @@ Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_002` et severi
 
 ### Requirement: Validation de type — erreur de type de base (TYPE_001)
 
-Le système SHALL émettre un `Diagnostic` avec code `TYPE_001` et severity `Error` lorsqu'une valeur n'est pas du type JSON attendu par la StructureDefinition (ex. : nombre fourni pour un champ `string`, ou chaîne pour un champ `boolean`).
+Le système SHALL émettre un `Diagnostic` avec code `TYPE_001` et severity `Error` lorsqu'une valeur n'est pas du type JSON attendu par la StructureDefinition (ex. : nombre fourni pour un champ `string`, ou chaîne pour un champ `boolean`). Pour un champ polymorphique de premier niveau (`value[x]`), le type vérifié SHALL être celui sélectionné par le suffixe du champ.
+
+#### Scenario: Champ polymorphique typé par son suffixe
+
+- **WHEN** une Observation contient `valueBoolean` avec une valeur JSON string
+- **THEN** un Diagnostic `TYPE_001` SHALL être émis pour `valueBoolean`
 
 #### Scenario: Boolean attendu, string reçu
 
@@ -371,7 +406,7 @@ Le système SHALL appliquer les vérifications de type à chaque élément d'un 
 
 ### Requirement: Validation des éléments imbriqués
 
-Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001), de cardinalité (CARDINALITY_001/002) et de type primitif (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants, références et profil restent limitées au premier niveau ; les `contentReference` (ignorés sans erreur, jamais signalés STRUCTURE_001) et les ressources contenues ne sont pas parcourus. Un enfant requis présent uniquement sous la forme `_nom` (extension de primitif) SHALL être considéré présent.
+Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001), de cardinalité (CARDINALITY_001/002) et de type primitif (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants, références et profil restent limitées au premier niveau ; les `contentReference` (ignorés sans erreur, jamais signalés STRUCTURE_001) et les ressources contenues ne sont pas parcourus. La règle `_nom` s'applique à toute profondeur : un enfant requis présent uniquement sous la forme `_nom` SHALL être considéré présent seulement si son type est primitif, et un `_nom` en tableau au-delà du maximum fini SHALL produire `CARDINALITY_002`.
 
 #### Scenario: Élément inconnu dans un type complexe
 

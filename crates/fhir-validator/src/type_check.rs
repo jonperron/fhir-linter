@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use fhir_definitions::StructureDefinition;
 use fhir_parser::{Resource, Span, Value};
 
 use crate::diagnostic::Diagnostic;
+use crate::nested::resolve;
 
 /// Validate primitive type constraints for each resource field.
 ///
@@ -12,15 +15,17 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
     for (field_name, node) in &resource.fields {
         let path = format!("{resource_type}.{field_name}");
 
-        let Some(elem) = sd
-            .snapshot
-            .iter()
-            .find(|e| e.path.as_ref() == path.as_str())
-        else {
+        let Some((elem, resolved)) = resolve(sd, &path, field_name) else {
             continue;
         };
+        // A choice element is checked against the type its suffix selects.
+        let chosen: Vec<Arc<str>> = if elem.path.ends_with("[x]") {
+            resolved.into_iter().collect()
+        } else {
+            elem.types.clone()
+        };
 
-        for fhir_type in &elem.types {
+        for fhir_type in &chosen {
             check_type(
                 &node.value,
                 fhir_type.as_ref(),
@@ -83,6 +88,11 @@ pub(crate) fn check_type(
         "date" => string_format(is_valid_date),
         "dateTime" | "instant" => string_format(is_valid_datetime),
         "time" => string_format(is_valid_time),
+        // Official regex `[0]|[-+]?[1-9][0-9]*`, within i64 range.
+        "integer64" => string_format(|s| {
+            s.parse::<i64>().is_ok()
+                && (s == "0" || !s.trim_start_matches(['+', '-']).starts_with('0'))
+        }),
         "code" => match value {
             Value::Str(s) if s.chars().any(char::is_whitespace) => Some((
                 "TYPE_004",
@@ -263,6 +273,30 @@ mod tests {
         validate(&resource, &sd, &mut d);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "TYPE_003");
+    }
+
+    #[test]
+    fn integer64_requires_a_digit_string() {
+        let sd = make_sd("Obs", "big", "integer64");
+        for (value, expected) in [
+            (Value::Str(Arc::from("-123")), None),
+            (Value::Str(Arc::from("12x")), Some("TYPE_003")),
+            (Value::Str(Arc::from("-")), Some("TYPE_003")),
+            (Value::Str(Arc::from("+1")), None),
+            (Value::Str(Arc::from("0")), None),
+            (Value::Str(Arc::from("01")), Some("TYPE_003")),
+            (Value::Str(Arc::from("-0")), Some("TYPE_003")),
+            (
+                Value::Str(Arc::from("99999999999999999999")),
+                Some("TYPE_003"),
+            ),
+            (Value::Integer(5), Some("TYPE_001")),
+        ] {
+            let resource = make_resource("Obs", "big", value);
+            let mut d = vec![];
+            validate(&resource, &sd, &mut d);
+            assert_eq!(d.first().map(|x| x.code.as_ref()), expected, "{d:?}");
+        }
     }
 
     #[test]

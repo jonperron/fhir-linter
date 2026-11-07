@@ -1,7 +1,8 @@
 use fhir_definitions::StructureDefinition;
-use fhir_parser::{Resource, Value};
+use fhir_parser::Resource;
 
 use crate::diagnostic::Diagnostic;
+use crate::nested::{check_cardinality, present};
 
 /// Validate cardinality constraints (min / max) for depth-1 elements.
 ///
@@ -25,38 +26,8 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
             continue;
         }
 
-        let node = resource.fields.get(field_name);
-
-        // Check minimum cardinality.
-        if elem.min > 0 && node.is_none() {
-            diagnostics.push(Diagnostic::error(
-                "CARDINALITY_001",
-                format!("Required element '{path}' is missing (min={})", elem.min),
-                path.to_owned(),
-            ));
-            continue;
-        }
-
-        let Some(node) = node else { continue };
-
-        // Check maximum cardinality when max is a finite number.
-        if let Ok(max) = elem.max.parse::<usize>() {
-            let count = match &node.value {
-                Value::Array(items) => items.len(),
-                Value::Null => 0,
-                _ => 1,
-            };
-            if count > max {
-                diagnostics.push(
-                    Diagnostic::error(
-                        "CARDINALITY_002",
-                        format!("Element '{path}' has {count} value(s) but maximum is {max}",),
-                        path.to_owned(),
-                    )
-                    .with_location(node.span),
-                );
-            }
-        }
+        let node = present(&resource.fields, elem, field_name);
+        check_cardinality(elem, node, path, diagnostics);
     }
 }
 
