@@ -757,3 +757,155 @@ fn each_unknown_top_level_key_is_reported_once() {
         .collect();
     assert_eq!(unknown, ["Patient.foo", "Patient.bar"]);
 }
+
+// ── Strict temporal and integer primitives ───────────────────────────────────
+
+/// Type codes reported at `path` for `{"resourceType":<rt>,<field_json>}`.
+fn type_codes_at(registry: &Registry, rt: &str, field_json: &str, path: &str) -> Vec<String> {
+    let resource = parse_json(&format!(r#"{{"resourceType":"{rt}",{field_json}}}"#)).unwrap();
+    validate(&resource, registry)
+        .into_iter()
+        .filter(|d| d.code.starts_with("TYPE_") && d.path == path)
+        .map(|d| d.code.to_string())
+        .collect()
+}
+
+#[test]
+fn temporal_primitives_follow_the_r5_regexes() {
+    let registry = load_registry();
+    let cases: &[(&str, &str, &str, bool)] = &[
+        // (resource, field, value, valid)
+        ("Patient", "birthDate", "2020", true),
+        ("Patient", "birthDate", "2020-02-29", true),
+        ("Patient", "birthDate", "2000-02-29", true),
+        ("Patient", "birthDate", "2021-02-29", false),
+        ("Patient", "birthDate", "1900-02-29", false),
+        ("Patient", "birthDate", "2020-02-31", false),
+        ("Patient", "birthDate", "2020-04-31", false),
+        ("Patient", "birthDate", "0000", false),
+        ("Patient", "deceasedDateTime", "2020-02-31", false),
+        ("Patient", "deceasedDateTime", "2020-01-01T10:00:00Z", true),
+        (
+            "Patient",
+            "deceasedDateTime",
+            "2020-01-01T10:00:00.123+02:00",
+            true,
+        ),
+        (
+            "Patient",
+            "deceasedDateTime",
+            "2020-01-01T10:00:00-14:00",
+            true,
+        ),
+        ("Patient", "deceasedDateTime", "2020-01-01T23:59:60Z", true),
+        (
+            "Patient",
+            "deceasedDateTime",
+            "2020-01-01T10:00:00garbage",
+            false,
+        ),
+        ("Patient", "deceasedDateTime", "2020-01-01T10:00:00", false),
+        (
+            "Patient",
+            "deceasedDateTime",
+            "2020-01-01T10:00:00.Z",
+            false,
+        ),
+        (
+            "Patient",
+            "deceasedDateTime",
+            "2020-01-01T10:00:00.1234567890Z",
+            false,
+        ),
+        (
+            "Patient",
+            "deceasedDateTime",
+            "2020-01-01T10:00:00+14:30",
+            false,
+        ),
+        (
+            "Patient",
+            "deceasedDateTime",
+            "2020-01-01T10:00:00+0200",
+            false,
+        ),
+        ("Patient", "deceasedDateTime", "2020-02-30T10:00:00Z", false),
+        ("Patient", "deceasedDateTime", "2020-01-01Z", false),
+        ("Patient", "deceasedDateTime", "2020-01-01T10:00:00+", false),
+        ("Observation", "issued", "2020-01-01T10:00:00.5Z", true),
+        ("Observation", "issued", "2020", false),
+        ("Observation", "issued", "2020-01-01", false),
+        ("Observation", "issued", "2020-01-01T10:00:00", false),
+        ("Observation", "valueTime", "10:00:00", true),
+        ("Observation", "valueTime", "10:00:00.123456789", true),
+        ("Observation", "valueTime", "10:00:60", true),
+        ("Observation", "valueTime", "10:00:00Z", false),
+        ("Observation", "valueTime", "10:00:00junk", false),
+        ("Observation", "valueTime", "10:00:61", false),
+        ("Observation", "valueTime", "10:00", false),
+    ];
+    for (rt, field, value, valid) in cases {
+        let found = type_codes_at(
+            &registry,
+            rt,
+            &format!(r#""{field}":"{value}""#),
+            &format!("{rt}.{field}"),
+        );
+        let expected: Vec<String> = if *valid {
+            vec![]
+        } else {
+            vec!["TYPE_003".into()]
+        };
+        assert_eq!(found, expected, "{rt}.{field} = {value:?}");
+    }
+}
+
+#[test]
+fn integer_primitives_are_32_bit() {
+    let registry = load_registry();
+    let cases: &[(&str, &str, &str, Option<&str>)] = &[
+        // (resource, field, raw JSON number, expected code)
+        ("Observation", "valueInteger", "2147483647", None),
+        ("Observation", "valueInteger", "-2147483648", None),
+        (
+            "Observation",
+            "valueInteger",
+            "2147483648",
+            Some("TYPE_002"),
+        ),
+        (
+            "Observation",
+            "valueInteger",
+            "-2147483649",
+            Some("TYPE_002"),
+        ),
+        ("Bundle", "total", "2147483647", None),
+        ("Bundle", "total", "2147483648", Some("TYPE_002")),
+        ("Bundle", "total", "-1", Some("TYPE_002")),
+    ];
+    for (rt, field, raw, expected) in cases {
+        let path = format!("{rt}.{field}");
+        let found = type_codes_at(&registry, rt, &format!(r#""{field}":{raw}"#), &path);
+        let expected: Vec<String> = expected.iter().map(|c| c.to_string()).collect();
+        assert_eq!(found, expected, "{path} = {raw}");
+    }
+    // positiveInt, nested in SampledData.
+    for (raw, expected) in [("2147483647", 0), ("2147483648", 1), ("0", 1)] {
+        let found = type_codes_at(
+            &registry,
+            "Observation",
+            &format!(r#""valueSampledData":{{"dimensions":{raw}}}"#),
+            "Observation.valueSampledData.dimensions",
+        );
+        assert_eq!(found.len(), expected, "dimensions = {raw}: {found:?}");
+        assert!(found.iter().all(|c| c == "TYPE_002"), "{found:?}");
+    }
+    // integer64 is a string and is not capped at 32 bits.
+    let found = type_codes_at(
+        &registry,
+        "Patient",
+        r#""photo":[{"size":"9223372036854775807"}]"#,
+        "Patient.photo[0].size",
+    );
+    assert!(found.is_empty(), "{found:?}");
+}

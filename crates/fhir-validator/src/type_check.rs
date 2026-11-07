@@ -33,28 +33,29 @@ pub(crate) fn check_type(
 
     let error: Option<(&str, String)> = match fhir_type {
         "boolean" if !matches!(value, Value::Bool(_)) => Some(expected("boolean")),
-        "integer" if !matches!(value, Value::Integer(_)) => Some(expected("integer")),
-        "unsignedInt" => match value {
-            Value::Integer(n) if *n < 0 => Some((
-                "TYPE_002",
-                format!("Expected non-negative integer at '{path}', got {n}"),
-            )),
-            Value::Integer(_) => None,
-            _ => Some(expected("integer")),
-        },
-        "positiveInt" => match value {
-            Value::Integer(n) if *n <= 0 => Some((
-                "TYPE_002",
-                format!("Expected positive integer at '{path}', got {n}"),
-            )),
-            Value::Integer(_) => None,
+        // R5 integer, unsignedInt and positiveInt are 32-bit (`maxValueInteger` 2147483647).
+        "integer" | "unsignedInt" | "positiveInt" => match value {
+            Value::Integer(n) => {
+                let (min, kind) = match fhir_type {
+                    "unsignedInt" => (0, "non-negative "),
+                    "positiveInt" => (1, "positive "),
+                    _ => (i64::from(i32::MIN), ""),
+                };
+                (!(min..=i64::from(i32::MAX)).contains(n)).then(|| {
+                    (
+                        "TYPE_002",
+                        format!("Expected {kind}32-bit integer at '{path}', got {n}"),
+                    )
+                })
+            }
             _ => Some(expected("integer")),
         },
         "decimal" if !matches!(value, Value::Decimal(_) | Value::Integer(_)) => {
             Some(expected("decimal number"))
         }
         "date" => string_format(is_valid_date),
-        "dateTime" | "instant" => string_format(is_valid_datetime),
+        "dateTime" => string_format(is_valid_datetime),
+        "instant" => string_format(is_valid_instant),
         "time" => string_format(is_valid_time),
         // Official regex `[0]|[-+]?[1-9][0-9]*`, within i64 range.
         "integer64" => string_format(|s| {
@@ -91,57 +92,100 @@ pub(crate) fn check_type(
     }
 }
 
-/// FHIR date: `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`.
+/// FHIR date: `YYYY`, `YYYY-MM`, or `YYYY-MM-DD` (year 0001-9999, day valid for its month).
 fn is_valid_date(s: &str) -> bool {
-    // Non-ASCII input would make the byte slicing below panic.
-    if !s.is_ascii() {
-        return false;
-    }
-    let digits = |r: std::ops::Range<usize>| s[r].bytes().all(|c| c.is_ascii_digit());
-    let in_range = |r: std::ops::Range<usize>, max: u8| {
-        digits(r.clone()) && s[r].parse::<u8>().is_ok_and(|n| (1..=max).contains(&n))
-    };
-    match s.len() {
-        4 => digits(0..4),
-        7 => digits(0..4) && &s[4..5] == "-" && in_range(5..7, 12),
-        10 => {
-            digits(0..4)
-                && &s[4..5] == "-"
-                && &s[7..8] == "-"
-                && in_range(5..7, 12)
-                && in_range(8..10, 31)
-        }
-        _ => false,
-    }
+    parse_date(s).is_some_and(|(_, rest)| rest.is_empty())
 }
 
-/// FHIR dateTime: date with optional `T` followed by a valid time component.
+/// FHIR dateTime: a date, or a full date with a time and a mandatory zone (as `instant`).
+/// The R5 regex also matches a zone on a date-only value; the spec prose ties the zone
+/// to the time, so it is rejected (as before this check was tightened).
 fn is_valid_datetime(s: &str) -> bool {
-    if is_valid_date(s) {
-        return true;
-    }
-    if let Some(t_pos) = s.find('T') {
-        return is_valid_date(&s[..t_pos]) && is_valid_time(&s[t_pos + 1..]);
-    }
-    false
+    is_valid_date(s) || is_valid_instant(s)
 }
 
-/// `hh:mm:ss[...]`, shared by `time` and the time part of `dateTime`.
-/// Only the leading `hh:mm:ss` is checked (fraction / timezone are not validated).
+/// FHIR instant: `YYYY-MM-DDThh:mm:ss(.sss)?(Z|(+|-)hh:mm)`.
+fn is_valid_instant(s: &str) -> bool {
+    matches!(parse_date(s), Some((true, rest)) if rest
+        .strip_prefix('T')
+        .and_then(parse_time)
+        .is_some_and(is_valid_zone))
+}
+
+/// FHIR time: `hh:mm:ss(.f{1,9})?`, no zone.
 fn is_valid_time(s: &str) -> bool {
-    // Non-ASCII input would make the byte slicing below panic.
-    if !s.is_ascii() || s.len() < 8 {
-        return false;
+    parse_time(s) == Some("")
+}
+
+/// Reads a leading `YYYY(-MM(-DD)?)?`; returns whether the day was present and the rest.
+fn parse_date(s: &str) -> Option<(bool, &str)> {
+    let (year, rest) = digits(s, 4)?;
+    if year == 0 {
+        return None;
     }
-    let b = s.as_bytes();
-    if b[2] != b':' || b[5] != b':' {
-        return false;
-    }
-    let part = |r: std::ops::Range<usize>, max: u8| {
-        s[r.clone()].bytes().all(|c| c.is_ascii_digit())
-            && s[r].parse::<u8>().is_ok_and(|n| n <= max)
+    let Some(rest) = rest.strip_prefix('-') else {
+        return Some((false, rest));
     };
-    part(0..2, 23) && part(3..5, 59) && part(6..8, 59)
+    let (month, rest) = digits(rest, 2)?;
+    if !(1..=12).contains(&month) {
+        return None;
+    }
+    let Some(rest) = rest.strip_prefix('-') else {
+        return Some((false, rest));
+    };
+    let (day, rest) = digits(rest, 2)?;
+    (1..=days_in_month(year, month))
+        .contains(&day)
+        .then_some((true, rest))
+}
+
+/// Reads a leading `hh:mm:ss(.f{1,9})?` (second 60 allowed, as in the R5 regex); returns the rest.
+fn parse_time(s: &str) -> Option<&str> {
+    let (hour, rest) = digits(s, 2)?;
+    let (minute, rest) = digits(rest.strip_prefix(':')?, 2)?;
+    let (second, rest) = digits(rest.strip_prefix(':')?, 2)?;
+    if hour > 23 || minute > 59 || second > 60 {
+        return None;
+    }
+    match rest.strip_prefix('.') {
+        None => Some(rest),
+        Some(fraction) => {
+            let len = fraction.bytes().take_while(u8::is_ascii_digit).count();
+            (1..=9).contains(&len).then(|| &fraction[len..])
+        }
+    }
+}
+
+/// `Z` or `(+|-)hh:mm` with an offset between 00:00 and 14:00.
+fn is_valid_zone(s: &str) -> bool {
+    let Some(offset) = s.strip_prefix(['+', '-']) else {
+        return s == "Z";
+    };
+    let Some((hour, rest)) = digits(offset, 2) else {
+        return false;
+    };
+    let Some((minute, "")) = rest.strip_prefix(':').and_then(|r| digits(r, 2)) else {
+        return false;
+    };
+    (hour <= 13 && minute <= 59) || (hour, minute) == (14, 0)
+}
+
+/// Reads exactly `count` leading ASCII digits; `None` on anything else (non-ASCII included).
+fn digits(s: &str, count: usize) -> Option<(u32, &str)> {
+    let head = s.get(..count)?;
+    if !head.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some((head.parse().ok()?, &s[count..]))
+}
+
+fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
 }
 
 /// FHIR id: `[A-Za-z0-9\-\.]{1,64}`.

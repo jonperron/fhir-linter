@@ -201,7 +201,7 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_001` et severity `Err
 
 ### Requirement: Validation de type — contrainte de valeur entière (TYPE_002)
 
-Le système SHALL émettre un `Diagnostic` avec code `TYPE_002` et severity `Error` lorsqu'une valeur entière viole une contrainte de valeur : valeur négative pour `unsignedInt`, ou valeur inférieure ou égale à zéro pour `positiveInt`.
+Le système SHALL émettre un `Diagnostic` avec code `TYPE_002` et severity `Error` lorsqu'une valeur entière viole une contrainte de valeur : valeur négative pour `unsignedInt`, valeur inférieure ou égale à zéro pour `positiveInt`, ou valeur d'un `integer`, `unsignedInt` ou `positiveInt` hors de la plage des entiers signés 32 bits (maximum `2147483647` ; minimum `-2147483648` pour `integer`).
 
 #### Scenario: unsignedInt négatif
 
@@ -213,11 +213,21 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_002` et severity `Err
 - **WHEN** un champ de type `positiveInt` contient la valeur JSON `0`
 - **THEN** un Diagnostic `TYPE_002` SHALL être émis
 
+#### Scenario: integer hors de la plage 32 bits
+
+- **WHEN** `valueInteger` contient la valeur JSON `2147483648`
+- **THEN** un Diagnostic `TYPE_002` SHALL être émis
+
 ---
 
 ### Requirement: Validation de type — format date/heure (TYPE_003)
 
-Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Error` lorsqu'une valeur de type `date`, `dateTime`, `instant` ou `time` ne respecte pas le format attendu.
+Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Error` lorsqu'une valeur de type `date`, `dateTime`, `instant` ou `time` ne respecte pas le format attendu, conforme aux expressions régulières R5 :
+
+- `date` : `YYYY(-MM(-DD)?)?`, année de `0001` à `9999`, jour valide pour le mois (années bissextiles comprises) ;
+- `dateTime` : une `date`, ou une date complète suivie de `Thh:mm:ss(.f{1,9})?` et d'un fuseau obligatoire `Z` ou `(+|-)hh:mm` (décalage au plus `14:00`) ; un fuseau sur une valeur réduite à la date SHALL être rejeté ;
+- `instant` : toujours la forme complète avec fuseau ;
+- `time` : `hh:mm:ss(.f{1,9})?` sans fuseau, heures `00`-`23`, minutes `00`-`59`, secondes `00`-`60`.
 
 #### Scenario: Date invalide
 
@@ -228,6 +238,21 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Err
 
 - **WHEN** un champ de type `date` contient `"2024-01-15"`
 - **THEN** aucun Diagnostic `TYPE_003` ne SHALL être émis
+
+#### Scenario: Jour inexistant pour le mois
+
+- **WHEN** un champ de type `date` contient `"2020-02-31"`
+- **THEN** un Diagnostic `TYPE_003` SHALL être émis
+
+#### Scenario: instant partiel
+
+- **WHEN** un champ de type `instant` contient `"2020"`
+- **THEN** un Diagnostic `TYPE_003` SHALL être émis
+
+#### Scenario: dateTime suivi de caractères parasites
+
+- **WHEN** un champ de type `dateTime` contient `"2020-01-01T10:00:00garbage"`
+- **THEN** un Diagnostic `TYPE_003` SHALL être émis
 
 ---
 
