@@ -318,3 +318,63 @@ fn required_child_present_only_as_primitive_extension_is_not_missing() {
         "{found:?}"
     );
 }
+
+#[test]
+fn top_level_choice_value_is_type_checked() {
+    let found =
+        codes_for(r#"{"resourceType":"Observation","status":"final","valueBoolean":"yes"}"#);
+    assert!(
+        found.iter().any(|(code, _)| code == "TYPE_001"),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn choice_suffix_must_be_an_allowed_type() {
+    let bad = codes_for(r#"{"resourceType":"Observation","status":"final","valueAddress":{}}"#);
+    assert!(
+        bad.iter().any(|(code, _)| code == "STRUCTURE_001"),
+        "{bad:?}"
+    );
+    let ok =
+        codes_for(r#"{"resourceType":"Observation","status":"final","code":{},"valueString":"x"}"#);
+    assert!(!ok.iter().any(|(_, path)| path.contains("value")), "{ok:?}");
+}
+
+#[test]
+fn literal_choice_placeholder_key_is_unknown() {
+    let top =
+        codes_for(r#"{"resourceType":"Observation","status":"final","code":{},"value[x]":"x"}"#);
+    assert!(
+        top.iter().any(|(code, _)| code == "STRUCTURE_001"),
+        "{top:?}"
+    );
+    let nested = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{},"#,
+        r#""component":[{"code":{},"value[x]":"x"}]}"#,
+    ));
+    assert!(
+        nested.iter().any(|(code, _)| code == "STRUCTURE_001"),
+        "{nested:?}"
+    );
+}
+
+#[test]
+fn dotted_top_level_key_is_unknown() {
+    let found = codes_for(
+        r#"{"resourceType":"Observation","status":"final","code":{},"component.code":{}}"#,
+    );
+    assert!(
+        found.iter().any(|(code, _)| code == "STRUCTURE_001"),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn top_level_required_primitive_present_only_as_extension_is_not_missing() {
+    let found = codes_for(r#"{"resourceType":"Observation","_status":{"id":"a"},"code":{}}"#);
+    assert!(
+        !found.iter().any(|(code, _)| code == "CARDINALITY_001"),
+        "{found:?}"
+    );
+}

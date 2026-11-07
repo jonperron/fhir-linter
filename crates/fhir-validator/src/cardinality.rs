@@ -26,9 +26,12 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
         }
 
         let node = resource.fields.get(field_name);
+        let has_extension = resource
+            .fields
+            .contains_key(format!("_{field_name}").as_str());
 
-        // Check minimum cardinality.
-        if elem.min > 0 && node.is_none() {
+        // Check minimum cardinality; `_field` (primitive extension) counts as present.
+        if elem.min > 0 && node.is_none() && !has_extension {
             diagnostics.push(Diagnostic::error(
                 "CARDINALITY_001",
                 format!("Required element '{path}' is missing (min={})", elem.min),

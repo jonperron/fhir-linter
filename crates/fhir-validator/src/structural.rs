@@ -1,67 +1,8 @@
-use std::collections::HashSet;
-
 use fhir_definitions::StructureDefinition;
 use fhir_parser::Resource;
 
 use crate::diagnostic::Diagnostic;
-
-/// Known FHIR type suffixes used for polymorphic (`value[x]`) fields.
-const TYPE_SUFFIXES: &[&str] = &[
-    "Boolean",
-    "Integer",
-    "String",
-    "Decimal",
-    "Uri",
-    "Url",
-    "Canonical",
-    "Base64Binary",
-    "Instant",
-    "Date",
-    "DateTime",
-    "Time",
-    "Code",
-    "Oid",
-    "Id",
-    "Markdown",
-    "UnsignedInt",
-    "PositiveInt",
-    "Uuid",
-    "CodeableConcept",
-    "Coding",
-    "Reference",
-    "Identifier",
-    "Quantity",
-    "Range",
-    "Ratio",
-    "SampledData",
-    "Signature",
-    "HumanName",
-    "Address",
-    "ContactPoint",
-    "Timing",
-    "Meta",
-    "Period",
-    "Attachment",
-    "Annotation",
-    "Age",
-    "Count",
-    "Distance",
-    "Duration",
-    "Money",
-    "Expression",
-    "RelatedArtifact",
-    "UsageContext",
-    "DataRequirement",
-    "ParameterDefinition",
-    "TriggerDefinition",
-    "ContactDetail",
-    "ExtendedContactDetail",
-    "Availability",
-    "VirtualServiceDetail",
-    "MonetaryComponent",
-    "CodeableReference",
-    "RatioRange",
-];
+use crate::nested::resolve;
 
 /// Check that all resource fields correspond to known paths in the snapshot.
 ///
@@ -69,25 +10,6 @@ const TYPE_SUFFIXES: &[&str] = &[
 /// a depth-1 path in the StructureDefinition.
 pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut Vec<Diagnostic>) {
     let resource_type = resource.resource_type.as_ref();
-    let prefix = format!("{resource_type}.");
-
-    let mut known: HashSet<&str> = HashSet::new();
-    let mut polymorphic_bases: HashSet<&str> = HashSet::new();
-
-    for elem in &sd.snapshot {
-        let path = elem.path.as_ref();
-        // Only direct children: one segment beyond the resource type prefix.
-        if let Some(rest) = path.strip_prefix(&prefix) {
-            if !rest.contains('.') {
-                if let Some(base) = rest.strip_suffix("[x]") {
-                    polymorphic_bases.insert(base);
-                } else {
-                    known.insert(rest);
-                }
-            }
-        }
-    }
-
     for (field_name, node) in &resource.fields {
         let name = field_name.as_ref();
 
@@ -96,11 +18,7 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
             continue;
         }
 
-        if known.contains(name) {
-            continue;
-        }
-
-        if is_polymorphic_match(name, &polymorphic_bases) {
+        if resolve(sd, &format!("{resource_type}.{name}"), name).is_some() {
             continue;
         }
 
@@ -113,18 +31,6 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
             .with_location(node.span),
         );
     }
-}
-
-/// Return `true` if `name` matches a polymorphic base with a known type suffix appended.
-fn is_polymorphic_match(name: &str, bases: &HashSet<&str>) -> bool {
-    for suffix in TYPE_SUFFIXES {
-        if let Some(base) = name.strip_suffix(suffix) {
-            if !base.is_empty() && bases.contains(base) {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 #[cfg(test)]
@@ -237,6 +143,7 @@ mod tests {
         let mut sd = make_sd("Observation", &["value[x]"]);
         // Replace the auto-created entry with a proper [x] path
         sd.snapshot[1].path = Arc::from("Observation.value[x]");
+        sd.snapshot[1].types = vec![Arc::from("string")];
         let resource = make_resource(
             "Observation",
             &[("valueString", Value::Str(Arc::from("hello")))],
@@ -244,6 +151,17 @@ mod tests {
         let mut diagnostics = vec![];
         validate(&resource, &sd, &mut diagnostics);
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn polymorphic_field_with_disallowed_type_is_rejected() {
+        let mut sd = make_sd("Observation", &["value[x]"]);
+        sd.snapshot[1].path = Arc::from("Observation.value[x]");
+        sd.snapshot[1].types = vec![Arc::from("string")];
+        let resource = make_resource("Observation", &[("valueAddress", Value::Bool(true))]);
+        let mut diagnostics = vec![];
+        validate(&resource, &sd, &mut diagnostics);
+        assert_eq!(diagnostics.len(), 1);
     }
 
     #[test]

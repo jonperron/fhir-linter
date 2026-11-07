@@ -33,11 +33,14 @@ pub fn validate(
 /// Find the element for `name` under `parent_path`, and the single type it has
 /// for this instance (the suffix picks the type of a `[x]` element). The type is
 /// `None` for typeless elements such as `contentReference`; `None` overall means not found.
-fn resolve<'a>(
+pub(crate) fn resolve<'a>(
     sd: &'a StructureDefinition,
     path: &str,
     name: &str,
 ) -> Option<(&'a ElementDefinition, Option<Arc<str>>)> {
+    if name.contains(['.', '[', ']']) {
+        return None;
+    }
     let direct = sd.snapshot.iter().find(|e| e.path.as_ref() == path);
     if let Some(e) = direct {
         return Some((e, e.types.first().cloned()));

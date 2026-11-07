@@ -69,7 +69,7 @@ Le système SHALL émettre exactement un `Diagnostic` avec code `STRUCTURE_000` 
 
 ### Requirement: Validation structurelle — élément inconnu (STRUCTURE_001)
 
-Le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_001` et severity `Error` pour chaque champ de la ressource qui ne correspond à aucun chemin de profondeur 1 dans le snapshot de la StructureDefinition.
+Le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_001` et severity `Error` pour chaque champ de la ressource qui ne correspond à aucun chemin de profondeur 1 dans le snapshot de la StructureDefinition. Le suffixe d'un champ polymorphique (`value[x]`) SHALL être valide uniquement s'il nomme l'un des types déclarés de l'élément (aucune liste de suffixes codée en dur). Un nom de champ contenant `.`, `[` ou `]` SHALL toujours être signalé, sans résolution, au premier niveau comme dans les `BackboneElement`.
 
 #### Scenario: Élément inconnu détecté
 
@@ -91,11 +91,21 @@ Le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_001` et severity
 - **WHEN** une ressource contient `valueBoolean` et la StructureDefinition déclare `value[x]`
 - **THEN** aucun Diagnostic `STRUCTURE_001` ne SHALL être émis
 
+#### Scenario: Suffixe polymorphique hors des types déclarés
+
+- **WHEN** une Observation contient `valueAddress` et `Observation.value[x]` ne déclare pas le type `Address`
+- **THEN** un Diagnostic `STRUCTURE_001` SHALL être émis pour `valueAddress`
+
+#### Scenario: Nom d'élément contenant '.', '[' ou ']'
+
+- **WHEN** une ressource (ou un BackboneElement) contient un champ `component.code` ou le littéral `value[x]`
+- **THEN** un Diagnostic `STRUCTURE_001` SHALL être émis pour ce champ
+
 ---
 
 ### Requirement: Validation de cardinalité — élément requis absent (CARDINALITY_001)
 
-Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severity `Error` pour chaque élément déclaré avec `min > 0` dans le snapshot et absent de la ressource.
+Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severity `Error` pour chaque élément déclaré avec `min > 0` dans le snapshot et absent de la ressource. Un primitif requis présent uniquement sous la forme `_nom` (extension de primitif) SHALL être considéré présent.
 
 #### Scenario: Élément requis absent
 
@@ -105,6 +115,11 @@ Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severi
 #### Scenario: Élément optionnel absent ne produit pas d'erreur
 
 - **WHEN** une ressource est fournie sans un champ optionnel (min=0)
+- **THEN** aucun Diagnostic `CARDINALITY_001` ne SHALL être émis pour ce champ
+
+#### Scenario: Primitif requis présent uniquement via _champ
+
+- **WHEN** un primitif requis est fourni uniquement sous la forme `_nom` (sans `nom`)
 - **THEN** aucun Diagnostic `CARDINALITY_001` ne SHALL être émis pour ce champ
 
 #### Scenario: Placeholders polymorphiques ignorés
@@ -132,7 +147,12 @@ Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_002` et severi
 
 ### Requirement: Validation de type — erreur de type de base (TYPE_001)
 
-Le système SHALL émettre un `Diagnostic` avec code `TYPE_001` et severity `Error` lorsqu'une valeur n'est pas du type JSON attendu par la StructureDefinition (ex. : nombre fourni pour un champ `string`, ou chaîne pour un champ `boolean`).
+Le système SHALL émettre un `Diagnostic` avec code `TYPE_001` et severity `Error` lorsqu'une valeur n'est pas du type JSON attendu par la StructureDefinition (ex. : nombre fourni pour un champ `string`, ou chaîne pour un champ `boolean`). Pour un champ polymorphique de premier niveau (`value[x]`), le type vérifié SHALL être celui sélectionné par le suffixe du champ.
+
+#### Scenario: Champ polymorphique typé par son suffixe
+
+- **WHEN** une Observation contient `valueBoolean` avec une valeur JSON string
+- **THEN** un Diagnostic `TYPE_001` SHALL être émis pour `valueBoolean`
 
 #### Scenario: Boolean attendu, string reçu
 

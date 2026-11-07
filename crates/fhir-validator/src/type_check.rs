@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use fhir_definitions::StructureDefinition;
 use fhir_parser::{Resource, Span, Value};
 
 use crate::diagnostic::Diagnostic;
+use crate::nested::resolve;
 
 /// Validate primitive type constraints for each resource field.
 ///
@@ -12,15 +15,17 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
     for (field_name, node) in &resource.fields {
         let path = format!("{resource_type}.{field_name}");
 
-        let Some(elem) = sd
-            .snapshot
-            .iter()
-            .find(|e| e.path.as_ref() == path.as_str())
-        else {
+        let Some((elem, resolved)) = resolve(sd, &path, field_name) else {
             continue;
         };
+        // A choice element is checked against the type its suffix selects.
+        let chosen: Vec<Arc<str>> = if elem.path.ends_with("[x]") {
+            resolved.into_iter().collect()
+        } else {
+            elem.types.clone()
+        };
 
-        for fhir_type in &elem.types {
+        for fhir_type in &chosen {
             check_type(
                 &node.value,
                 fhir_type.as_ref(),
