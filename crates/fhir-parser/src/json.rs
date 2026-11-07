@@ -391,17 +391,22 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
         let num_str = std::str::from_utf8(&self.source[start..self.pos])
             .map_err(|_| self.error_at(start, "invalid number encoding"))?;
 
-        if is_float {
-            let f: f64 = num_str
-                .parse()
-                .map_err(|_| self.error_at(start, format!("invalid float: {}", num_str)))?;
-            Ok(Value::Decimal(f))
-        } else {
-            let i: i64 = num_str
-                .parse()
-                .map_err(|_| self.error_at(start, format!("invalid integer: {}", num_str)))?;
-            Ok(Value::Integer(i))
+        if !is_float {
+            // The grammar above guarantees digits, so a failure here means
+            // i64 overflow: fall back to a decimal like any other JSON number.
+            // shortcut: f64 rounds beyond ~17 significant digits, switch to an
+            // arbitrary-precision decimal if exact FHIR decimals are required.
+            if let Ok(i) = num_str.parse::<i64>() {
+                return Ok(Value::Integer(i));
+            }
         }
+        let f: f64 = num_str
+            .parse()
+            .map_err(|_| self.error_at(start, format!("invalid number: {}", num_str)))?;
+        if !f.is_finite() {
+            return Err(self.error_at(start, format!("number out of range: {}", num_str)));
+        }
+        Ok(Value::Decimal(f))
     }
 
     // ── Object scanning ───────────────────────────────────────────────────
@@ -597,6 +602,35 @@ mod tests {
             resource.fields.get("ratio").unwrap().value,
             Value::Decimal(_)
         ));
+    }
+
+    #[test]
+    fn parse_integer_beyond_i64_as_decimal() {
+        let source = r#"{"resourceType": "Basic", "big": 12345678901234567890, "neg": -0}"#;
+        let resource = parse_json(source).unwrap();
+        assert!(matches!(
+            resource.fields.get("big").unwrap().value,
+            Value::Decimal(f) if f == 12345678901234567890.0
+        ));
+        assert!(matches!(
+            resource.fields.get("neg").unwrap().value,
+            Value::Integer(0)
+        ));
+        let tiny = parse_json(r#"{"resourceType": "Basic", "x": 1e-400}"#).unwrap();
+        assert!(matches!(
+            tiny.fields.get("x").unwrap().value,
+            Value::Decimal(f) if f == 0.0
+        ));
+    }
+
+    #[test]
+    fn reject_non_finite_numbers() {
+        let huge_int = "9".repeat(400);
+        for num in ["1e400", "-1e400", huge_int.as_str()] {
+            let source = format!(r#"{{"resourceType": "Basic", "x": {num}}}"#);
+            let err = parse_json(&source).unwrap_err();
+            assert!(err.to_string().contains("out of range"), "{num}: {err}");
+        }
     }
 
     #[test]

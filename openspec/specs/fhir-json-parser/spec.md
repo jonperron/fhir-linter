@@ -78,6 +78,37 @@ Le système SHALL exposer une fonction `parse_json(source: &str) -> Result<Resou
 
 ---
 
+### Requirement: Conversion des nombres JSON
+
+Le système SHALL convertir chaque nombre JSON en `Value` selon sa forme lexicale : un nombre sans `.` ni exposant représentable sur 64 bits signés SHALL devenir `Value::Integer` ; tout autre nombre fini SHALL devenir `Value::Decimal(f64)` (arrondi à la précision `f64`). Un nombre dont la conversion en `f64` n'est pas finie SHALL être rejeté.
+
+#### Scenario: Entier dans la plage i64
+
+- **WHEN** `parse_json` rencontre le nombre `42` ou `-0`
+- **THEN** la valeur SHALL être `Value::Integer(42)`, respectivement `Value::Integer(0)`
+
+#### Scenario: Entier hors de la plage i64
+
+- **WHEN** `parse_json` rencontre un entier littéral dépassant i64, par exemple `12345678901234567890`
+- **THEN** la valeur SHALL être `Value::Decimal` (arrondie à la précision `f64`) et le parsing SHALL réussir
+
+#### Scenario: Nombre avec partie décimale ou exposant
+
+- **WHEN** `parse_json` rencontre un nombre contenant `.` ou un exposant, par exemple `1.5` ou `1e2`
+- **THEN** la valeur SHALL être `Value::Decimal`
+
+#### Scenario: Sous-dépassement
+
+- **WHEN** `parse_json` rencontre le nombre `1e-400`
+- **THEN** la valeur SHALL être `Value::Decimal(0.0)`
+
+#### Scenario: Nombre hors plage
+
+- **WHEN** `parse_json` rencontre un nombre dont la valeur `f64` n'est pas finie, par exemple `1e400`, `-1e400` ou un entier de 400 chiffres
+- **THEN** elle SHALL retourner `Err(ParseError::JsonError)` avec un message `number out of range: ...`
+
+---
+
 ### Requirement: Positions sources précises
 
 Le système SHALL associer une position source à chaque `Node` lors du parse JSON.

@@ -179,6 +179,11 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_001` et severity `Err
 - **WHEN** un champ de type `string` contient une valeur JSON numérique
 - **THEN** un Diagnostic `TYPE_001` SHALL être émis
 
+#### Scenario: Entier attendu, décimal reçu
+
+- **WHEN** un champ de type `integer`, `unsignedInt` ou `positiveInt` contient une valeur parsée en `Value::Decimal` (par exemple `1.5` ou un entier dépassant i64)
+- **THEN** un Diagnostic `TYPE_001` SHALL être émis
+
 ---
 
 ### Requirement: Validation de type — contrainte de valeur entière (TYPE_002)
