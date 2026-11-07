@@ -732,6 +732,142 @@ fn top_level_extension_keys_are_not_unknown() {
     );
 }
 
+// ── Extensions ───────────────────────────────────────────────────────────────
+
+/// Patient JSON placing `ext` (an extension array or value) at the top level, in a
+/// backbone element and, for `extension` (datatypes have no `modifierExtension`), in a
+/// complex type.
+fn extension_placements(key: &str, ext: &str) -> Vec<(String, String)> {
+    let mut placements = vec![
+        (
+            format!(r#"{{"resourceType":"Patient","{key}":{ext}}}"#),
+            format!("Patient.{key}"),
+        ),
+        (
+            format!(r#"{{"resourceType":"Patient","contact":[{{"{key}":{ext}}}]}}"#),
+            format!("Patient.contact[0].{key}"),
+        ),
+    ];
+    if key == "extension" {
+        placements.push((
+            format!(r#"{{"resourceType":"Patient","name":[{{"{key}":{ext}}}]}}"#),
+            format!("Patient.name[0].{key}"),
+        ));
+    }
+    placements
+}
+
+#[test]
+fn modifier_extension_on_a_datatype_is_unknown() {
+    let found = codes_for(r#"{"resourceType":"Patient","name":[{"modifierExtension":[]}]}"#);
+    assert_has(&found, "STRUCTURE_001", "Patient.name[0].modifierExtension");
+}
+
+#[test]
+fn extension_on_a_resource_without_one_is_unknown() {
+    // Bundle derives from Resource, not DomainResource, so it has no `extension`.
+    let found = codes_for(r#"{"resourceType":"Bundle","type":"collection","extension":[]}"#);
+    assert_has(&found, "STRUCTURE_001", "Bundle.extension");
+}
+
+#[test]
+fn extension_without_url_is_cardinality_001() {
+    for key in ["extension", "modifierExtension"] {
+        for (json, path) in extension_placements(key, r#"[{"valueString":"x"}]"#) {
+            assert_has(
+                &codes_for(&json),
+                "CARDINALITY_001",
+                &format!("{path}[0].url"),
+            );
+        }
+    }
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Patient","extension":[{"url":"http://e","#,
+        r#""extension":[{"valueString":"x"}]}]}"#,
+    ));
+    assert_has(
+        &found,
+        "CARDINALITY_001",
+        "Patient.extension[0].extension[0].url",
+    );
+}
+
+#[test]
+fn extension_that_is_not_an_object_is_type_001() {
+    for key in ["extension", "modifierExtension"] {
+        for ext in [r#""oops""#, r#"["oops"]"#] {
+            for (json, path) in extension_placements(key, ext) {
+                let path = if ext.starts_with('[') {
+                    format!("{path}[0]")
+                } else {
+                    path
+                };
+                assert_has(&codes_for(&json), "TYPE_001", &path);
+            }
+        }
+    }
+}
+
+#[test]
+fn scalar_for_a_complex_element_is_type_001() {
+    let resource = parse_json(r#"{"resourceType":"Patient","meta":null,"name":[{},42]}"#).unwrap();
+    let found: Vec<_> = validate(&resource, &load_registry())
+        .into_iter()
+        .filter(|d| d.code.as_ref() == "TYPE_001")
+        .map(|d| (d.path, d.message))
+        .collect();
+    assert!(
+        found.contains(&(
+            "Patient.meta".into(),
+            "Expected Meta object at 'Patient.meta'".into()
+        )),
+        "{found:?}"
+    );
+    assert!(
+        found.iter().any(|(path, _)| path == "Patient.name[1]"),
+        "{found:?}"
+    );
+    assert!(
+        !found.iter().any(|(path, _)| path == "Patient.name[0]"),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn extension_value_is_type_checked() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Patient","extension":[{"url":"http://e","valueInteger":"x"},"#,
+        r#"{"url":"http://e","valueBogus":1}]}"#,
+    ));
+    assert_has(&found, "TYPE_001", "Patient.extension[0].valueInteger");
+    assert_has(&found, "STRUCTURE_001", "Patient.extension[1].valueBogus");
+}
+
+#[test]
+fn valid_extensions_have_no_diagnostics() {
+    let ext = concat!(
+        r#"[{"url":"http://e","valueString":"x"},"#,
+        r#"{"url":"http://e","valueCodeableConcept":{"coding":[{"code":"a"}]}},"#,
+        r#"{"url":"http://e","extension":[{"url":"n","valueInteger":1}]}]"#,
+    );
+    for key in ["extension", "modifierExtension"] {
+        for (json, path) in extension_placements(key, ext) {
+            let found = codes_for(&json);
+            assert!(
+                !found.iter().any(|(_, p)| p.starts_with(&path)),
+                "{json}: {found:?}"
+            );
+        }
+    }
+    let found = codes_for(
+        r#"{"resourceType":"Patient","_birthDate":{"extension":[{"url":"http://e","valueString":"x"}]}}"#,
+    );
+    assert!(
+        !found.iter().any(|(_, p)| p.contains("birthDate")),
+        "{found:?}"
+    );
+}
+
 #[test]
 fn top_level_value_array_over_max_is_cardinality_002() {
     let found = codes_for(r#"{"resourceType":"Patient","active":[true,false]}"#);

@@ -106,15 +106,29 @@ fn descend(
         Value::Object(fields) => {
             if ty == "BackboneElement" || ty == "Element" {
                 walk(fields, sd, &elem.path, registry, path, diagnostics);
-            } else if let Some(type_sd) = registry
-                .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{ty}"))
-                .filter(|t| t.kind.as_ref() == "complex-type")
-            {
+            } else if let Some(type_sd) = complex_type(ty, registry) {
                 walk(fields, type_sd, &type_sd.name, registry, path, diagnostics);
             }
         }
+        _ if ty == "BackboneElement" || ty == "Element" || complex_type(ty, registry).is_some() => {
+            diagnostics.push(
+                Diagnostic::error(
+                    "TYPE_001",
+                    format!("Expected {ty} object at '{path}'"),
+                    path.to_owned(),
+                )
+                .with_location(node.span),
+            );
+        }
         _ => {}
     }
+}
+
+/// The StructureDefinition of `ty` when it is a complex datatype.
+fn complex_type<'a>(ty: &str, registry: &'a Registry) -> Option<&'a StructureDefinition> {
+    registry
+        .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{ty}"))
+        .filter(|t| t.kind.as_ref() == "complex-type")
 }
 
 /// Validate the children of one object against the elements under `def_path`.
@@ -132,9 +146,9 @@ fn walk(
 
     for (name, node) in fields {
         let name = name.as_ref();
-        if !has_punctuation(name)
-            && (name.starts_with('_') || name == "extension" || name == "modifierExtension")
-        {
+        // `_name` primitive extensions only count towards presence; `extension` and
+        // `modifierExtension` are typed `Extension` and walked like any other element.
+        if !has_punctuation(name) && name.starts_with('_') {
             continue;
         }
         let child_path = format!("{path}.{name}");
