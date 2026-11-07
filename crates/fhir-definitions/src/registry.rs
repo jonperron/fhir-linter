@@ -21,6 +21,7 @@ impl Registry {
     ///
     /// - `profiles-resources.json`
     /// - `profiles-types.json`
+    /// - `profiles-others.json` (core profiles such as `vitalsigns`)
     /// - `valuesets.json`
     pub fn from_definitions_dir(dir: impl AsRef<Path>) -> Result<Self> {
         let dir = dir.as_ref();
@@ -29,7 +30,11 @@ impl Registry {
         let mut value_sets = HashMap::new();
         let mut code_systems = HashMap::new();
 
-        for file in &["profiles-resources.json", "profiles-types.json"] {
+        for file in &[
+            "profiles-resources.json",
+            "profiles-types.json",
+            "profiles-others.json",
+        ] {
             let path = dir.join(file);
             loader::load_bundle(
                 &path,
@@ -178,6 +183,15 @@ mod tests {
             registry
                 .structure_definition("http://hl7.org/fhir/StructureDefinition/patient")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn registry_loads_core_profiles_from_profiles_others() {
+        assert!(
+            REGISTRY
+                .structure_definition("http://hl7.org/fhir/StructureDefinition/vitalsigns")
+                .is_some()
         );
     }
 
