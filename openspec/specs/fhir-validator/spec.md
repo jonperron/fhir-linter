@@ -287,7 +287,7 @@ Les enfants `id` des éléments imbriqués SHALL être vérifiés comme `string`
 
 ### Requirement: Validation des invariants FHIRPath (INVARIANT_<key>)
 
-Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur l'élément racine du snapshot. Pour chaque contrainte dont l'expression ne retourne pas `[true]`, il SHALL émettre un `Diagnostic` avec code `INVARIANT_<key>` où `<key>` est la valeur du champ `key` de la contrainte.
+Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur l'élément racine du snapshot. Pour chaque contrainte dont l'expression ne retourne pas `[true]`, il SHALL émettre un `Diagnostic` avec code `INVARIANT_<key>` où `<key>` est la valeur du champ `key` de la contrainte. Le code `INVARIANT_SKIPPED` est réservé : il signale une contrainte non vérifiée et n'est jamais une violation.
 
 #### Scenario: Contrainte violée émet INVARIANT_<key>
 
@@ -299,15 +299,17 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 - **WHEN** une contrainte FHIRPath évalue à `[true]`
 - **THEN** aucun Diagnostic `INVARIANT_` ne SHALL être émis pour cette contrainte
 
-#### Scenario: Erreur d'évaluation FHIRPath silencieusement ignorée
+#### Scenario: Erreur d'évaluation FHIRPath signalée INVARIANT_SKIPPED
 
 - **WHEN** l'évaluation FHIRPath d'une contrainte retourne une erreur
-- **THEN** aucun Diagnostic ne SHALL être émis pour cette contrainte (l'erreur est ignorée)
+- **THEN** aucun Diagnostic `INVARIANT_<key>` ne SHALL être émis pour cette contrainte
+- **AND** exactement un Diagnostic de severity `Information` avec code `INVARIANT_SKIPPED` SHALL être émis, au `path` du type de ressource, avec un message nommant la `key` de la contrainte et la raison de l'erreur
 
-#### Scenario: Expression non analysable silencieusement ignorée
+#### Scenario: Expression non analysable signalée INVARIANT_SKIPPED
 
 - **WHEN** l'expression FHIRPath d'une contrainte ne peut pas être analysée (par ex. `%resource`, identifiants entre backticks, `'#'+id in (...)` non encore supportés par le parseur)
-- **THEN** aucun Diagnostic ne SHALL être émis ; la contrainte SHALL être ignorée tant que ces lacunes du parseur ne sont pas comblées
+- **THEN** la contrainte SHALL être ignorée tant que ces lacunes du parseur ne sont pas comblées
+- **AND** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` nommant la `key` et la raison SHALL être émis, afin qu'un résultat sans erreur ne masque jamais une contrainte non vérifiée
 
 #### Scenario: Severity `information` mappée en Warning
 

@@ -348,10 +348,32 @@ fn bad_primitive_in_nested_element_is_reported() {
 
 #[test]
 fn valid_nested_resource_has_no_nested_errors() {
-    let found = codes_for(
+    let resource = parse_json(
         r#"{"resourceType":"Patient","name":[{"family":"A","given":["B"]}],"contact":[{"name":{"family":"C"}}]}"#,
-    );
+    )
+    .unwrap();
+    // INVARIANT_SKIPPED reports an unchecked constraint, not a finding about the resource.
+    let found: Vec<_> = validate(&resource, &load_registry())
+        .into_iter()
+        .filter(|d| d.code.as_ref() != "INVARIANT_SKIPPED")
+        .collect();
     assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn unevaluable_invariants_are_reported_as_information() {
+    let resource = parse_json(r#"{"resourceType":"Patient","id":"p1"}"#).unwrap();
+    let skipped: Vec<_> = validate(&resource, &load_registry())
+        .into_iter()
+        .filter(|d| d.code.as_ref() == "INVARIANT_SKIPPED")
+        .collect();
+    // Relies on Patient using `%resource` (dom-3); expected to change once the parser supports it.
+    assert!(!skipped.is_empty(), "expected skipped Patient invariants");
+    for d in &skipped {
+        assert_eq!(d.severity, Severity::Information);
+        assert_eq!(d.path, "Patient");
+        assert!(d.message.starts_with("constraint "), "{}", d.message);
+    }
 }
 
 #[test]

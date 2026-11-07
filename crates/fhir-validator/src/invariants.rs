@@ -8,9 +8,11 @@ use crate::diagnostic::{Diagnostic, Severity};
 /// Evaluate FHIRPath `constraint.expression` invariants from the root element.
 ///
 /// Emits `INVARIANT_<key>` for every constraint whose expression evaluates to
-/// anything other than `[true]`. Expressions that fail to parse or evaluate are
-/// silently skipped (shortcut: parser lacks `%resource`, backtick identifiers
-/// and `'#'+id in (...)`; emit a warning once those gaps close).
+/// anything other than `[true]`. Expressions that fail to parse or evaluate
+/// emit one `Information` `INVARIANT_SKIPPED` naming the key and the reason, so
+/// a clean result never hides an unchecked constraint (shortcut: parser lacks
+/// `%resource`, backtick identifiers and `'#'+id in (...)`; these skips shrink
+/// as those gaps close).
 pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut Vec<Diagnostic>) {
     let resource_type = resource.resource_type.as_ref();
 
@@ -33,8 +35,18 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
 
         let result = match fhir_fhirpath::evaluate(expression, &context) {
             Ok(r) => r,
-            // Evaluation errors are non-fatal; skip this constraint.
-            Err(_) => continue,
+            // Parse/evaluation errors are non-fatal: report the skip, then move on.
+            Err(e) => {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Information,
+                    code: Arc::from("INVARIANT_SKIPPED"),
+                    message: format!("constraint {} not checked: {e}", constraint.key),
+                    path: resource_type.to_owned(),
+                    location: None,
+                    rule: None,
+                });
+                continue;
+            }
         };
 
         // A constraint is satisfied when the expression returns exactly [true].
@@ -161,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn evaluation_error_is_silently_skipped() {
+    fn evaluation_error_reports_invariant_skipped_information() {
         // This expression references an undefined function — should not crash.
         let sd = make_sd_with_constraints(
             "Patient",
@@ -174,7 +186,24 @@ mod tests {
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
         validate(&resource, &sd, &mut d);
-        assert!(d.is_empty());
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].code.as_ref(), "INVARIANT_SKIPPED");
+        assert_eq!(d[0].severity, Severity::Information);
+        assert!(d[0].message.contains("test-5"), "{}", d[0].message);
+    }
+
+    #[test]
+    fn unparsable_expression_reports_invariant_skipped_information() {
+        let sd = make_sd_with_constraints(
+            "Patient",
+            vec![make_constraint("test-7", "error", "name.where(")],
+        );
+        let mut d = vec![];
+        validate(&make_empty_resource("Patient"), &sd, &mut d);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].code.as_ref(), "INVARIANT_SKIPPED");
+        assert_eq!(d[0].severity, Severity::Information);
+        assert!(d[0].message.contains("test-7"), "{}", d[0].message);
     }
 
     #[test]
