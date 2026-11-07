@@ -121,23 +121,9 @@ fn walk(
             .filter(|(_, rest)| !rest.contains('.'))
     };
 
-    for (elem, rest) in children() {
-        if rest.ends_with("[x]")
-            || fields.contains_key(rest)
-            || fields.contains_key(format!("_{rest}").as_str())
-        {
-            continue;
-        }
-        if elem.min > 0 {
-            diagnostics.push(Diagnostic::error(
-                "CARDINALITY_001",
-                format!(
-                    "Required element '{path}.{rest}' is missing (min={})",
-                    elem.min
-                ),
-                format!("{path}.{rest}"),
-            ));
-        }
+    for (elem, rest) in children().filter(|(_, rest)| !rest.ends_with("[x]")) {
+        let child_path = format!("{path}.{rest}");
+        check_cardinality(elem, present(fields, elem, rest), &child_path, diagnostics);
     }
 
     for (name, node) in fields {
@@ -162,22 +148,67 @@ fn walk(
         // contentReference element: no type to check here.
         let Some(ty) = ty else { continue };
 
-        if let (Ok(max), Value::Array(items)) = (elem.max.parse::<usize>(), &node.value) {
-            if items.len() > max {
-                diagnostics.push(
-                    Diagnostic::error(
-                        "CARDINALITY_002",
-                        format!(
-                            "Element '{child_path}' has {} value(s) but maximum is {max}",
-                            items.len()
-                        ),
-                        child_path.clone(),
-                    )
-                    .with_location(node.span),
-                );
-            }
+        // Choice elements have no fixed name, so the children loop cannot count them.
+        if elem.path.ends_with("[x]") {
+            check_cardinality(elem, Some(node), &child_path, diagnostics);
         }
         check_type(&node.value, &ty, &child_path, node.span, diagnostics);
         descend(node, elem, &ty, sd, registry, &child_path, diagnostics);
+    }
+}
+
+/// The node that makes `elem` present: its value, or the `_name` primitive extension
+/// (which stands in for an absent value only on primitive types, named in lowercase).
+pub(crate) fn present<'a>(
+    fields: &'a IndexMap<Arc<str>, Node>,
+    elem: &ElementDefinition,
+    name: &str,
+) -> Option<&'a Node> {
+    let is_primitive = elem
+        .types
+        .first()
+        .is_some_and(|t| t.starts_with(|c: char| c.is_ascii_lowercase()));
+    fields.get(name).or_else(|| {
+        fields
+            .get(format!("_{name}").as_str())
+            .filter(|_| is_primitive)
+    })
+}
+
+/// Emit `CARDINALITY_001` when a required element is absent and `CARDINALITY_002`
+/// when it holds more values than a finite maximum.
+pub(crate) fn check_cardinality(
+    elem: &ElementDefinition,
+    node: Option<&Node>,
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some(node) = node else {
+        if elem.min > 0 {
+            diagnostics.push(Diagnostic::error(
+                "CARDINALITY_001",
+                format!("Required element '{path}' is missing (min={})", elem.min),
+                path.to_owned(),
+            ));
+        }
+        return;
+    };
+    let Ok(max) = elem.max.parse::<usize>() else {
+        return;
+    };
+    let count = match &node.value {
+        Value::Array(items) => items.len(),
+        Value::Null => 0,
+        _ => 1,
+    };
+    if count > max {
+        diagnostics.push(
+            Diagnostic::error(
+                "CARDINALITY_002",
+                format!("Element '{path}' has {count} value(s) but maximum is {max}"),
+                path.to_owned(),
+            )
+            .with_location(node.span),
+        );
     }
 }

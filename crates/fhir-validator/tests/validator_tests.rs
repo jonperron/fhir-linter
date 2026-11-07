@@ -434,3 +434,18 @@ fn punctuated_underscore_keys_are_unknown() {
         "{plain:?}"
     );
 }
+
+#[test]
+fn nested_complex_child_present_only_as_extension_is_missing() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{},"#,
+        r#""component":[{"_code":{"id":"a"}}]}"#,
+    ));
+    assert_has(&found, "CARDINALITY_001", "Observation.component[0].code");
+}
+
+#[test]
+fn nested_primitive_extension_array_over_max_is_cardinality_002() {
+    let found = codes_for(r#"{"resourceType":"Patient","contact":[{"_gender":[{},{}]}]}"#);
+    assert_has(&found, "CARDINALITY_002", "Patient.contact[0].gender");
+}

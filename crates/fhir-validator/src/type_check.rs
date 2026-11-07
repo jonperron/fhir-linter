@@ -88,9 +88,10 @@ pub(crate) fn check_type(
         "date" => string_format(is_valid_date),
         "dateTime" | "instant" => string_format(is_valid_datetime),
         "time" => string_format(is_valid_time),
+        // Official regex `[0]|[-+]?[1-9][0-9]*`, within i64 range.
         "integer64" => string_format(|s| {
-            let digits = s.strip_prefix('-').unwrap_or(s);
-            !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+            s.parse::<i64>().is_ok()
+                && (s == "0" || !s.trim_start_matches(['+', '-']).starts_with('0'))
         }),
         "code" => match value {
             Value::Str(s) if s.chars().any(char::is_whitespace) => Some((
@@ -281,12 +282,20 @@ mod tests {
             (Value::Str(Arc::from("-123")), None),
             (Value::Str(Arc::from("12x")), Some("TYPE_003")),
             (Value::Str(Arc::from("-")), Some("TYPE_003")),
+            (Value::Str(Arc::from("+1")), None),
+            (Value::Str(Arc::from("0")), None),
+            (Value::Str(Arc::from("01")), Some("TYPE_003")),
+            (Value::Str(Arc::from("-0")), Some("TYPE_003")),
+            (
+                Value::Str(Arc::from("99999999999999999999")),
+                Some("TYPE_003"),
+            ),
             (Value::Integer(5), Some("TYPE_001")),
         ] {
             let resource = make_resource("Obs", "big", value);
             let mut d = vec![];
             validate(&resource, &sd, &mut d);
-            assert_eq!(d.first().map(|x| x.code.as_ref()), expected);
+            assert_eq!(d.first().map(|x| x.code.as_ref()), expected, "{d:?}");
         }
     }
 
