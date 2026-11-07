@@ -2,7 +2,7 @@
 
 ### Requirement: Registry partagé par répertoire
 
-Le système SHALL fournir `Registry::shared(dir) -> Result<Arc<Registry>>` qui charge le registry d'un répertoire une seule fois par processus et le partage. Le cache SHALL être indexé par le chemin canonicalisé (`defs`, `./defs` ou un lien symbolique désignent le même répertoire), SHALL être thread-safe, SHALL ne pas conserver les chargements en échec et SHALL ne jamais évincer d'entrée.
+Le système SHALL fournir `Registry::shared(dir) -> Result<Arc<Registry>>` qui charge le registry d'un répertoire une seule fois et le partage. Le cache est propre à chaque copie liée de la crate (deux modules natifs compilés séparément dans un même processus ont chacun le leur). Le cache SHALL être indexé par le chemin canonicalisé (`defs`, `./defs` ou un lien symbolique désignent le même répertoire), SHALL être thread-safe, SHALL ne pas conserver les chargements en échec et SHALL ne jamais évincer d'entrée.
 
 #### Scenario: Chemins équivalents partagent le même registry
 

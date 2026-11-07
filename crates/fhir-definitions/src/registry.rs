@@ -60,11 +60,13 @@ impl Registry {
         })
     }
 
-    /// Load the registry for `dir` once per process and share it.
+    /// Load the registry for `dir` once and share it.
     ///
     /// Registries are expensive to build (~60 MB of JSON), so calls with the same
     /// directory, however spelled (`defs`, `./defs`, a symlink), return the same
-    /// `Arc`. Failed loads are not cached. Entries are never evicted.
+    /// `Arc`. Failed loads are not cached. Entries are never evicted. The cache
+    /// belongs to each linked copy of this crate: two separately built native
+    /// modules (e.g. the Python and Node bindings) in one process keep their own.
     pub fn shared(dir: impl AsRef<Path>) -> Result<Arc<Self>> {
         static CACHE: OnceLock<Mutex<HashMap<PathBuf, Arc<Registry>>>> = OnceLock::new();
 
