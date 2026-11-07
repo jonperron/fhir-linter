@@ -105,7 +105,7 @@ Le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_001` et severity
 
 ### Requirement: Validation de cardinalité — élément requis absent (CARDINALITY_001)
 
-Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severity `Error` pour chaque élément déclaré avec `min > 0` dans le snapshot et absent de la ressource. Un élément requis de type primitif (nom de type commençant par une minuscule) présent uniquement sous la forme `_nom` (extension de primitif) SHALL être considéré présent ; pour un type complexe, `_nom` ne SHALL PAS compter comme présence. Lorsque la valeur est absente et que `_nom` est un tableau plus long que le maximum fini, un `CARDINALITY_002` SHALL être émis (path et position de `_nom`). Un nom d'élément contenant `.`, `[` ou `]` (y compris préfixé par `_`) SHALL produire `STRUCTURE_001`. Un choix `[x]` SHALL être vérifié selon le seul type désigné par son suffixe, et un `integer64` SHALL être une chaîne conforme à `[0]|[-+]?[1-9][0-9]*` et représentable sur 64 bits signés (`TYPE_003` sinon, `TYPE_001` si non chaîne).
+Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severity `Error` pour chaque élément déclaré avec `min > 0` dans le snapshot et absent de la ressource. Un élément requis de type primitif (nom de type commençant par une minuscule) présent uniquement sous la forme `_nom` (extension de primitif) SHALL être considéré présent ; pour un type complexe, `_nom` ne SHALL PAS compter comme présence. Lorsque la valeur est absente et que `_nom` est un tableau plus long que le maximum fini, un `CARDINALITY_002` SHALL être émis (path et position de `_nom`). Un nom d'élément contenant `.`, `[` ou `]` (y compris préfixé par `_`) SHALL produire `STRUCTURE_001`. Un choix `[x]` SHALL être vérifié selon le seul type désigné par son suffixe ; sa cardinalité porte sur l'ensemble de ses variantes (champs `base` + type autorisé capitalisé, `_variante` comptant seulement pour un type primitif), à toute profondeur : aucune variante et `min > 0` produit `CARDINALITY_001` au chemin du choix (ex. `Immunization.occurrence[x]`), plus d'une variante produit `CARDINALITY_002` à la seconde variante. Un `integer64` SHALL être une chaîne conforme à `[0]|[-+]?[1-9][0-9]*` et représentable sur 64 bits signés (`TYPE_003` sinon, `TYPE_001` si non chaîne).
 
 #### Scenario: Élément requis absent
 
@@ -137,10 +137,20 @@ Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severi
 - **WHEN** une ressource ou un `Observation.component[0]` contient la clé `_a.b` ou `_value[x]`
 - **THEN** un Diagnostic `STRUCTURE_001` SHALL être émis, alors que `_status` reste accepté
 
-#### Scenario: Placeholders polymorphiques ignorés
+#### Scenario: Choix requis absent
 
-- **WHEN** le snapshot contient un élément `value[x]`
-- **THEN** la cardinalité de ce placeholder SHALL être ignorée (pas de CARDINALITY_001)
+- **WHEN** une Immunization ne contient aucune variante de `occurrence[x]` (min=1), ou un `Claim.diagnosis[0]` aucune variante de `diagnosis[x]`
+- **THEN** un Diagnostic `CARDINALITY_001` SHALL être émis avec `path` = `Immunization.occurrence[x]` (resp. `Claim.diagnosis[0].diagnosis[x]`)
+
+#### Scenario: Choix présent uniquement via _variante
+
+- **WHEN** une Immunization contient seulement `_occurrenceString` (type primitif)
+- **THEN** aucun Diagnostic `CARDINALITY_001` ne SHALL être émis pour `occurrence[x]`
+
+#### Scenario: Plusieurs variantes d'un même choix
+
+- **WHEN** une Observation contient `valueString` et `valueBoolean`
+- **THEN** un Diagnostic `CARDINALITY_002` SHALL être émis avec `path` = `Observation.valueBoolean` (seconde variante)
 
 ---
 

@@ -2,33 +2,22 @@ use fhir_definitions::StructureDefinition;
 use fhir_parser::Resource;
 
 use crate::diagnostic::Diagnostic;
-use crate::nested::{check_cardinality, present};
+use crate::nested::check_children;
 
 /// Validate cardinality constraints (min / max) for depth-1 elements.
 ///
 /// Emits `CARDINALITY_001` when a required element (min > 0) is absent, and
-/// `CARDINALITY_002` when an element exceeds its declared maximum cardinality.
+/// `CARDINALITY_002` when an element exceeds its declared maximum cardinality
+/// or a choice element holds more than one variant.
 pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut Vec<Diagnostic>) {
     let resource_type = resource.resource_type.as_ref();
-    let prefix = format!("{resource_type}.");
-
-    for elem in &sd.snapshot {
-        let path = elem.path.as_ref();
-
-        // Only check direct children.
-        let field_name = match path.strip_prefix(&prefix) {
-            Some(rest) if !rest.contains('.') => rest,
-            _ => continue,
-        };
-
-        // Polymorphic placeholders are not real field names.
-        if field_name.ends_with("[x]") {
-            continue;
-        }
-
-        let node = present(&resource.fields, elem, field_name);
-        check_cardinality(elem, node, path, diagnostics);
-    }
+    check_children(
+        &resource.fields,
+        sd,
+        resource_type,
+        resource_type,
+        diagnostics,
+    );
 }
 
 #[cfg(test)]
@@ -154,12 +143,13 @@ mod tests {
     }
 
     #[test]
-    fn polymorphic_placeholder_is_skipped() {
-        // A "value[x]" path should not produce a CARDINALITY_001 even if min=1
+    fn missing_required_choice_is_reported_at_its_placeholder_path() {
         let sd = make_sd("Obs", vec![make_elem("Obs.value[x]", 1, "1")]);
         let resource = make_resource("Obs", &[]);
         let mut diagnostics = vec![];
         validate(&resource, &sd, &mut diagnostics);
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code.as_ref(), "CARDINALITY_001");
+        assert_eq!(diagnostics[0].path, "Obs.value[x]");
     }
 }
