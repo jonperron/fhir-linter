@@ -30,6 +30,11 @@ pub fn validate(
     }
 }
 
+/// Names with path punctuation are never valid element names.
+pub(crate) fn has_punctuation(name: &str) -> bool {
+    name.contains(['.', '[', ']'])
+}
+
 /// Find the element for `name` under `parent_path`, and the single type it has
 /// for this instance (the suffix picks the type of a `[x]` element). The type is
 /// `None` for typeless elements such as `contentReference`; `None` overall means not found.
@@ -38,7 +43,7 @@ pub(crate) fn resolve<'a>(
     path: &str,
     name: &str,
 ) -> Option<(&'a ElementDefinition, Option<Arc<str>>)> {
-    if name.contains(['.', '[', ']']) {
+    if has_punctuation(name) {
         return None;
     }
     let direct = sd.snapshot.iter().find(|e| e.path.as_ref() == path);
@@ -137,7 +142,9 @@ fn walk(
 
     for (name, node) in fields {
         let name = name.as_ref();
-        if name.starts_with('_') || name == "extension" || name == "modifierExtension" {
+        if !has_punctuation(name)
+            && (name.starts_with('_') || name == "extension" || name == "modifierExtension")
+        {
             continue;
         }
         let child_path = format!("{path}.{name}");

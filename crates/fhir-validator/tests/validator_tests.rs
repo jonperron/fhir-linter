@@ -321,11 +321,24 @@ fn required_child_present_only_as_primitive_extension_is_not_missing() {
 
 #[test]
 fn top_level_choice_value_is_type_checked() {
-    let found =
-        codes_for(r#"{"resourceType":"Observation","status":"final","valueBoolean":"yes"}"#);
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{},"#,
+        r#""valueBoolean":"yes"}"#
+    ));
     assert!(
-        found.iter().any(|(code, _)| code == "TYPE_001"),
+        found
+            .iter()
+            .any(|(code, path)| code == "TYPE_001" && path == "Observation.valueBoolean"),
         "{found:?}"
+    );
+    // Only the suffix-selected type is checked, not every declared type.
+    let valid = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{},"#,
+        r#""valueBoolean":true}"#
+    ));
+    assert!(
+        !valid.iter().any(|(_, path)| path.contains("value")),
+        "{valid:?}"
     );
 }
 
@@ -376,5 +389,48 @@ fn top_level_required_primitive_present_only_as_extension_is_not_missing() {
     assert!(
         !found.iter().any(|(code, _)| code == "CARDINALITY_001"),
         "{found:?}"
+    );
+}
+
+fn assert_has(found: &[(String, String)], wanted_code: &str, wanted_path: &str) {
+    assert!(
+        found
+            .iter()
+            .any(|(code, path)| code == wanted_code && path == wanted_path),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn required_complex_element_present_only_as_extension_is_missing() {
+    let found = codes_for(r#"{"resourceType":"Observation","status":"final","_code":{"id":"a"}}"#);
+    assert_has(&found, "CARDINALITY_001", "Observation.code");
+}
+
+#[test]
+fn primitive_extension_array_over_max_is_cardinality_002() {
+    let found = codes_for(r#"{"resourceType":"Patient","_birthDate":[{},{}]}"#);
+    assert_has(&found, "CARDINALITY_002", "Patient.birthDate");
+}
+
+#[test]
+fn punctuated_underscore_keys_are_unknown() {
+    let obs = r#"{"resourceType":"Observation","status":"final","code":{},"#;
+    for key in ["_a.b", "_value[x]"] {
+        let top = codes_for(&format!(r#"{obs}"{key}":{{}}}}"#));
+        assert_has(&top, "STRUCTURE_001", &format!("Observation.{key}"));
+        let nested = codes_for(&format!(
+            r#"{obs}"component":[{{"code":{{}},"{key}":{{}}}}]}}"#
+        ));
+        assert_has(
+            &nested,
+            "STRUCTURE_001",
+            &format!("Observation.component[0].{key}"),
+        );
+    }
+    let plain = codes_for(&format!(r#"{obs}"_status":{{}}}}"#));
+    assert!(
+        !plain.iter().any(|(code, _)| code == "STRUCTURE_001"),
+        "{plain:?}"
     );
 }

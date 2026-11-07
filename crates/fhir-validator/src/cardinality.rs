@@ -25,13 +25,21 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
             continue;
         }
 
-        let node = resource.fields.get(field_name);
-        let has_extension = resource
+        let value_node = resource.fields.get(field_name);
+        // `_field` stands in for an absent value only on primitive elements
+        // (FHIR primitive type names start with a lowercase letter).
+        let is_primitive = elem
+            .types
+            .first()
+            .is_some_and(|t| t.starts_with(|c: char| c.is_ascii_lowercase()));
+        let extension_node = resource
             .fields
-            .contains_key(format!("_{field_name}").as_str());
+            .get(format!("_{field_name}").as_str())
+            .filter(|_| is_primitive);
+        let node = value_node.or(extension_node);
 
-        // Check minimum cardinality; `_field` (primitive extension) counts as present.
-        if elem.min > 0 && node.is_none() && !has_extension {
+        // Check minimum cardinality.
+        if elem.min > 0 && node.is_none() {
             diagnostics.push(Diagnostic::error(
                 "CARDINALITY_001",
                 format!("Required element '{path}' is missing (min={})", elem.min),

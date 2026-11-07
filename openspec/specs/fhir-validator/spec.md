@@ -105,7 +105,7 @@ Le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_001` et severity
 
 ### Requirement: Validation de cardinalité — élément requis absent (CARDINALITY_001)
 
-Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severity `Error` pour chaque élément déclaré avec `min > 0` dans le snapshot et absent de la ressource. Un primitif requis présent uniquement sous la forme `_nom` (extension de primitif) SHALL être considéré présent.
+Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severity `Error` pour chaque élément déclaré avec `min > 0` dans le snapshot et absent de la ressource. Un élément requis de type primitif (nom de type commençant par une minuscule) présent uniquement sous la forme `_nom` (extension de primitif) SHALL être considéré présent ; pour un type complexe, `_nom` ne SHALL PAS compter comme présence. Lorsque la valeur est absente et que `_nom` est un tableau plus long que le maximum fini, un `CARDINALITY_002` SHALL être émis (path et position de `_nom`). Un nom d'élément contenant `.`, `[` ou `]` (y compris préfixé par `_`) SHALL produire `STRUCTURE_001`. Un choix `[x]` SHALL être vérifié selon le seul type désigné par son suffixe, et un `integer64` SHALL être une chaîne `-?[0-9]+` (`TYPE_003` sinon, `TYPE_001` si non chaîne).
 
 #### Scenario: Élément requis absent
 
@@ -121,6 +121,21 @@ Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severi
 
 - **WHEN** un primitif requis est fourni uniquement sous la forme `_nom` (sans `nom`)
 - **THEN** aucun Diagnostic `CARDINALITY_001` ne SHALL être émis pour ce champ
+
+#### Scenario: Élément complexe requis présent uniquement via _champ
+
+- **WHEN** `Observation.code` est fourni uniquement sous la forme `_code`
+- **THEN** un Diagnostic `CARDINALITY_001` SHALL être émis pour `Observation.code`
+
+#### Scenario: Extension de primitif en tableau au-delà du maximum
+
+- **WHEN** `Patient` contient `_birthDate: [{}, {}]` sans `birthDate`
+- **THEN** un Diagnostic `CARDINALITY_002` SHALL être émis avec `path` = `Patient.birthDate`
+
+#### Scenario: Clé préfixée par _ avec ponctuation
+
+- **WHEN** une ressource ou un `Observation.component[0]` contient la clé `_a.b` ou `_value[x]`
+- **THEN** un Diagnostic `STRUCTURE_001` SHALL être émis, alors que `_status` reste accepté
 
 #### Scenario: Placeholders polymorphiques ignorés
 

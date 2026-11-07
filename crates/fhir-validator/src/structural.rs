@@ -2,7 +2,7 @@ use fhir_definitions::StructureDefinition;
 use fhir_parser::Resource;
 
 use crate::diagnostic::Diagnostic;
-use crate::nested::resolve;
+use crate::nested::{has_punctuation, resolve};
 
 /// Check that all resource fields correspond to known paths in the snapshot.
 ///
@@ -14,7 +14,9 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
         let name = field_name.as_ref();
 
         // Primitive extensions (_fieldName) and explicit extensions are always allowed.
-        if name.starts_with('_') || name == "extension" || name == "modifierExtension" {
+        if !has_punctuation(name)
+            && (name.starts_with('_') || name == "extension" || name == "modifierExtension")
+        {
             continue;
         }
 
@@ -70,6 +72,24 @@ mod tests {
             is_abstract: false,
             base_definition: None,
             snapshot,
+        }
+    }
+
+    fn make_choice_sd() -> StructureDefinition {
+        let element = |path: &str, types: Vec<Arc<str>>| ElementDefinition {
+            path: Arc::from(path),
+            min: 0,
+            max: Arc::from("1"),
+            types,
+            constraints: vec![],
+            binding: None,
+        };
+        StructureDefinition {
+            snapshot: vec![
+                element("Observation", vec![]),
+                element("Observation.value[x]", vec![Arc::from("string")]),
+            ],
+            ..make_sd("Observation", &[])
         }
     }
 
@@ -139,11 +159,7 @@ mod tests {
 
     #[test]
     fn polymorphic_field_with_known_base_is_allowed() {
-        // snapshot has "value[x]"
-        let mut sd = make_sd("Observation", &["value[x]"]);
-        // Replace the auto-created entry with a proper [x] path
-        sd.snapshot[1].path = Arc::from("Observation.value[x]");
-        sd.snapshot[1].types = vec![Arc::from("string")];
+        let sd = make_choice_sd();
         let resource = make_resource(
             "Observation",
             &[("valueString", Value::Str(Arc::from("hello")))],
@@ -155,9 +171,7 @@ mod tests {
 
     #[test]
     fn polymorphic_field_with_disallowed_type_is_rejected() {
-        let mut sd = make_sd("Observation", &["value[x]"]);
-        sd.snapshot[1].path = Arc::from("Observation.value[x]");
-        sd.snapshot[1].types = vec![Arc::from("string")];
+        let sd = make_choice_sd();
         let resource = make_resource("Observation", &[("valueAddress", Value::Bool(true))]);
         let mut diagnostics = vec![];
         validate(&resource, &sd, &mut diagnostics);

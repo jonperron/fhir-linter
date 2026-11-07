@@ -88,6 +88,10 @@ pub(crate) fn check_type(
         "date" => string_format(is_valid_date),
         "dateTime" | "instant" => string_format(is_valid_datetime),
         "time" => string_format(is_valid_time),
+        "integer64" => string_format(|s| {
+            let digits = s.strip_prefix('-').unwrap_or(s);
+            !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+        }),
         "code" => match value {
             Value::Str(s) if s.chars().any(char::is_whitespace) => Some((
                 "TYPE_004",
@@ -268,6 +272,22 @@ mod tests {
         validate(&resource, &sd, &mut d);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "TYPE_003");
+    }
+
+    #[test]
+    fn integer64_requires_a_digit_string() {
+        let sd = make_sd("Obs", "big", "integer64");
+        for (value, expected) in [
+            (Value::Str(Arc::from("-123")), None),
+            (Value::Str(Arc::from("12x")), Some("TYPE_003")),
+            (Value::Str(Arc::from("-")), Some("TYPE_003")),
+            (Value::Integer(5), Some("TYPE_001")),
+        ] {
+            let resource = make_resource("Obs", "big", value);
+            let mut d = vec![];
+            validate(&resource, &sd, &mut d);
+            assert_eq!(d.first().map(|x| x.code.as_ref()), expected);
+        }
     }
 
     #[test]
