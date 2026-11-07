@@ -11,6 +11,18 @@ pub enum Severity {
     Hint,
 }
 
+impl Severity {
+    /// Lowercase name, as exposed by the bindings: `error`, `warning`, `information`, `hint`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warning => "warning",
+            Self::Information => "information",
+            Self::Hint => "hint",
+        }
+    }
+}
+
 /// A validation finding emitted by the validator or linter.
 ///
 /// `Diagnostic` is the single output type across all crates.
@@ -105,5 +117,13 @@ mod tests {
         assert!(Severity::Error < Severity::Warning);
         assert!(Severity::Warning < Severity::Information);
         assert!(Severity::Information < Severity::Hint);
+    }
+
+    #[test]
+    fn severity_as_str_is_lowercase_name() {
+        assert_eq!(Severity::Error.as_str(), "error");
+        assert_eq!(Severity::Warning.as_str(), "warning");
+        assert_eq!(Severity::Information.as_str(), "information");
+        assert_eq!(Severity::Hint.as_str(), "hint");
     }
 }

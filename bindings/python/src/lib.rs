@@ -1,15 +1,11 @@
 //! Python bindings for the FHIR linter and validator.
 //!
 //! Exposes `validate()` and `lint()`, both returning a list of `Diagnostic`.
-use std::collections::HashMap;
 use std::env;
-use std::fs;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 
 use fhir_definitions::Registry;
 use fhir_linter::{Config, RuleRegistry};
-use fhir_validator::Severity;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
@@ -43,12 +39,7 @@ impl Diagnostic {
 impl From<fhir_validator::Diagnostic> for Diagnostic {
     fn from(d: fhir_validator::Diagnostic) -> Self {
         Self {
-            severity: match d.severity {
-                Severity::Error => "error",
-                Severity::Warning => "warning",
-                Severity::Information => "information",
-                Severity::Hint => "hint",
-            },
+            severity: d.severity.as_str(),
             code: d.code.to_string(),
             message: d.message,
             path: d.path,
@@ -60,35 +51,17 @@ impl From<fhir_validator::Diagnostic> for Diagnostic {
     }
 }
 
-/// Registries are expensive to build (~60 MB of JSON), so build one per directory.
+/// Resolve the definitions directory and return its shared registry.
 fn registry_for(definitions_dir: Option<String>) -> PyResult<Arc<Registry>> {
-    static CACHE: OnceLock<Mutex<HashMap<PathBuf, Arc<Registry>>>> = OnceLock::new();
-
     let dir = definitions_dir
         .or_else(|| env::var(DEFINITIONS_DIR_ENV).ok())
-        .map(PathBuf::from)
         .ok_or_else(|| {
             PyValueError::new_err(format!(
                 "no FHIR definitions: pass definitions_dir or set {DEFINITIONS_DIR_ENV}"
             ))
         })?;
-
-    // Key on the resolved path so `defs`, `./defs` and symlinks share one registry.
-    let dir = fs::canonicalize(&dir).unwrap_or(dir);
-
-    let mut cache = CACHE
-        .get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(registry) = cache.get(&dir) {
-        return Ok(Arc::clone(registry));
-    }
-    let registry = Arc::new(
-        Registry::from_definitions_dir(&dir)
-            .map_err(|e| PyRuntimeError::new_err(format!("cannot load definitions: {e}")))?,
-    );
-    cache.insert(dir, Arc::clone(&registry));
-    Ok(registry)
+    Registry::shared(dir)
+        .map_err(|e| PyRuntimeError::new_err(format!("cannot load definitions: {e}")))
 }
 
 fn parse(json: &str) -> PyResult<fhir_parser::Resource> {

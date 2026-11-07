@@ -406,7 +406,6 @@ Le système SHALL appliquer les vérifications de type à chaque élément d'un 
 - **WHEN** un champ de type `boolean[]` contient `[true, "not-a-bool"]`
 - **THEN** un Diagnostic TYPE_001 SHALL être émis avec `path` contenant `[1]` (index de l'élément invalide)
 
-
 ---
 
 ### Requirement: Validation des éléments imbriqués
@@ -422,3 +421,13 @@ Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) e
 
 - **WHEN** `Observation.component[0]` n'a pas de `code`
 - **THEN** un Diagnostic CARDINALITY_001 SHALL être émis avec `path` = `Observation.component[0].code`
+
+### Requirement: Nom textuel de Severity
+
+Le système SHALL fournir `Severity::as_str()` retournant le nom en minuscules de la sévérité : `"error"`, `"warning"`, `"information"`, `"hint"`. C'est la représentation exposée par les bindings.
+
+#### Scenario: Conversion en chaîne
+
+- **WHEN** `as_str()` est appelé sur `Severity::Error`, `Warning`, `Information` et `Hint`
+- **THEN** il SHALL retourner respectivement `"error"`, `"warning"`, `"information"` et `"hint"`
+
