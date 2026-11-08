@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.4.1](https://github.com/jonperron/fihr-linter/compare/fhir-linter-v0.4.0...fhir-linter-v0.4.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **definitions:** load core profiles from profiles-others.json ([b83c499](https://github.com/jonperron/fihr-linter/commit/b83c499a0a22d62b4982c5ae38b6538b26fd2e3c))
+* **definitions:** load core profiles from profiles-others.json ([366a8cc](https://github.com/jonperron/fihr-linter/commit/366a8ccd07e15da5fc42eb9aed143213f6bf3eab))
+* **parser:** parse integers beyond i64 as decimals ([efba82d](https://github.com/jonperron/fihr-linter/commit/efba82d6b283a0c7f553fc1aa2dcd670b8c8470e))
+* **parser:** parse integers beyond i64 as decimals ([cfb5729](https://github.com/jonperron/fihr-linter/commit/cfb57291a5b18c16e6589e07aa5e9545bae2316c))
+* **validator:** address audit should-fix findings ([977d45d](https://github.com/jonperron/fihr-linter/commit/977d45deb95dc0c34acac9db3f8e477e06fa3791))
+* **validator:** apply the primitive extension rule at every depth ([513016e](https://github.com/jonperron/fihr-linter/commit/513016ef2e8e702fda6f9c6f88089c0a143b7dc5))
+* **validator:** check cardinality of choice elements ([4e61e8b](https://github.com/jonperron/fihr-linter/commit/4e61e8b07298a79fe32aa8fa16068179d75c2b19))
+* **validator:** enforce strict temporal and 32-bit integer formats ([ec28548](https://github.com/jonperron/fihr-linter/commit/ec28548e3983fde0f10e71cf496bd770197a5d84))
+* **validator:** report skipped invariants as information ([3071256](https://github.com/jonperron/fihr-linter/commit/30712567d1a71115516ec21233239415a9f0ea86))
+* **validator:** require extension shape for primitive presence ([4df7c9f](https://github.com/jonperron/fihr-linter/commit/4df7c9f0674321c091836e09a6ed5a319013bd3c))
+* **validator:** tighten primitive extension and choice handling ([816de22](https://github.com/jonperron/fihr-linter/commit/816de22439ad178ef9acc01eebd64e41369094eb))
+* **validator:** type-check resource id and fhirpath system types ([38ed94e](https://github.com/jonperron/fihr-linter/commit/38ed94e869a0d703558f9b88a0e2ab3027c5ac86))
+* **validator:** validate choice elements from their declared types ([ea96e77](https://github.com/jonperron/fihr-linter/commit/ea96e778ede742c0a5dcd17636cf21b079f90be0))
+* **validator:** validate choice elements from their declared types ([dc82c37](https://github.com/jonperron/fihr-linter/commit/dc82c3718660799cae3a51fe9072b22fa818942a))
+* **validator:** validate extension and modifierExtension elements ([d24e99c](https://github.com/jonperron/fihr-linter/commit/d24e99c77e1b34dc1292cda7b8e95dc16b33ee8f))
+* **validator:** validate resource ids and required choice elements ([aeb054a](https://github.com/jonperron/fihr-linter/commit/aeb054aba3c164268ebfdc683eb1be59cc778a71))
+
+
+### Performance Improvements
+
+* **validator:** index snapshot elements by path ([d35a39b](https://github.com/jonperron/fihr-linter/commit/d35a39b98f7cf642990c92a10c567f347ee610c5))
+
 ## [0.4.0](https://github.com/jonperron/fihr-linter/compare/fhir-linter-v0.3.0...fhir-linter-v0.4.0) (2026-11-03)
 
 
