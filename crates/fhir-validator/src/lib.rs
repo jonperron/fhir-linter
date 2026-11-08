@@ -1,17 +1,15 @@
 #![forbid(unsafe_code)]
 //! FHIR R5 resource validator.
 //!
-//! Applies validation layers in order: structural, cardinality, type,
-//! terminology, invariants, references, and profile checks.
+//! Applies validation layers in order: structural, cardinality and type
+//! (one recursive walk), terminology, invariants, references, and profile checks.
 //! Emits `Diagnostic` values for every detected issue.
 
-mod cardinality;
 mod diagnostic;
 mod invariants;
 mod nested;
 mod profile;
 mod references;
-mod structural;
 mod terminology;
 mod type_check;
 
@@ -40,12 +38,9 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
 
     let mut diagnostics = Vec::new();
 
-    structural::validate(resource, sd, &mut diagnostics);
-    cardinality::validate(resource, sd, &mut diagnostics);
-    type_check::validate(resource, sd, &mut diagnostics);
+    nested::validate(resource, sd, registry, &mut diagnostics);
     terminology::validate(resource, sd, registry, &mut diagnostics);
     invariants::validate(resource, sd, &mut diagnostics);
-    nested::validate(resource, sd, registry, &mut diagnostics);
     references::validate(resource, sd, registry, &mut diagnostics);
     profile::validate(resource, sd, registry, &mut diagnostics);
 

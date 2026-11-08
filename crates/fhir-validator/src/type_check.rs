@@ -1,52 +1,10 @@
-use std::sync::Arc;
-
-use fhir_definitions::StructureDefinition;
-use fhir_parser::{Resource, Span, Value};
+use fhir_parser::{Span, Value};
 
 use crate::diagnostic::Diagnostic;
-use crate::nested::resolve;
 
-/// Validate primitive type constraints for each resource field.
+/// Check one value against a primitive FHIR type, recursing into arrays.
 ///
 /// Emits `TYPE_001` through `TYPE_005` for format and type mismatches.
-pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut Vec<Diagnostic>) {
-    let resource_type = resource.resource_type.as_ref();
-
-    // The parser lifts `id` out of `fields` (already rejecting non-strings), without a span.
-    if let Some(id) = resource.id.as_deref().filter(|id| !is_valid_id(id)) {
-        let path = format!("{resource_type}.id");
-        diagnostics.push(Diagnostic::error(
-            "TYPE_005",
-            format!("Invalid id format at '{path}': '{id}'"),
-            path,
-        ));
-    }
-
-    for (field_name, node) in &resource.fields {
-        let path = format!("{resource_type}.{field_name}");
-
-        let Some((elem, resolved)) = resolve(sd, &path, field_name) else {
-            continue;
-        };
-        // A choice element is checked against the type its suffix selects.
-        let chosen: Vec<Arc<str>> = if elem.path.ends_with("[x]") {
-            resolved.into_iter().collect()
-        } else {
-            elem.types.clone()
-        };
-
-        for fhir_type in &chosen {
-            check_type(
-                &node.value,
-                fhir_type.as_ref(),
-                &path,
-                node.span,
-                diagnostics,
-            );
-        }
-    }
-}
-
 pub(crate) fn check_type(
     value: &Value,
     fhir_type: &str,
@@ -187,7 +145,7 @@ fn is_valid_time(s: &str) -> bool {
 }
 
 /// FHIR id: `[A-Za-z0-9\-\.]{1,64}`.
-fn is_valid_id(s: &str) -> bool {
+pub(crate) fn is_valid_id(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 64
         && s.chars()
@@ -199,88 +157,38 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    use fhir_definitions::{ElementDefinition, StructureDefinition};
     use fhir_parser::{Node, Span};
-    use indexmap::IndexMap;
 
-    fn make_elem(path: &str, type_code: &str) -> ElementDefinition {
-        ElementDefinition {
-            path: Arc::from(path),
-            min: 0,
-            max: Arc::from("1"),
-            types: vec![Arc::from(type_code)],
-            constraints: vec![],
-            binding: None,
-        }
-    }
-
-    fn make_sd(resource_type: &str, field: &str, type_code: &str) -> StructureDefinition {
-        let path = format!("{resource_type}.{field}");
-        let snapshot = vec![make_elem(resource_type, ""), make_elem(&path, type_code)];
-        StructureDefinition {
-            url: Arc::from(
-                format!("http://hl7.org/fhir/StructureDefinition/{resource_type}").as_str(),
-            ),
-            name: Arc::from(resource_type),
-            kind: Arc::from("resource"),
-            is_abstract: false,
-            base_definition: None,
-            snapshot,
-        }
-    }
-
-    fn make_resource(resource_type: &str, field: &str, value: Value) -> fhir_parser::Resource {
-        let mut map: IndexMap<Arc<str>, Node> = IndexMap::new();
-        map.insert(
-            Arc::from(field),
-            Node {
-                value,
-                span: Span::default(),
-            },
-        );
-        fhir_parser::Resource {
-            resource_type: Arc::from(resource_type),
-            id: None,
-            fields: map,
-        }
+    fn check(value: Value, fhir_type: &str) -> Vec<Diagnostic> {
+        let mut d = vec![];
+        check_type(&value, fhir_type, "X.f", Span::default(), &mut d);
+        d
     }
 
     #[test]
     fn valid_boolean_produces_no_error() {
-        let sd = make_sd("Patient", "active", "boolean");
-        let resource = make_resource("Patient", "active", Value::Bool(true));
-        let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        let d = check(Value::Bool(true), "boolean");
         assert!(d.is_empty());
     }
 
     #[test]
     fn string_for_boolean_produces_type_001() {
-        let sd = make_sd("Patient", "active", "boolean");
-        let resource = make_resource("Patient", "active", Value::Str(Arc::from("true")));
-        let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        let d = check(Value::Str(Arc::from("true")), "boolean");
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "TYPE_001");
     }
 
     #[test]
     fn valid_date_produces_no_error() {
-        let sd = make_sd("Patient", "birthDate", "date");
         for s in &["1990", "1990-01", "1990-01-15"] {
-            let resource = make_resource("Patient", "birthDate", Value::Str(Arc::from(*s)));
-            let mut d = vec![];
-            validate(&resource, &sd, &mut d);
+            let d = check(Value::Str(Arc::from(*s)), "date");
             assert!(d.is_empty(), "Expected no error for date '{s}'");
         }
     }
 
     #[test]
     fn invalid_date_produces_type_003() {
-        let sd = make_sd("Patient", "birthDate", "date");
-        let resource = make_resource("Patient", "birthDate", Value::Str(Arc::from("not-a-date")));
-        let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        let d = check(Value::Str(Arc::from("not-a-date")), "date");
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "TYPE_003");
     }
@@ -288,11 +196,9 @@ mod tests {
     #[test]
     fn integer_beyond_i64_produces_type_001() {
         for type_code in ["integer", "unsignedInt", "positiveInt"] {
-            let sd = make_sd("Obs", "n", type_code);
             let source = r#"{"resourceType": "Obs", "n": 12345678901234567890}"#;
             let resource = fhir_parser::parse_json(source).unwrap();
-            let mut d = vec![];
-            validate(&resource, &sd, &mut d);
+            let d = check(resource.fields["n"].value.clone(), type_code);
             assert_eq!(d.len(), 1, "{type_code}: {d:?}");
             assert_eq!(d[0].code.as_ref(), "TYPE_001");
         }
@@ -300,7 +206,6 @@ mod tests {
 
     #[test]
     fn integer64_requires_a_digit_string() {
-        let sd = make_sd("Obs", "big", "integer64");
         for (value, expected) in [
             (Value::Str(Arc::from("-123")), None),
             (Value::Str(Arc::from("12x")), Some("TYPE_003")),
@@ -315,76 +220,55 @@ mod tests {
             ),
             (Value::Integer(5), Some("TYPE_001")),
         ] {
-            let resource = make_resource("Obs", "big", value);
-            let mut d = vec![];
-            validate(&resource, &sd, &mut d);
+            let d = check(value, "integer64");
             assert_eq!(d.first().map(|x| x.code.as_ref()), expected, "{d:?}");
         }
     }
 
     #[test]
     fn code_with_whitespace_produces_type_004() {
-        let sd = make_sd("Obs", "status", "code");
-        let resource = make_resource("Obs", "status", Value::Str(Arc::from("fin al")));
-        let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        let d = check(Value::Str(Arc::from("fin al")), "code");
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "TYPE_004");
     }
 
     #[test]
     fn valid_code_produces_no_error() {
-        let sd = make_sd("Obs", "status", "code");
-        let resource = make_resource("Obs", "status", Value::Str(Arc::from("final")));
-        let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        let d = check(Value::Str(Arc::from("final")), "code");
         assert!(d.is_empty());
     }
 
     #[test]
     fn negative_unsigned_int_produces_type_002() {
-        let sd = make_sd("Claim", "priority", "unsignedInt");
-        let resource = make_resource("Claim", "priority", Value::Integer(-1));
-        let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        let d = check(Value::Integer(-1), "unsignedInt");
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "TYPE_002");
     }
 
     #[test]
     fn zero_positive_int_produces_type_002() {
-        let sd = make_sd("Claim", "priority", "positiveInt");
-        let resource = make_resource("Claim", "priority", Value::Integer(0));
-        let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        let d = check(Value::Integer(0), "positiveInt");
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "TYPE_002");
     }
 
     #[test]
     fn valid_id_produces_no_error() {
-        let sd = make_sd("Patient", "id2", "id");
         for s in &["abc", "ABC-123", "a.b.c", "x-1"] {
-            let resource = make_resource("Patient", "id2", Value::Str(Arc::from(*s)));
-            let mut d = vec![];
-            validate(&resource, &sd, &mut d);
+            let d = check(Value::Str(Arc::from(*s)), "id");
             assert!(d.is_empty(), "Expected no error for id '{s}'");
         }
     }
 
     #[test]
     fn id_with_invalid_chars_produces_type_005() {
-        let sd = make_sd("Patient", "id2", "id");
-        let resource = make_resource("Patient", "id2", Value::Str(Arc::from("hello world")));
-        let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        let d = check(Value::Str(Arc::from("hello world")), "id");
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "TYPE_005");
     }
 
     #[test]
     fn array_elements_are_each_checked() {
-        let sd = make_sd("Patient", "birthDate", "date");
         let items = vec![
             Node {
                 value: Value::Str(Arc::from("1990-01-01")),
@@ -395,9 +279,7 @@ mod tests {
                 span: Span::default(),
             },
         ];
-        let resource = make_resource("Patient", "birthDate", Value::Array(items));
-        let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        let d = check(Value::Array(items), "date");
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "TYPE_003");
     }

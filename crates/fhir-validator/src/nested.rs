@@ -4,13 +4,14 @@ use indexmap::IndexMap;
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
-use crate::type_check::check_type;
+use crate::type_check::{check_type, is_valid_id};
 
-/// Validate elements below the top level: backbone elements and complex types.
+/// Validate the resource's elements at every depth, starting at the top level.
 ///
 /// Applies the structural (`STRUCTURE_001`), cardinality (`CARDINALITY_001/002`)
-/// and primitive type (`TYPE_*`) checks recursively. Terminology, invariants,
-/// references and profile layers remain top-level only.
+/// and primitive type (`TYPE_*`) checks recursively into backbone elements and
+/// complex types. Terminology, invariants, references and profile layers remain
+/// top-level only.
 ///
 /// shortcut: `contentReference` elements (skipped silently) and contained/embedded resources are
 /// not descended into; upgrade when recursive structures need validating.
@@ -21,24 +22,36 @@ pub fn validate(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let resource_type = resource.resource_type.as_ref();
-    for (name, node) in &resource.fields {
-        let path = format!("{resource_type}.{name}");
-        let Some((elem, Some(ty))) = resolve(sd, &path, name) else {
-            continue;
-        };
-        descend(node, elem, &ty, sd, registry, &path, diagnostics);
+
+    // The parser lifts `id` out of `fields` (already rejecting non-strings), without a span.
+    if let Some(id) = resource.id.as_deref().filter(|id| !is_valid_id(id)) {
+        let path = format!("{resource_type}.id");
+        diagnostics.push(Diagnostic::error(
+            "TYPE_005",
+            format!("Invalid id format at '{path}': '{id}'"),
+            path,
+        ));
     }
+
+    walk(
+        &resource.fields,
+        sd,
+        resource_type,
+        registry,
+        resource_type,
+        diagnostics,
+    );
 }
 
 /// Names with path punctuation are never valid element names.
-pub(crate) fn has_punctuation(name: &str) -> bool {
+fn has_punctuation(name: &str) -> bool {
     name.contains(['.', '[', ']'])
 }
 
 /// Find the element for `name` under `parent_path`, and the single type it has
 /// for this instance (the suffix picks the type of a `[x]` element). The type is
 /// `None` for typeless elements such as `contentReference`; `None` overall means not found.
-pub(crate) fn resolve<'a>(
+fn resolve<'a>(
     sd: &'a StructureDefinition,
     path: &str,
     name: &str,
@@ -113,8 +126,9 @@ fn walk(
     path: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    check_children_cardinality(fields, sd, def_path, path, diagnostics);
+
     let prefix = format!("{def_path}.");
-    check_children(fields, sd, def_path, path, diagnostics);
 
     for (name, node) in fields {
         let name = name.as_ref();
@@ -146,7 +160,7 @@ fn walk(
 }
 
 /// Check the cardinality of every child of `def_path` in one object (instance `path`).
-pub(crate) fn check_children(
+pub(crate) fn check_children_cardinality(
     fields: &IndexMap<Arc<str>, Node>,
     sd: &StructureDefinition,
     def_path: &str,
@@ -225,7 +239,7 @@ fn is_primitive(ty: &str) -> bool {
 
 /// The node that makes `elem` present: its value, or the `_name` primitive extension
 /// (which stands in for an absent value only on primitive types, named in lowercase).
-pub(crate) fn present<'a>(
+fn present<'a>(
     fields: &'a IndexMap<Arc<str>, Node>,
     elem: &ElementDefinition,
     name: &str,
@@ -256,7 +270,7 @@ fn is_extension_shape(node: &Node) -> bool {
 
 /// Emit `CARDINALITY_001` when a required element is absent and `CARDINALITY_002`
 /// when it holds more values than a finite maximum.
-pub(crate) fn check_cardinality(
+fn check_cardinality(
     elem: &ElementDefinition,
     node: Option<&Node>,
     path: &str,
@@ -288,6 +302,59 @@ pub(crate) fn check_cardinality(
                 path.to_owned(),
             )
             .with_location(node.span),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn elem(path: &str, min: u32) -> ElementDefinition {
+        ElementDefinition {
+            path: Arc::from(path),
+            min,
+            max: Arc::from("1"),
+            types: vec![],
+            constraints: vec![],
+            binding: None,
+        }
+    }
+
+    #[test]
+    fn children_cardinality_checks_direct_children_only() {
+        let sd = StructureDefinition {
+            url: Arc::from("http://example.org/StructureDefinition/obs-profile"),
+            name: Arc::from("ObsProfile"),
+            kind: Arc::from("resource"),
+            is_abstract: false,
+            base_definition: None,
+            snapshot: vec![
+                elem("Observation", 0),
+                elem("Observation.subject", 1),
+                elem("Observation.value[x]", 1),
+                elem("Observation.component.code", 1),
+            ],
+        };
+        let mut found = vec![];
+        check_children_cardinality(
+            &IndexMap::new(),
+            &sd,
+            "Observation",
+            "Observation",
+            &mut found,
+        );
+        let found: Vec<_> = found
+            .iter()
+            .map(|d| (d.code.as_ref(), d.path.as_str()))
+            .collect();
+        // A missing required choice is reported at its placeholder path.
+        assert_eq!(
+            found,
+            [
+                ("CARDINALITY_001", "Observation.subject"),
+                ("CARDINALITY_001", "Observation.value[x]"),
+            ],
         );
     }
 }

@@ -697,3 +697,41 @@ fn variants_of_different_choices_do_not_conflict() {
         "{found:?}"
     );
 }
+
+#[test]
+fn top_level_extension_keys_are_not_unknown() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Patient","extension":[],"modifierExtension":[],"#,
+        r#""_birthDate":{"id":"a"}}"#,
+    ));
+    assert!(
+        !found.iter().any(|(code, _)| code == "STRUCTURE_001"),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn top_level_value_array_over_max_is_cardinality_002() {
+    let found = codes_for(r#"{"resourceType":"Patient","active":[true,false]}"#);
+    assert_has(&found, "CARDINALITY_002", "Patient.active");
+}
+
+#[test]
+fn top_level_choice_array_over_max_is_cardinality_002() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{},"#,
+        r#""valueString":["a","b"]}"#,
+    ));
+    assert_has(&found, "CARDINALITY_002", "Observation.valueString");
+}
+
+#[test]
+fn each_unknown_top_level_key_is_reported_once() {
+    let found = codes_for(r#"{"resourceType":"Patient","foo":1,"bar":2}"#);
+    let unknown: Vec<_> = found
+        .iter()
+        .filter(|(code, _)| code == "STRUCTURE_001")
+        .map(|(_, path)| path.as_str())
+        .collect();
+    assert_eq!(unknown, ["Patient.foo", "Patient.bar"]);
+}
