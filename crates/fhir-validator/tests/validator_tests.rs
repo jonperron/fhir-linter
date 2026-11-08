@@ -1053,11 +1053,16 @@ fn codesystem_csd_4_uses_leading_type_name() {
     let registry = load_registry();
     let official = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/validator/cs-stds-status.json");
-    if let Ok(json) = std::fs::read_to_string(official) {
-        assert_eq!(codes(&registry, &json, "INVARIANT_csd-4"), 0);
+    match std::fs::read_to_string(official) {
+        Ok(json) => assert_eq!(codes(&registry, &json, "INVARIANT_csd-4"), 0),
+        Err(_) => assert!(
+            std::env::var_os("CI").is_none(),
+            "fixtures submodule missing in CI: run `git submodule update --init`"
+        ),
     }
     let base = r#"{"resourceType":"CodeSystem","status":"draft","content":"supplement"}"#;
     assert_eq!(codes(&registry, base, "INVARIANT_csd-4"), 1);
-    let with_supplements = r#"{"resourceType":"CodeSystem","status":"draft","content":"supplement","supplements":"http://x"}"#;
+    let with_supplements = r#"{"resourceType":"CodeSystem","status":"draft",
+        "content":"supplement","supplements":"http://x"}"#;
     assert_eq!(codes(&registry, with_supplements, "INVARIANT_csd-4"), 0);
 }

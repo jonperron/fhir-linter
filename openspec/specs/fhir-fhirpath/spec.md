@@ -396,6 +396,11 @@ Le système SHALL permettre à une expression de commencer par le nom de type de
 - **WHEN** `Patient.id` est évalué sur une `CodeSystem`
 - **THEN** `evaluate` SHALL retourner une collection vide
 
+#### Scenario: Nom de type après le premier segment
+
+- **WHEN** `Patient.Patient.id` est évalué sur une `Patient` sans champ nommé `Patient`
+- **THEN** `evaluate` SHALL retourner une collection vide, le préfixe n'étant admis qu'en tête
+
 #### Scenario: Champ réel prioritaire
 
 - **WHEN** la ressource possède un champ dont le nom est égal au nom demandé
