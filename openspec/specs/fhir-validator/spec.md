@@ -58,11 +58,16 @@ Le système SHALL fournir une enum `Severity` publique avec les variants `Error`
 
 ### Requirement: Validation structurelle — type de ressource inconnu (STRUCTURE_000)
 
-Le système SHALL émettre exactement un `Diagnostic` avec code `STRUCTURE_000` et severity `Error` lorsque le type de ressource n'est pas connu du registry, et SHALL arrêter toute validation supplémentaire.
+Le système SHALL émettre exactement un `Diagnostic` avec code `STRUCTURE_000` et severity `Error` lorsque `resourceType` ne désigne pas une ressource concrète, c'est-à-dire lorsqu'aucune StructureDefinition du registry n'a ce type avec `kind = resource` et `abstract = false`, et SHALL arrêter toute validation supplémentaire. Les ressources abstraites (`Resource`, `DomainResource`) et les types de données (ex. `HumanName`) SHALL donc être rejetés.
 
 #### Scenario: Type de ressource inconnu
 
 - **WHEN** `validate` est appelé avec une ressource dont `resourceType` n'existe pas dans le registry
+- **THEN** la fonction SHALL retourner exactement un Diagnostic avec code `STRUCTURE_000` et severity `Error`
+
+#### Scenario: Type abstrait ou type de données
+
+- **WHEN** `validate` est appelé avec une ressource dont `resourceType` est `Resource`, `DomainResource` ou `HumanName`
 - **THEN** la fonction SHALL retourner exactement un Diagnostic avec code `STRUCTURE_000` et severity `Error`
 
 ---
