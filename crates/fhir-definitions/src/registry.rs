@@ -1,6 +1,7 @@
 use std::collections::HashMap;
-use std::path::Path;
-use std::sync::Arc;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::Result;
 use crate::loader;
@@ -57,6 +58,30 @@ impl Registry {
             value_sets,
             code_systems,
         })
+    }
+
+    /// Load the registry for `dir` once and share it.
+    ///
+    /// Registries are expensive to build (~60 MB of JSON), so calls with the same
+    /// directory, however spelled (`defs`, `./defs`, a symlink), return the same
+    /// `Arc`. Failed loads are not cached. Entries are never evicted. The cache
+    /// belongs to each linked copy of this crate: two separately built native
+    /// modules (e.g. the Python and Node bindings) in one process keep their own.
+    pub fn shared(dir: impl AsRef<Path>) -> Result<Arc<Self>> {
+        static CACHE: OnceLock<Mutex<HashMap<PathBuf, Arc<Registry>>>> = OnceLock::new();
+
+        let dir = fs::canonicalize(dir)?;
+        // The lock is held while loading so concurrent callers never build twice.
+        let mut cache = CACHE
+            .get_or_init(Mutex::default)
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(registry) = cache.get(&dir) {
+            return Ok(Arc::clone(registry));
+        }
+        let registry = Arc::new(Self::from_definitions_dir(&dir)?);
+        cache.insert(dir, Arc::clone(&registry));
+        Ok(registry)
     }
 
     /// Look up a `StructureDefinition` by its canonical URL.
@@ -166,15 +191,15 @@ impl Registry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use std::sync::LazyLock;
 
     fn definitions_dir() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5")
     }
 
-    static REGISTRY: LazyLock<Registry> =
-        LazyLock::new(|| Registry::from_definitions_dir(definitions_dir()).unwrap());
+    // Shared with the `shared_*` tests so the test binary loads the definitions once.
+    static REGISTRY: LazyLock<Arc<Registry>> =
+        LazyLock::new(|| Registry::shared(definitions_dir()).unwrap());
 
     #[test]
     fn registry_structure_definition_lookup_is_case_sensitive() {
@@ -362,5 +387,20 @@ mod tests {
             result.is_err(),
             "loading from a nonexistent dir should fail"
         );
+    }
+
+    #[test]
+    fn shared_returns_same_registry_for_equivalent_paths() {
+        let dir = definitions_dir();
+        let first = Registry::shared(&dir).unwrap();
+        let second = Registry::shared(dir.join(".")).unwrap();
+        let third = Registry::shared(fs::canonicalize(&dir).unwrap()).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(Arc::ptr_eq(&first, &third));
+    }
+
+    #[test]
+    fn shared_from_nonexistent_dir_returns_error() {
+        assert!(Registry::shared("/nonexistent/path/that/does/not/exist").is_err());
     }
 }
