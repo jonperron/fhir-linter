@@ -477,11 +477,11 @@ Le système SHALL émettre `PROFILE_002` (erreur) lorsqu'un profil connu de `met
 
 ### Requirement: Exécution des manifestes de test officiels
 
-Le crate `fhir-validator` SHALL fournir un test d'intégration exécutant le manifeste `validator/manifest.json` de `fhir-test-cases` pour les cas R5 JSON autonomes (avec `java.errorCount` et sans `supporting`, `profile`, `profiles`, `packages`, `logical`). Chaque cas est jugé sur « présence d'erreurs » contre « erreurs attendues » ; le taux de réussite SHALL être au moins 0,6 (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le manifeste est absent, le test SHALL être ignoré.
+Le crate `fhir-validator` SHALL fournir un test d'intégration exécutant le manifeste `validator/manifest.json` de `fhir-test-cases` pour les cas R5 autonomes (sans `supporting`, `profile`, `profiles`, `packages`, `logical`), JSON (`parse_json`) et XML (`parse_xml`). Le résultat attendu SHALL provenir de l'entrée `java` : le fichier OperationOutcome qu'elle nomme sous `outcomes/`, un `outcome` en ligne ou `errorCount` ; le nombre d'erreurs attendues est le nombre d'issues `error` + `fatal`. Les cas sans résultat attendu sont comptés comme ignorés. Chaque cas est jugé sur « présence d'erreurs » contre « erreurs attendues » ; un échec d'analyse (y compris un fichier non UTF-8) compte comme « présence d'erreurs ». Les taux JSON et XML SHALL être affichés séparément (réussites, fausses erreurs, erreurs manquées, échecs d'analyse) et SHALL être au moins 0,69 pour JSON et 0,53 pour XML (planchers de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le manifeste est absent, le test SHALL être ignoré.
 
 #### Scenario: Taux de réussite sous le plancher
 
-- **WHEN** le taux de réussite est inférieur à 0,6
+- **WHEN** le taux de réussite JSON est inférieur à 0,69 ou le taux XML inférieur à 0,53
 - **THEN** le test SHALL échouer
 
 #### Scenario: Sous-module absent

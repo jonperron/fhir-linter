@@ -1,23 +1,108 @@
-//! Runs the official `fhir-test-cases/validator` manifest (R5, JSON, self-contained cases).
+//! Runs the official `fhir-test-cases/validator` manifest (R5, self-contained cases).
 //!
-//! Only cases with an inline expected `errorCount` and no supporting
-//! profiles/packages are run. Each is judged on "has errors" vs "expected
-//! errors"; the pass rate must not drop below `MIN_PASS_RATE`. A case that
-//! fails to parse counts as "has errors", so parser regressions lower the rate.
-use std::path::PathBuf;
+//! Cases with supporting profiles/packages are skipped. The expected result
+//! comes from the inline `java` entry (`errorCount` or `outcome`) or from the
+//! OperationOutcome file it names under `outcomes/`; expected errors are its
+//! `error` + `fatal` issues. Each case is judged on "has errors" vs "expected
+//! errors". JSON and XML cases are counted apart and each pass rate must not
+//! drop below its floor. A case that fails to parse counts as "has errors",
+//! so parser regressions lower the rate.
+use std::path::{Path, PathBuf};
 
 use fhir_definitions::Registry;
-use fhir_parser::parse_json;
+use fhir_parser::{parse_json, parse_xml};
 use fhir_validator::{Severity, validate};
+use serde_json::Value;
 
-/// Regression floor; raise it as validator coverage improves.
-const MIN_PASS_RATE: f64 = 0.6;
+/// Regression floors (rates measured on the pinned fixtures, rounded down);
+/// raise them as validator coverage improves.
+const MIN_JSON_PASS_RATE: f64 = 0.69;
+const MIN_XML_PASS_RATE: f64 = 0.53;
 
 fn fixtures_dir() -> PathBuf {
     std::env::var_os("FHIR_FIXTURES_DIR").map_or_else(
         || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures"),
         PathBuf::from,
     )
+}
+
+/// Number of `error` + `fatal` issues in an OperationOutcome.
+fn outcome_error_count(outcome: &Value) -> Option<u64> {
+    let issues = outcome["issue"].as_array().map_or(&[][..], Vec::as_slice);
+    let count = issues
+        .iter()
+        .filter(|issue| matches!(issue["severity"].as_str(), Some("error" | "fatal")))
+        .count();
+    (outcome["resourceType"] == "OperationOutcome").then_some(count as u64)
+}
+
+/// Expected error count of a case, or `None` when the manifest gives none
+/// (or names an outcome file that is not in the fixtures).
+fn expected_errors(java: &Value, dir: &Path) -> Option<u64> {
+    if let Some(file) = java.as_str() {
+        let text = std::fs::read_to_string(dir.join("outcomes").join(file)).ok()?;
+        return outcome_error_count(&serde_json::from_str(&text).ok()?);
+    }
+    if let Some(count) = java["errorCount"].as_u64() {
+        return Some(count + java["fatalCount"].as_u64().unwrap_or(0));
+    }
+    outcome_error_count(&java["outcome"])
+}
+
+#[derive(Default)]
+struct Tally {
+    cases: u32,
+    passed: u32,
+    false_errors: u32,
+    missed_errors: u32,
+    parse_failures: u32,
+    /// Cases with no expected result (no outcome file in the fixtures).
+    skipped: u32,
+    failing: Vec<String>,
+}
+
+impl Tally {
+    fn rate(&self) -> f64 {
+        if self.cases == 0 {
+            1.0
+        } else {
+            f64::from(self.passed) / f64::from(self.cases)
+        }
+    }
+
+    fn report(&self, format: &str) {
+        eprintln!(
+            "manifest {format}: {}/{} passed ({:.1}%), false errors {}, missed errors {}, \
+             parse failures {}, skipped (no expected result) {}\nfailing {format}: {:?}",
+            self.passed,
+            self.cases,
+            self.rate() * 100.0,
+            self.false_errors,
+            self.missed_errors,
+            self.parse_failures,
+            self.skipped,
+            self.failing,
+        );
+    }
+}
+
+#[test]
+fn outcome_error_count_counts_error_and_fatal_only() {
+    let outcome = serde_json::json!({
+        "resourceType": "OperationOutcome",
+        "issue": [
+            {"severity": "fatal"},
+            {"severity": "error"},
+            {"severity": "warning"},
+            {"severity": "information"},
+        ],
+    });
+    assert_eq!(outcome_error_count(&outcome), Some(2));
+    assert_eq!(
+        outcome_error_count(&serde_json::json!({"resourceType": "OperationOutcome"})),
+        Some(0)
+    );
+    assert_eq!(outcome_error_count(&Value::Null), None);
 }
 
 #[test]
@@ -31,50 +116,71 @@ fn validator_manifest_pass_rate() {
         eprintln!("fixtures submodule not checked out; skipping");
         return;
     };
-    let manifest: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+    let manifest: Value = serde_json::from_str(&manifest).unwrap();
     let registry = Registry::from_definitions_dir(
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5"),
     )
     .unwrap();
 
-    let (mut run, mut passed) = (0u32, 0u32);
-    let mut failures = Vec::new();
+    let (mut json, mut xml) = (Tally::default(), Tally::default());
     for case in manifest["test-cases"].as_array().unwrap() {
         let is_r5 = matches!(case["version"].as_str(), None | Some("5.0.0" | "5.0"));
         let standalone = ["supporting", "profile", "profiles", "packages", "logical"]
             .iter()
             .all(|k| case.get(k).is_none());
-        let (Some(file), Some(expected)) = (
-            case["file"].as_str().filter(|f| f.ends_with(".json")),
-            case["java"]["errorCount"].as_u64(),
-        ) else {
+        let Some(file) = case["file"].as_str() else {
             continue;
         };
         if !is_r5 || !standalone {
             continue;
         }
-        let has_errors = match parse_json(&std::fs::read_to_string(dir.join(file)).unwrap()) {
-            Ok(resource) => validate(&resource, &registry)
+        let (tally, parse): (_, fn(&str) -> Result<_, _>) = if file.ends_with(".json") {
+            (&mut json, parse_json)
+        } else if file.ends_with(".xml") {
+            (&mut xml, parse_xml)
+        } else {
+            continue;
+        };
+        let Some(expected) = expected_errors(&case["java"], &dir) else {
+            tally.skipped += 1;
+            continue;
+        };
+        let bytes = std::fs::read(dir.join(file)).expect("manifest case file");
+        // A file that is not UTF-8 (e.g. a UTF-16 XML case) counts as a parse failure.
+        let parsed = String::from_utf8(bytes)
+            .ok()
+            .and_then(|text| parse(&text).ok());
+        let has_errors = match parsed {
+            Some(resource) => validate(&resource, &registry)
                 .iter()
                 .any(|d| d.severity == Severity::Error),
-            Err(_) => true,
+            None => {
+                tally.parse_failures += 1;
+                true
+            }
         };
-        run += 1;
-        if has_errors == (expected > 0) {
-            passed += 1;
-        } else {
-            failures.push(file.to_owned());
+        tally.cases += 1;
+        match (has_errors, expected > 0) {
+            (true, true) | (false, false) => {
+                tally.passed += 1;
+                continue;
+            }
+            (true, false) => tally.false_errors += 1,
+            (false, true) => tally.missed_errors += 1,
         }
+        tally.failing.push(file.to_owned());
     }
 
-    let rate = if run == 0 {
-        1.0
-    } else {
-        f64::from(passed) / f64::from(run)
-    };
-    eprintln!(
-        "manifest: {passed}/{run} passed ({:.0}%)\nfailing: {failures:?}",
-        rate * 100.0
+    json.report("json");
+    xml.report("xml");
+    assert!(
+        json.rate() >= MIN_JSON_PASS_RATE,
+        "JSON pass rate {:.3} below floor {MIN_JSON_PASS_RATE}",
+        json.rate(),
     );
-    assert!(rate >= MIN_PASS_RATE, "pass rate {rate:.2} below floor");
+    assert!(
+        xml.rate() >= MIN_XML_PASS_RATE,
+        "XML pass rate {:.3} below floor {MIN_XML_PASS_RATE}",
+        xml.rate(),
+    );
 }
