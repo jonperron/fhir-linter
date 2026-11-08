@@ -19,11 +19,14 @@ behaviour from either side. First read `.claude/factory/loop.md` and
 
 ## Process
 
-1. `gh pr view <N> --json headRefName,baseRefName,mergeStateStatus`.
+1. `gh pr view <N> --json headRefName,baseRefName,mergeStateStatus,isCrossRepository`.
+   If `isCrossRepository` is true, stop: fork PRs are out of scope (see
+   `loop.md`, Trust). Then `git fetch origin`.
 2. Setup in your own worktree. The PR branch may be checked out elsewhere:
    create a local branch from `origin/<head>` (see the profile's git
    quirks). Never touch the other worktree.
-3. Record the behaviour baseline on `origin/<base>` (method from
+3. Record the behaviour baseline on `origin/<base>` AND on the pre-rebase
+   PR head `origin/<head>` (method from
    `.claude/agents/behaviour-differ.md`). Skip it for docs-only or
    config-only PRs.
 4. Rebase onto `origin/<base>`. For every conflict, read both sides and
@@ -33,8 +36,10 @@ behaviour from either side. First read `.claude/factory/loop.md` and
    follow-up commit. Every commit must build.
 5. Quality gate. If the resolution changed real code (not just lists, docs
    or imports), run the full quality loop. Otherwise the gate is enough.
-6. Compare behaviour against the baseline. Anything the base produced that
-   disappears, and that the PR did not mean to remove, is a bug: fix it.
+6. Compare behaviour against both snapshots. Anything the base produced
+   that disappears and the PR did not mean to remove is a bug, and so is
+   anything the pre-rebase PR head produced that the rebased head lost.
+   Fix it.
 7. Push with the lease form from the profile. Confirm that
    `mergeStateStatus` is no longer DIRTY and that CI passes. Drop any "must
    rebase after #X" note from the PR body that is now done

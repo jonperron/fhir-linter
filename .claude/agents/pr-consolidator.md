@@ -22,21 +22,25 @@ read `.claude/factory/loop.md` and `.claude/factory/project.md`.
 
 1. Setup: profile worktree setup; create the target branch from the latest
    `origin/<base>`.
-2. Baseline: record the behaviour baseline on `origin/<base>` (run
-   `.claude/agents/behaviour-differ.md`'s method yourself, or spawn
-   `behaviour-differ`).
+2. Baseline: record the behaviour baseline on `origin/<base>` AND on each
+   source branch (run `.claude/agents/behaviour-differ.md`'s method
+   yourself, or spawn `behaviour-differ` with the sources as extra refs).
+   Output that a source branch added must still be in the combined result.
 3. Bring in each source branch in order. Prefer a linear rebase of its
    commits (`git cherry-pick` or rebase) so each original commit survives;
    use a merge commit only if the history is too tangled. Resolve conflicts
    so both sides keep their behaviour. Run the quality gate after each one.
 4. Implement the extra issues, one commit each, failing-first.
-5. Compare the behaviour after each step against the baseline. Every
-   difference must be either an intended effect of a source branch or
-   issue, or fixed. List them per step in the report.
+5. Compare the behaviour after each step against the base baseline and
+   the source-branch snapshots. Every difference must be either an
+   intended effect of a source branch or issue, or fixed. List them per
+   step in the report.
 6. Run the quality loop on the WHOLE combined diff against `origin/<base>`.
 7. Spec sync.
-8. Rebase onto the latest `origin/<base>` again just before pushing; open
-   the PR. The body lists every included fix (1–2 lines each), the
+8. Fetch and rebase onto the latest `origin/<base>` again just before
+   pushing. If the rebase moved anything, rerun the quality gate and the
+   behaviour comparison on the rebased tree, and the full quality loop if
+   conflicts needed resolving. Then open the PR. The body lists every included fix (1–2 lines each), the
    behaviour changes users will see, the baseline comparison, and any
    performance numbers.
 9. Answer the bot review per `.claude/agents/bot-review-responder.md`.

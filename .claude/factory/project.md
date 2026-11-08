@@ -18,8 +18,11 @@ and write a new copy of this file with the same headings.
 
 ## Git quirks
 
-- The `rtk` hook rewrites `git` and the worktree guard rejects the
-  rewritten form. Use `/usr/bin/git` for every git command.
+- Git binary: `/usr/bin/git`. The `rtk` hook rewrites `git` and the
+  worktree guard rejects the rewritten form. Every `git` command written
+  in an agent file or in `loop.md` means `/usr/bin/git` here, including
+  the setup commands below.
+- PR source: same-repository branches only (see `loop.md`, trust).
 - A branch checked out in another worktree cannot be checked out again.
   To update a PR whose branch lives elsewhere, work on a new local branch
   from `origin/<branch>` and push with
@@ -34,7 +37,7 @@ for f in "$PRIMARY"/definitions/r5/*.json "$PRIMARY"/definitions/r5/*.zip \
          "$PRIMARY"/definitions/r5/*.sentinel; do
   ln -sf "$f" definitions/r5/
 done
-/usr/bin/git submodule update --init tests/fixtures
+git submodule update --init tests/fixtures   # /usr/bin/git, see above
 ```
 
 `$PRIMARY` is the primary checkout: the first path of `git worktree list`.
@@ -67,7 +70,7 @@ Say so in the report if a toolchain is missing; do not claim it passed.
 ## Reviewer routing
 
 | Changed files | Reviewer subagent |
-|---|---|
+| --- | --- |
 | `*.rs` | `rust-reviewer` |
 | `bindings/python/**` | `python-reviewer` |
 | `bindings/typescript/**` | `typescript-reviewer` |
@@ -87,16 +90,21 @@ subagent. Known unrelated failures to leave alone: `fhir-linter`,
 - Bot login: `sourcery-ai[bot]` (appears as `sourcery-ai` in some APIs)
 - It reviews every new PR within a few minutes; it rarely re-reviews a
   force-push.
-- Review comments: `gh api repos/jonperron/fihr-linter/pulls/<N>/comments`
+- Review comments: `gh api --paginate repos/jonperron/fihr-linter/pulls/<N>/comments`
+  (and `.../reviews`). Always pass `--paginate`; the default page holds 30.
 - Reply: `gh api repos/jonperron/fihr-linter/pulls/<N>/comments/<id>/replies -f body=...`
 
 ## Behaviour baseline
 
 - Corpus: every `*.json` under `tests/fixtures/`
-- Output to compare: the validator's diagnostics as `code` + `path`, one
-  line each, per input file
-- Harness: a throwaway binary or test in the scratchpad that loads the real
-  `Registry` from `definitions/r5/` and calls `fhir_validator::validate`.
-  Never commit it.
+  (one copy, shared by every ref; for example the primary checkout's
+  `tests/fixtures/`)
+- Output to compare: the validator's diagnostics as `severity`, `code`,
+  `path` and `message`, one line each, per input file, in emission order.
+  The set key is `code` + `path`.
+- Harness: a throwaway binary in the scratchpad with a path dependency on
+  the checkout under test. It loads the real `Registry` from
+  `definitions/r5/` and calls `fhir_validator::validate`. Build it once
+  per ref. Never commit it.
 - Secondary metric: the manifest pass rate printed by
   `cargo test -p fhir-validator --test manifest_tests -- --nocapture`
