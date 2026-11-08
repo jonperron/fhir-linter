@@ -293,7 +293,10 @@ fn vitalsigns_extra_category_is_not_a_cardinality_error() {
         r#""text": "Vital Signs"
   }],"#,
         r#""text": "Vital Signs"
-  }, {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/observation-category", "code": "exam"}]}],"#,
+  }, {"coding": [{
+    "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+    "code": "exam"
+  }]}],"#,
     );
     assert_ne!(json, VITAL_SIGNS_HEART_RATE);
     let found = codes_for(&json);
