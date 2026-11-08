@@ -100,6 +100,7 @@ mod tests {
                 types: vec![],
                 constraints,
                 binding: None,
+                slice_name: None,
             }],
         )
     }

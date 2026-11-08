@@ -192,6 +192,11 @@ pub(crate) fn check_children_cardinality(
             check_choice(fields, sd, elem, &prefix, path, diagnostics);
             continue;
         }
+        // shortcut: slices are not matched to instances, so a slice's own max is not
+        // enforced; revisit when slicing discriminators are evaluated.
+        if elem.slice_name.is_some() {
+            continue;
+        }
         let node = present(fields, elem, rest);
         // An absent optional element cannot fail; skip building its path.
         if node.is_none() && elem.min == 0 {
@@ -341,6 +346,7 @@ mod tests {
             types: vec![],
             constraints: vec![],
             binding: None,
+            slice_name: None,
         }
     }
 
