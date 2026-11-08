@@ -152,7 +152,7 @@ L'argument de `ofType`, `is` et `as` est un identifiant de nom de type. La corre
 
 #### Scenario: ofType filtre par type FHIRPath
 
-- **WHEN** `ofType('string')` est évalué sur une collection mixte
+- **WHEN** `ofType(String)` est évalué sur une collection mixte
 - **THEN** le résultat SHALL contenir uniquement les valeurs de type `String`
 
 #### Scenario: ofType filtre par resourceType
