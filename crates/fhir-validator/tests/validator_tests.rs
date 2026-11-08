@@ -229,6 +229,63 @@ fn unknown_profile_produces_profile_001_warning() {
     assert_eq!(codes(&registry, json, "PROFILE_001"), 1);
 }
 
+/// Heart-rate example from the R5 spec (`observation-example-heart-rate`).
+const VITAL_SIGNS_HEART_RATE: &str = r#"{
+  "resourceType": "Observation",
+  "id": "heart-rate",
+  "meta": {"profile": ["http://hl7.org/fhir/StructureDefinition/vitalsigns"]},
+  "status": "final",
+  "category": [{
+    "coding": [{
+      "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+      "code": "vital-signs",
+      "display": "Vital Signs"
+    }],
+    "text": "Vital Signs"
+  }],
+  "code": {
+    "coding": [{"system": "http://loinc.org", "code": "8867-4", "display": "Heart rate"}],
+    "text": "Heart rate"
+  },
+  "subject": {"reference": "Patient/example"},
+  "effectiveDateTime": "1999-07-02",
+  "valueQuantity": {
+    "value": 44,
+    "unit": "beats/minute",
+    "system": "http://unitsofmeasure.org",
+    "code": "/min"
+  }
+}"#;
+
+#[test]
+fn core_vitalsigns_profile_is_known() {
+    let registry = load_registry();
+    assert_eq!(codes(&registry, VITAL_SIGNS_HEART_RATE, "PROFILE_001"), 0);
+}
+
+#[test]
+fn valid_vitalsigns_observation_has_no_errors() {
+    let registry = load_registry();
+    let resource = parse_json(VITAL_SIGNS_HEART_RATE).unwrap();
+    let errors: Vec<_> = validate(&resource, &registry)
+        .into_iter()
+        .filter(|d| d.severity == Severity::Error)
+        .collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[test]
+fn vitalsigns_profile_cardinality_is_enforced() {
+    // `subject` is optional on Observation but 1..1 in the vitalsigns profile.
+    let json =
+        VITAL_SIGNS_HEART_RATE.replace(r#""subject": {"reference": "Patient/example"},"#, "");
+    let found = codes_for(&json);
+    assert!(
+        found.contains(&("CARDINALITY_001".into(), "Observation.subject".into())),
+        "{found:?}",
+    );
+}
+
 #[test]
 fn profile_for_other_resource_type_produces_profile_002() {
     let registry = load_registry();

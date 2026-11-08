@@ -11,6 +11,7 @@ Contents after download
 
 - profiles-resources.json    — StructureDefinitions for all FHIR R5 resources
 - profiles-types.json        — StructureDefinitions for FHIR R5 data types
+- profiles-others.json       — Core profiles (vitalsigns, etc.)
 - valuesets.json             — ValueSet definitions
 - codesystems.json           — CodeSystem definitions
 - extension-definitions.json — Extension StructureDefinitions
