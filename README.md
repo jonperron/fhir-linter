@@ -15,6 +15,13 @@ Built-in lint rules:
 | `missing-identifier` | Resource has no identifier |
 | `missing-meta-profile` | Resource has no `meta.profile` |
 
+## Install
+
+Each GitHub release carries the `fhir-lint` CLI archives (Linux x86_64,
+macOS arm64, Windows x86_64), the Python wheels and sdist, and an npm
+tarball (`npm install ./fhir-linter-<version>.tgz`). Nothing is published
+to PyPI, npm or crates.io yet.
+
 ## Setup
 
 ```bash
