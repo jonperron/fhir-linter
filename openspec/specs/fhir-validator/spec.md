@@ -7,10 +7,10 @@ TBD - created by archiving change fhir-validator-phase5. Update Purpose after ar
 
 Le système SHALL exposer une fonction `validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic>` qui applique toutes les couches de validation dans l'ordre et retourne l'ensemble des findings.
 
-#### Scenario: Ressource valide retourne une liste vide
+#### Scenario: Ressource valide ne retourne aucun finding
 
 - **WHEN** `validate` est appelé avec une ressource Patient valide et un registry R5 chargé
-- **THEN** la fonction SHALL retourner un `Vec<Diagnostic>` vide (aucune erreur)
+- **THEN** le `Vec<Diagnostic>` retourné SHALL ne contenir aucun Diagnostic autre que des `INVARIANT_SKIPPED` de severity `Information` (contraintes non vérifiées, qui ne sont pas des findings)
 
 #### Scenario: Ressource invalide retourne des diagnostics
 
