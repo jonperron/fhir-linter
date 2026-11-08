@@ -276,6 +276,19 @@ mod tests {
     }
 
     #[test]
+    fn integer_beyond_i64_produces_type_001() {
+        for type_code in ["integer", "unsignedInt", "positiveInt"] {
+            let sd = make_sd("Obs", "n", type_code);
+            let source = r#"{"resourceType": "Obs", "n": 12345678901234567890}"#;
+            let resource = fhir_parser::parse_json(source).unwrap();
+            let mut d = vec![];
+            validate(&resource, &sd, &mut d);
+            assert_eq!(d.len(), 1, "{type_code}: {d:?}");
+            assert_eq!(d[0].code.as_ref(), "TYPE_001");
+        }
+    }
+
+    #[test]
     fn integer64_requires_a_digit_string() {
         let sd = make_sd("Obs", "big", "integer64");
         for (value, expected) in [

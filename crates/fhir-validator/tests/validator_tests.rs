@@ -449,3 +449,12 @@ fn nested_primitive_extension_array_over_max_is_cardinality_002() {
     let found = codes_for(r#"{"resourceType":"Patient","contact":[{"_gender":[{},{}]}]}"#);
     assert_has(&found, "CARDINALITY_002", "Patient.contact[0].gender");
 }
+
+#[test]
+fn nested_integer_beyond_i64_produces_type_001() {
+    let found = codes_for(
+        r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},
+            "component":[{"code":{"text":"y"},"valueInteger":12345678901234567890}]}"#,
+    );
+    assert_has(&found, "TYPE_001", "Observation.component[0].valueInteger");
+}
