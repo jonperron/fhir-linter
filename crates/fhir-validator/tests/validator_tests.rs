@@ -35,6 +35,11 @@ fn non_concrete_resource_type_produces_structure_000() {
         let diagnostics = validate(&resource, &registry);
         assert_eq!(diagnostics.len(), 1, "{rt}: {diagnostics:?}");
         assert_eq!(diagnostics[0].code.as_ref(), "STRUCTURE_000", "{rt}");
+        assert_eq!(
+            diagnostics[0].message.as_ref(),
+            format!("'{rt}' is not a concrete resource type"),
+            "{rt}",
+        );
     }
 }
 

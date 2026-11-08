@@ -29,13 +29,15 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
     let resource_type = resource.resource_type.as_ref();
     let url = format!("http://hl7.org/fhir/StructureDefinition/{resource_type}");
 
-    let Some(sd) = registry
-        .structure_definition(&url)
-        .filter(|sd| sd.kind.as_ref() == "resource" && !sd.is_abstract)
-    else {
+    let definition = registry.structure_definition(&url);
+    let Some(sd) = definition.filter(|sd| sd.kind.as_ref() == "resource" && !sd.is_abstract) else {
+        let message = match definition {
+            Some(_) => format!("'{resource_type}' is not a concrete resource type"),
+            None => format!("Unknown resource type '{resource_type}'"),
+        };
         return vec![Diagnostic::error(
             "STRUCTURE_000",
-            format!("Unknown resource type '{resource_type}'"),
+            message,
             resource_type.to_owned(),
         )];
     };
