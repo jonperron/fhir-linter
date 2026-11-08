@@ -72,14 +72,14 @@ fn parse_structure_definition(resource: &Value) -> Option<StructureDefinition> {
         .map(|elems| elems.iter().filter_map(parse_element_definition).collect())
         .unwrap_or_default();
 
-    Some(StructureDefinition {
+    Some(StructureDefinition::new(
         url,
         name,
         kind,
         is_abstract,
         base_definition,
         snapshot,
-    })
+    ))
 }
 
 fn parse_element_definition(elem: &Value) -> Option<ElementDefinition> {

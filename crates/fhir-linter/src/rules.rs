@@ -8,10 +8,7 @@ fn has_element(resource: &Resource, registry: &Registry, name: &str) -> bool {
     let rt = resource.resource_type.as_ref();
     registry
         .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{rt}"))
-        .is_some_and(|sd| {
-            let path = format!("{rt}.{name}");
-            sd.snapshot.iter().any(|e| e.path.as_ref() == path)
-        })
+        .is_some_and(|sd| sd.element(&format!("{rt}.{name}")).is_some())
 }
 
 /// The resource has no (or an empty) human-readable narrative.

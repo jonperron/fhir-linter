@@ -59,17 +59,19 @@ fn resolve<'a>(
     if has_punctuation(name) {
         return None;
     }
-    let direct = sd.snapshot.iter().find(|e| e.path.as_ref() == path);
-    if let Some(e) = direct {
+    if let Some(e) = sd.element(path) {
         return Some((e, e.types.first().cloned()));
     }
     let parent = path.strip_suffix(name)?;
-    sd.snapshot.iter().find_map(|e| {
-        let base = e.path.strip_prefix(parent)?.strip_suffix("[x]")?;
-        let suffix = name.strip_prefix(base)?;
-        let ty = e.types.iter().find(|t| capitalise(t) == suffix)?;
-        Some((e, Some(ty.clone())))
-    })
+    // A type suffix is capitalised, so a choice can only split before an uppercase letter.
+    (1..name.len())
+        .filter(|&i| name.as_bytes()[i].is_ascii_uppercase())
+        .find_map(|i| {
+            let (base, suffix) = name.split_at(i);
+            let e = sd.element(&format!("{parent}{base}[x]"))?;
+            let ty = e.types.iter().find(|t| capitalise(t) == suffix)?;
+            Some((e, Some(ty.clone())))
+        })
 }
 
 fn capitalise(s: &str) -> String {
@@ -182,16 +184,20 @@ pub(crate) fn check_children_cardinality(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let prefix = format!("{def_path}.");
-    for elem in &sd.snapshot {
+    for elem in sd.descendants(def_path) {
         let Some(rest) = elem.path.strip_prefix(&prefix).filter(|r| !r.contains('.')) else {
             continue;
         };
         if rest.ends_with("[x]") {
             check_choice(fields, sd, elem, &prefix, path, diagnostics);
-        } else {
-            let child_path = format!("{path}.{rest}");
-            check_cardinality(elem, present(fields, elem, rest), &child_path, diagnostics);
+            continue;
         }
+        let node = present(fields, elem, rest);
+        // An absent optional element cannot fail; skip building its path.
+        if node.is_none() && elem.min == 0 {
+            continue;
+        }
+        check_cardinality(elem, node, &format!("{path}.{rest}"), diagnostics);
     }
 }
 
@@ -259,9 +265,12 @@ fn present<'a>(
     name: &str,
 ) -> Option<&'a Node> {
     fields.get(name).or_else(|| {
-        fields.get(format!("_{name}").as_str()).filter(|node| {
-            elem.types.first().is_some_and(|t| is_primitive(t)) && is_extension_shape(node)
-        })
+        // Only primitives take a `_name`; skip building the key for the rest.
+        let primitive = elem.types.first().is_some_and(|t| is_primitive(t));
+        primitive
+            .then(|| fields.get(format!("_{name}").as_str()))
+            .flatten()
+            .filter(|node| is_extension_shape(node))
     })
 }
 
@@ -337,19 +346,19 @@ mod tests {
 
     #[test]
     fn children_cardinality_checks_direct_children_only() {
-        let sd = StructureDefinition {
-            url: Arc::from("http://example.org/StructureDefinition/obs-profile"),
-            name: Arc::from("ObsProfile"),
-            kind: Arc::from("resource"),
-            is_abstract: false,
-            base_definition: None,
-            snapshot: vec![
+        let sd = StructureDefinition::new(
+            Arc::from("http://example.org/StructureDefinition/obs-profile"),
+            Arc::from("ObsProfile"),
+            Arc::from("resource"),
+            false,
+            None,
+            vec![
                 elem("Observation", 0),
                 elem("Observation.subject", 1),
                 elem("Observation.value[x]", 1),
                 elem("Observation.component.code", 1),
             ],
-        };
+        );
         let mut found = vec![];
         check_children_cardinality(
             &IndexMap::new(),

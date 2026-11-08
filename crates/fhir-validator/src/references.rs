@@ -23,9 +23,8 @@ pub fn validate(
     for (field_name, node) in &resource.fields {
         let path = format!("{resource_type}.{field_name}");
         let is_reference = sd
-            .snapshot
-            .iter()
-            .any(|e| e.path.as_ref() == path && e.types.iter().any(|t| t.as_ref() == "Reference"));
+            .element(&path)
+            .is_some_and(|e| e.types.iter().any(|t| t.as_ref() == "Reference"));
         if !is_reference {
             continue;
         }

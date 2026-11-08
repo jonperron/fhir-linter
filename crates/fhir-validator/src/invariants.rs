@@ -17,11 +17,7 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
     let resource_type = resource.resource_type.as_ref();
 
     // The root element carries the constraints for the whole resource.
-    let Some(root_elem) = sd
-        .snapshot
-        .iter()
-        .find(|e| e.path.as_ref() == resource_type)
-    else {
+    let Some(root_elem) = sd.element(resource_type) else {
         return;
     };
 
@@ -91,15 +87,13 @@ mod tests {
         resource_type: &str,
         constraints: Vec<Constraint>,
     ) -> StructureDefinition {
-        StructureDefinition {
-            url: Arc::from(
-                format!("http://hl7.org/fhir/StructureDefinition/{resource_type}").as_str(),
-            ),
-            name: Arc::from(resource_type),
-            kind: Arc::from("resource"),
-            is_abstract: false,
-            base_definition: None,
-            snapshot: vec![ElementDefinition {
+        StructureDefinition::new(
+            Arc::from(format!("http://hl7.org/fhir/StructureDefinition/{resource_type}").as_str()),
+            Arc::from(resource_type),
+            Arc::from("resource"),
+            false,
+            None,
+            vec![ElementDefinition {
                 path: Arc::from(resource_type),
                 min: 0,
                 max: Arc::from("*"),
@@ -107,7 +101,7 @@ mod tests {
                 constraints,
                 binding: None,
             }],
-        }
+        )
     }
 
     fn make_empty_resource(resource_type: &str) -> fhir_parser::Resource {

@@ -1,7 +1,10 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// A lightweight StructureDefinition — only the fields the validator needs.
+///
+/// Built with [`StructureDefinition::new`], which indexes the snapshot by path;
+/// the snapshot must not change afterwards (the registry only hands out `&` references).
 #[derive(Debug, Clone)]
 pub struct StructureDefinition {
     pub url: Arc<str>,
@@ -10,6 +13,60 @@ pub struct StructureDefinition {
     pub is_abstract: bool,
     pub base_definition: Option<Arc<str>>,
     pub snapshot: Vec<ElementDefinition>,
+    /// Position in `snapshot` of the first element with each path.
+    path_index: HashMap<Arc<str>, usize>,
+}
+
+impl StructureDefinition {
+    pub fn new(
+        url: Arc<str>,
+        name: Arc<str>,
+        kind: Arc<str>,
+        is_abstract: bool,
+        base_definition: Option<Arc<str>>,
+        snapshot: Vec<ElementDefinition>,
+    ) -> Self {
+        let mut path_index = HashMap::with_capacity(snapshot.len());
+        for (i, elem) in snapshot.iter().enumerate() {
+            // Slices repeat their path; keep the first, as a linear `find` would.
+            path_index.entry(elem.path.clone()).or_insert(i);
+        }
+        Self {
+            url,
+            name,
+            kind,
+            is_abstract,
+            base_definition,
+            snapshot,
+            path_index,
+        }
+    }
+
+    /// The (first) snapshot element whose path is exactly `path`.
+    pub fn element(&self, path: &str) -> Option<&ElementDefinition> {
+        self.path_index
+            .get(path)
+            .and_then(|&i| self.snapshot.get(i))
+    }
+
+    /// The snapshot elements below `path`: the run right after its element whose
+    /// paths start with `path.` (snapshots list descendants right after their parent).
+    /// Empty when `path` is not in the snapshot.
+    pub fn descendants(&self, path: &str) -> &[ElementDefinition] {
+        let Some(&start) = self.path_index.get(path) else {
+            return &[];
+        };
+        let rest = self.snapshot.get(start + 1..).unwrap_or_default();
+        let len = rest
+            .iter()
+            .position(|e| {
+                !e.path
+                    .strip_prefix(path)
+                    .is_some_and(|tail| tail.starts_with('.') || tail.is_empty())
+            })
+            .unwrap_or(rest.len());
+        &rest[..len]
+    }
 }
 
 /// A single element in a StructureDefinition snapshot.
@@ -75,4 +132,69 @@ pub struct CodeSystem {
     pub codes: HashSet<Arc<str>>,
     /// False when the system is a fragment/not-present, so absence of a code proves nothing.
     pub complete: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn elem(path: &str, min: u32) -> ElementDefinition {
+        ElementDefinition {
+            path: Arc::from(path),
+            min,
+            max: Arc::from("*"),
+            types: vec![],
+            constraints: vec![],
+            binding: None,
+        }
+    }
+
+    fn sliced_observation() -> StructureDefinition {
+        let paths = [
+            ("Observation", 0),
+            ("Observation.category", 0),
+            ("Observation.category.coding", 0),
+            ("Observation.category", 1),
+            ("Observation.category.coding", 1),
+            ("Observation.categoryText", 0),
+            ("Observation.code", 1),
+        ];
+        StructureDefinition::new(
+            Arc::from("http://example.org/sd"),
+            Arc::from("Obs"),
+            Arc::from("resource"),
+            false,
+            None,
+            paths.iter().map(|&(p, min)| elem(p, min)).collect(),
+        )
+    }
+
+    #[test]
+    fn element_returns_the_first_element_with_the_path() {
+        let sd = sliced_observation();
+        assert_eq!(sd.element("Observation.category").map(|e| e.min), Some(0));
+        assert_eq!(sd.element("Observation.code").map(|e| e.min), Some(1));
+        assert!(sd.element("Observation.cat").is_none());
+    }
+
+    #[test]
+    fn descendants_span_slices_and_stop_at_the_next_sibling() {
+        let sd = sliced_observation();
+        let paths: Vec<_> = sd
+            .descendants("Observation.category")
+            .iter()
+            .map(|e| (e.path.as_ref(), e.min))
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                ("Observation.category.coding", 0),
+                ("Observation.category", 1),
+                ("Observation.category.coding", 1),
+            ]
+        );
+        assert_eq!(sd.descendants("Observation").len(), 6);
+        assert!(sd.descendants("Observation.code").is_empty());
+        assert!(sd.descendants("Observation.unknown").is_empty());
+    }
 }
