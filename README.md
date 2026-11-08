@@ -20,7 +20,9 @@ Built-in lint rules:
 Each GitHub release carries the `fhir-lint` CLI archives (Linux x86_64,
 macOS arm64, Windows x86_64), the Python wheels and sdist, and an npm
 tarball (`npm install ./fhir-linter-<version>.tgz`). Nothing is published
-to PyPI, npm or crates.io yet.
+to PyPI, npm or crates.io yet. On Linux, the CLI and the npm addon need
+glibc 2.35 or newer (Ubuntu 22.04, Debian 12, RHEL 10); the wheels are
+manylinux2014 (glibc 2.17).
 
 ## Setup
 

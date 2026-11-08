@@ -28,8 +28,13 @@ jobs:
           version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
           [ "$TAG" = "fhir-linter-v$version" ] || { echo "tag $TAG != $version"; exit 1; }
 
+      - uses: taiki-e/install-action@c114f6e1756596f56b6d3c93a9c0bbd6b5ec1154 # cargo-llvm-cov
+        with:
+          tool: cargo-audit@0.22.2
+          fallback: none
+
       - name: Audit dependencies
-        run: cargo install cargo-audit --locked && cargo audit
+        run: cargo audit
 
   build:
     needs: verify
@@ -37,7 +42,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          # Oldest supported runner: the CLI and napi addon need glibc >= 2.35.
+          - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
           - os: macos-latest
             target: aarch64-apple-darwin
@@ -81,6 +87,8 @@ jobs:
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           command: build
+          maturin-version: v1.16.0
+          manylinux: auto
           args: --release --locked --out wheels -m bindings/python/Cargo.toml
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -115,6 +123,7 @@ jobs:
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           command: sdist
+          maturin-version: v1.16.0
           args: --out dist -m bindings/python/Cargo.toml
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

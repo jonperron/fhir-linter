@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Addon Node.js natif (napi-rs) exposant le validateur et le linter. Paquet npm `fhir-linter`, ESM, Node.js uniquement.
+Addon Node.js natif (napi-rs) exposant le validateur et le linter. Paquet npm `fhir-linter` (tarball unique, tous les `.node` inclus, joint aux releases GitHub, pas de publication npm), ESM, Node.js uniquement.
 ## Requirements
 ### Requirement: Fonction validate
 

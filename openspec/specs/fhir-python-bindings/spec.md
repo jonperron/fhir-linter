@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Bindings Python (PyO3 + maturin) exposant le validateur et le linter. Paquet PyPI `fhir-linter`, module `fhir_linter`.
+Bindings Python (PyO3 + maturin) exposant le validateur et le linter. Paquet `fhir-linter` (wheels et sdist joints aux releases GitHub, pas de publication PyPI), module `fhir_linter`.
 
 ## Requirements
 
