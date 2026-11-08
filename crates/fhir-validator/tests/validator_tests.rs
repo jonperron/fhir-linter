@@ -1045,3 +1045,19 @@ fn integer_primitives_are_32_bit() {
     );
     assert!(found.is_empty(), "{found:?}");
 }
+
+// ── Leading type name in invariants (csd-4) ──────────────────────────────────
+
+#[test]
+fn codesystem_csd_4_uses_leading_type_name() {
+    let registry = load_registry();
+    let official = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/validator/cs-stds-status.json");
+    if let Ok(json) = std::fs::read_to_string(official) {
+        assert_eq!(codes(&registry, &json, "INVARIANT_csd-4"), 0);
+    }
+    let base = r#"{"resourceType":"CodeSystem","status":"draft","content":"supplement"}"#;
+    assert_eq!(codes(&registry, base, "INVARIANT_csd-4"), 1);
+    let with_supplements = r#"{"resourceType":"CodeSystem","status":"draft","content":"supplement","supplements":"http://x"}"#;
+    assert_eq!(codes(&registry, with_supplements, "INVARIANT_csd-4"), 0);
+}

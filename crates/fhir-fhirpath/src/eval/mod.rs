@@ -218,6 +218,13 @@ impl Evaluator {
             if let Value::Object(fields) = item {
                 if let Some(children) = fields.get(name) {
                     result.extend_from_slice(children);
+                } else if matches!(
+                    fields.get("resourceType").map(Vec::as_slice),
+                    Some([Value::String(resource_type)]) if &**resource_type == name
+                ) {
+                    // FHIRPath: an expression may start with the context's type name.
+                    // shortcut: also matches mid-path (`a.Patient`), lenient; restrict to the first segment if it matters.
+                    result.push(item.clone());
                 }
             }
         }
