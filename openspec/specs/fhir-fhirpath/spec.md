@@ -174,6 +174,11 @@ Le système SHALL implémenter `first()`, `last()`, `tail()`, `skip(n)`, `take(n
 - **WHEN** `{}.single()` est évalué
 - **THEN** le résultat SHALL être une collection vide
 
+#### Scenario: Indexeur hors limites ou négatif
+
+- **WHEN** `coll[i]` est évalué avec `i` négatif ou `i` >= la taille de la collection
+- **THEN** le résultat SHALL être une collection vide (FHIRPath N1 §5.5), sans erreur
+
 #### Scenario: repeat ne retourne que les éléments projetés
 
 - **WHEN** `repeat(expr)` est évalué
@@ -389,7 +394,7 @@ Le système SHALL exposer `EvalError` couvrant toutes les erreurs d'exécution p
 #### Scenario: Variantes d'EvalError
 
 - **WHEN** une erreur se produit à l'évaluation
-- **THEN** `EvalError` SHALL avoir les variantes : `Type(String)` (erreur de type), `UndefinedFunction(String)` (fonction inconnue), `Arity { name, expected, got }` (mauvais nombre d'arguments), `DivisionByZero`, `IndexOutOfBounds(i64)`, `Parse(ParseError)` (erreur de parse propagée)
+- **THEN** `EvalError` SHALL avoir les variantes : `Type(String)` (erreur de type), `UndefinedFunction(String)` (fonction inconnue), `Arity { name, expected, got }` (mauvais nombre d'arguments), `DivisionByZero`, `Parse(ParseError)` (erreur de parse propagée)
 
 ---
 

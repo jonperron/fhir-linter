@@ -72,10 +72,13 @@ impl Evaluator {
                 let base_col = self.eval(base, ctx)?;
                 let idx_col = self.eval(index_expr, ctx)?;
                 let idx = helpers::single_integer(&idx_col, "index")?;
-                if idx < 0 || idx as usize >= base_col.len() {
-                    return Err(EvalError::IndexOutOfBounds(idx));
-                }
-                Ok(vec![base_col[idx as usize].clone()])
+                // FHIRPath §5.5: an index past the end (or negative) yields empty.
+                Ok(usize::try_from(idx)
+                    .ok()
+                    .and_then(|i| base_col.get(i))
+                    .cloned()
+                    .into_iter()
+                    .collect())
             }
 
             // ── Function calls ─────────────────────────────────────────────

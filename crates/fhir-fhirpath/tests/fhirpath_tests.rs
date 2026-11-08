@@ -1397,12 +1397,21 @@ fn index_operator_accesses_first_element() {
 }
 
 #[test]
-fn index_operator_out_of_bounds_returns_error() {
-    let result = evaluate("(1 | 2)[5]", &[]);
-    assert!(matches!(
-        result,
-        Err(fhir_fhirpath::EvalError::IndexOutOfBounds(_))
-    ));
+fn index_operator_out_of_bounds_returns_empty() {
+    let result = evaluate("(1 | 2)[5]", &[]).unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn index_operator_negative_returns_empty() {
+    let result = evaluate("(1 | 2)[-1]", &[]).unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn index_past_end_then_exists_is_false() {
+    let result = evaluate("(1 | 2)[5].exists()", &[]).unwrap();
+    assert_eq!(result, vec![Value::Bool(false)]);
 }
 
 // ── Parse error ───────────────────────────────────────────────────────────────
