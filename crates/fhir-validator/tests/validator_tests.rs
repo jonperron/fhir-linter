@@ -1275,3 +1275,53 @@ fn official_valid_xml_cases_have_no_errors() {
         assert!(codes.is_empty(), "{name}: {codes:?}");
     }
 }
+
+fn xml_diags(registry: &Registry, xml: &str) -> Vec<String> {
+    let resource = fhir_parser::parse_xml(xml).unwrap();
+    validate(&resource, registry)
+        .iter()
+        .map(|d| format!("{:?} {} {}", d.severity, d.code, d.message))
+        .collect()
+}
+
+#[test]
+fn xml_nested_questionnaire_item_boolean_is_typed() {
+    let registry = load_registry();
+    let out = xml_diags(
+        &registry,
+        r#"<Questionnaire xmlns="http://hl7.org/fhir"><status value="draft"/><item><linkId value="1"/><type value="group"/><item><linkId value="1.1"/><type value="string"/><required value="true"/></item></item></Questionnaire>"#,
+    );
+    assert!(
+        !out.iter()
+            .any(|d| d.contains("TYPE_") || d.contains("CARDINALITY")),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn xml_bundle_entry_resource_boolean_is_typed() {
+    let registry = load_registry();
+    let out = xml_diags(
+        &registry,
+        r#"<Bundle xmlns="http://hl7.org/fhir"><type value="collection"/><entry><resource><Patient><active value="true"/></Patient></resource></entry></Bundle>"#,
+    );
+    assert!(
+        !out.iter()
+            .any(|d| d.contains("TYPE_") || d.contains("CARDINALITY")),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn xml_contained_resource_boolean_is_typed() {
+    let registry = load_registry();
+    let out = xml_diags(
+        &registry,
+        r#"<Patient xmlns="http://hl7.org/fhir"><contained><Patient><id value="a"/><active value="true"/></Patient></contained></Patient>"#,
+    );
+    assert!(
+        !out.iter()
+            .any(|d| d.contains("TYPE_") || d.contains("CARDINALITY")),
+        "{out:?}"
+    );
+}
