@@ -109,6 +109,7 @@ mod tests {
         fhir_parser::Resource {
             resource_type: Arc::from(resource_type),
             id: None,
+            from_xml: false,
             fields: IndexMap::new(),
         }
     }

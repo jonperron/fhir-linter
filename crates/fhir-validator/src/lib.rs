@@ -12,6 +12,7 @@ mod profile;
 mod references;
 mod terminology;
 mod type_check;
+mod xml_shape;
 
 pub use diagnostic::{Diagnostic, Severity};
 
@@ -40,6 +41,15 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
             message,
             resource_type.to_owned(),
         )];
+    };
+
+    // XML input is reshaped once, so every layer sees the JSON form (typed primitives, `_name`).
+    let reshaped;
+    let resource = if resource.from_xml {
+        reshaped = xml_shape::to_json_shape(resource, sd, registry);
+        &reshaped
+    } else {
+        resource
     };
 
     let mut diagnostics = Vec::new();

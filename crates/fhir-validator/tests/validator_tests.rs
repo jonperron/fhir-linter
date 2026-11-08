@@ -1214,3 +1214,64 @@ fn codesystem_csd_4_uses_leading_type_name() {
         "content":"supplement","supplements":"http://x"}"#;
     assert_eq!(codes(&registry, with_supplements, "INVARIANT_csd-4"), 0);
 }
+
+// ── XML input shape ───────────────────────────────────────────────────────────
+
+fn xml_codes(registry: &Registry, xml: &str) -> Vec<String> {
+    let resource = fhir_parser::parse_xml(xml).unwrap();
+    validate(&resource, registry)
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .map(|d| d.code.to_string())
+        .collect()
+}
+
+#[test]
+fn xml_typed_primitives_pass_type_checks() {
+    let registry = load_registry();
+    let codes = xml_codes(
+        &registry,
+        r#"<Patient xmlns="http://hl7.org/fhir"><active value="true"/><multipleBirthInteger value="2"/></Patient>"#,
+    );
+    assert!(!codes.iter().any(|c| c.starts_with("TYPE_")), "{codes:?}");
+}
+
+#[test]
+fn xml_bad_boolean_still_fails() {
+    let registry = load_registry();
+    let codes = xml_codes(
+        &registry,
+        r#"<Patient xmlns="http://hl7.org/fhir"><active value="yes"/></Patient>"#,
+    );
+    assert!(codes.iter().any(|c| c == "TYPE_001"), "{codes:?}");
+}
+
+#[test]
+fn xml_primitive_with_extension_has_no_type_error() {
+    let registry = load_registry();
+    let codes = xml_codes(
+        &registry,
+        r#"<Patient xmlns="http://hl7.org/fhir"><active value="true"><extension url="http://example.org/x"><valueString value="a"/></extension></active></Patient>"#,
+    );
+    assert!(!codes.iter().any(|c| c.starts_with("TYPE_")), "{codes:?}");
+}
+
+#[test]
+fn official_valid_xml_cases_have_no_errors() {
+    let registry = load_registry();
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/validator");
+    if !dir.is_dir() {
+        return;
+    }
+    for name in [
+        "patient-animal.xml",
+        "group-choice-good.xml",
+        "list-extension.xml",
+        "xml_v11.xml",
+    ] {
+        let codes = xml_codes(&registry, &std::fs::read_to_string(dir.join(name)).unwrap());
+        // `csd-4` is a false positive tracked as F14 (FHIRPath leading type name).
+        let codes: Vec<_> = codes.iter().filter(|c| *c != "INVARIANT_csd-4").collect();
+        assert!(codes.is_empty(), "{name}: {codes:?}");
+    }
+}
