@@ -550,7 +550,10 @@ fn element_id_is_a_string_not_an_id() {
 
 // ── Choice element cardinality ────────────────────────────────────────────────
 
-const IMMUNIZATION: &str = r#""resourceType":"Immunization","status":"completed","vaccineCode":{"text":"x"},"patient":{"reference":"Patient/1"}"#;
+const IMMUNIZATION: &str = concat!(
+    r#""resourceType":"Immunization","status":"completed","#,
+    r#""vaccineCode":{"text":"x"},"patient":{"reference":"Patient/1"}"#,
+);
 
 fn occurrence_errors(extra: &str) -> Vec<(String, String)> {
     codes_for(&format!("{{{IMMUNIZATION}{extra}}}"))
@@ -582,10 +585,40 @@ fn required_primitive_choice_present_only_as_extension_is_not_missing() {
 }
 
 #[test]
-fn two_variants_of_one_choice_produce_cardinality_002() {
-    let found = codes_for(
-        r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"valueString":"a","valueBoolean":true}"#,
+fn malformed_choice_extension_does_not_satisfy_required_choice() {
+    assert_eq!(
+        occurrence_errors(r#","_occurrenceString":5"#),
+        [(
+            "CARDINALITY_001".to_string(),
+            "Immunization.occurrence[x]".to_string()
+        )]
     );
+}
+
+#[test]
+fn malformed_primitive_extension_does_not_satisfy_required_element() {
+    let found = codes_for(r#"{"resourceType":"Observation","code":{"text":"x"},"_status":5}"#);
+    assert_has(&found, "CARDINALITY_001", "Observation.status");
+}
+
+#[test]
+fn extension_array_without_objects_does_not_satisfy_required_element() {
+    for ext in ["[]", "[null]"] {
+        let found = codes_for(&format!(
+            r#"{{"resourceType":"Observation","code":{{"text":"x"}},"_status":{ext}}}"#
+        ));
+        assert_has(&found, "CARDINALITY_001", "Observation.status");
+        let choice = occurrence_errors(&format!(r#","_occurrenceString":{ext}"#));
+        assert_eq!(choice.len(), 1, "{choice:?}");
+    }
+}
+
+#[test]
+fn two_variants_of_one_choice_produce_cardinality_002() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"#,
+        r#""valueString":"a","valueBoolean":true}"#,
+    ));
     assert!(
         found.contains(&("CARDINALITY_002".into(), "Observation.valueBoolean".into())),
         "{found:?}"
@@ -594,9 +627,11 @@ fn two_variants_of_one_choice_produce_cardinality_002() {
 
 #[test]
 fn missing_nested_required_choice_produces_cardinality_001() {
-    let found = codes_for(
-        r#"{"resourceType":"Claim","status":"active","type":{"text":"x"},"use":"claim","patient":{"reference":"Patient/1"},"created":"2021-01-01","diagnosis":[{"sequence":1}]}"#,
-    );
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Claim","status":"active","type":{"text":"x"},"#,
+        r#""use":"claim","patient":{"reference":"Patient/1"},"#,
+        r#""created":"2021-01-01","diagnosis":[{"sequence":1}]}"#,
+    ));
     assert!(
         found.contains(&(
             "CARDINALITY_001".into(),
@@ -608,9 +643,10 @@ fn missing_nested_required_choice_produces_cardinality_001() {
 
 #[test]
 fn value_and_extension_of_one_variant_count_once() {
-    let found = codes_for(
-        r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"valueString":"a","_valueString":{"id":"e"}}"#,
-    );
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"#,
+        r#""valueString":"a","_valueString":{"id":"e"}}"#,
+    ));
     assert!(
         !found.iter().any(|(c, _)| c == "CARDINALITY_002"),
         "{found:?}"
@@ -619,9 +655,11 @@ fn value_and_extension_of_one_variant_count_once() {
 
 #[test]
 fn two_variants_of_a_nested_choice_produce_cardinality_002() {
-    let found = codes_for(
-        r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"component":[{"code":{"text":"c"},"valueString":"a","valueBoolean":true}]}"#,
-    );
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"#,
+        r#""component":[{"code":{"text":"c"},"valueString":"a","#,
+        r#""valueBoolean":true}]}"#,
+    ));
     assert!(
         found.contains(&(
             "CARDINALITY_002".into(),
@@ -633,9 +671,12 @@ fn two_variants_of_a_nested_choice_produce_cardinality_002() {
 
 #[test]
 fn complex_choice_present_only_as_extension_is_missing() {
-    let found = codes_for(
-        r#"{"resourceType":"Claim","status":"active","type":{"text":"x"},"use":"claim","patient":{"reference":"Patient/1"},"created":"2021-01-01","diagnosis":[{"sequence":1,"_diagnosisCodeableConcept":{}}]}"#,
-    );
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Claim","status":"active","type":{"text":"x"},"#,
+        r#""use":"claim","patient":{"reference":"Patient/1"},"#,
+        r#""created":"2021-01-01","diagnosis":[{"sequence":1,"#,
+        r#""_diagnosisCodeableConcept":{}}]}"#,
+    ));
     assert!(
         found.contains(&(
             "CARDINALITY_001".into(),
@@ -647,9 +688,10 @@ fn complex_choice_present_only_as_extension_is_missing() {
 
 #[test]
 fn variants_of_different_choices_do_not_conflict() {
-    let found = codes_for(
-        r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"valueString":"a","effectiveDateTime":"2021-01-01"}"#,
-    );
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"#,
+        r#""valueString":"a","effectiveDateTime":"2021-01-01"}"#,
+    ));
     assert!(
         !found.iter().any(|(c, _)| c == "CARDINALITY_002"),
         "{found:?}"

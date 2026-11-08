@@ -188,8 +188,11 @@ fn check_choice(
             let bare = name.unwrap_or(key);
             let (e, ty) = resolve(sd, &format!("{prefix}{bare}"), bare)?;
             // A `_variant` beside its value is the same variant, counted once via the value.
-            let extension_only = name
-                .is_none_or(|n| !fields.contains_key(n) && ty.as_deref().is_some_and(is_primitive));
+            let extension_only = name.is_none_or(|n| {
+                !fields.contains_key(n)
+                    && ty.as_deref().is_some_and(is_primitive)
+                    && is_extension_shape(node)
+            });
             (e.path == elem.path && extension_only).then_some((bare, node))
         })
         .collect();
@@ -228,10 +231,27 @@ pub(crate) fn present<'a>(
     name: &str,
 ) -> Option<&'a Node> {
     fields.get(name).or_else(|| {
-        fields
-            .get(format!("_{name}").as_str())
-            .filter(|_| elem.types.first().is_some_and(|t| is_primitive(t)))
+        fields.get(format!("_{name}").as_str()).filter(|node| {
+            elem.types.first().is_some_and(|t| is_primitive(t)) && is_extension_shape(node)
+        })
     })
+}
+
+/// A `_name` primitive extension is an object, or an array of objects and nulls
+/// holding at least one object.
+fn is_extension_shape(node: &Node) -> bool {
+    match &node.value {
+        Value::Object(_) => true,
+        Value::Array(items) => {
+            items
+                .iter()
+                .all(|item| matches!(item.value, Value::Object(_) | Value::Null))
+                && items
+                    .iter()
+                    .any(|item| matches!(item.value, Value::Object(_)))
+        }
+        _ => false,
+    }
 }
 
 /// Emit `CARDINALITY_001` when a required element is absent and `CARDINALITY_002`
