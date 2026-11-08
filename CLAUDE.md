@@ -85,3 +85,21 @@ When implementing a new feature or modifying an existing one, use the following 
 - **OpenSpec Agent** — Use the openspec agent (`.claude/agents/openspec.md`) to update specifications after implementing or modifying features
 
 Specifications must always be up to date at the end of any task that adds, changes, or removes functionality. After completing implementation work, run the OpenSpec subagent to synchronize openspec/specs/ with the current state of the code.
+
+### Factory agents (multi-issue and PR work)
+
+For work spanning several issues or PRs, delegate to these agents instead of
+general-purpose ones. They share `.claude/factory/loop.md` (the quality loop)
+and read every repo-specific detail from `.claude/factory/project.md`.
+
+| Agent | Use it to |
+| --- | --- |
+| `issue-driver` | Take one issue from a failing test to a reviewed commit or PR |
+| `pr-consolidator` | Merge several branches on the same component into one PR |
+| `pr-rebaser` | Rebase a conflicting PR, keeping both sides' behaviour |
+| `bot-review-responder` | Verify, fix and reply to every automated review comment |
+| `behaviour-differ` | Compare corpus output between two refs to prove what changed |
+
+Group issues that touch the same component into one PR (`pr-consolidator`).
+Run each agent with `isolation: "worktree"`, except `behaviour-differ`, which
+is read-only.
