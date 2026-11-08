@@ -46,7 +46,7 @@ enabled = false
 | `fhir-fhirpath` | FHIRPath evaluator |
 | `fhir-validator` | Validation checks |
 | `fhir-linter` | Configurable lint rules |
-| `fhir-cli` | The `fhir-lint` binary |
+| `fhir-cli` | The `fhir-lint` binary (not yet implemented: it only prints its version) |
 
 Specs live in `openspec/specs/`.
 
