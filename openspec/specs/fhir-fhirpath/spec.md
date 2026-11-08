@@ -141,7 +141,9 @@ Le système SHALL implémenter `empty()`, `exists()`, `exists(criteria)`, `all(c
 
 ### Requirement: Fonctions de filtrage
 
-Le système SHALL implémenter `where(criteria)`, `select(projection)`, `repeat(projection)`, `ofType(type)`.
+Le système SHALL implémenter `where(criteria)`, `select(projection)`, `repeat(projection)`, `ofType(type)`, `is(type)`, `as(type)`.
+
+L'argument de `ofType`, `is` et `as` est un identifiant de nom de type. La correspondance de type (partagée par `ofType`, les fonctions `is`/`as` et les opérateurs `is`/`as`) SHALL accepter les types primitifs FHIRPath ainsi qu'un objet ressource dont `resourceType` est exactement égal au nom de type. Elle ne SHALL pas gérer l'héritage (`Resource`, `DomainResource`), les noms de types complexes FHIR, ni les noms qualifiés (`FHIR.X`, `System.X`).
 
 #### Scenario: where filtre les éléments
 
@@ -152,6 +154,26 @@ Le système SHALL implémenter `where(criteria)`, `select(projection)`, `repeat(
 
 - **WHEN** `ofType('string')` est évalué sur une collection mixte
 - **THEN** le résultat SHALL contenir uniquement les valeurs de type `String`
+
+#### Scenario: ofType filtre par resourceType
+
+- **WHEN** `ofType(Patient)` est évalué sur une collection de ressources
+- **THEN** le résultat SHALL contenir uniquement les objets dont `resourceType` vaut exactement `Patient`
+
+#### Scenario: is et as sur un seul élément
+
+- **WHEN** `is(Patient)` ou `as(Patient)` est évalué sur une collection d'un seul élément
+- **THEN** `is` SHALL retourner `[Bool(true)]` ou `[Bool(false)]`, et `as` SHALL retourner l'élément s'il correspond, sinon une collection vide
+
+#### Scenario: is et as sur une collection vide
+
+- **WHEN** `is(type)` ou `as(type)` est évalué sur une collection vide
+- **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: is et as sur plusieurs éléments
+
+- **WHEN** `is(type)` ou `as(type)` est évalué sur une collection de plus d'un élément
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))` (test officiel `testFHIRPathAsFunction21`)
 
 ---
 

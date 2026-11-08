@@ -2361,3 +2361,44 @@ fn decode_base64_ignores_whitespace() {
     let r = evaluate("'aGVs\nbG8='.decode('base64')", &[]).unwrap();
     assert_eq!(r, vec![Value::String(Arc::from("hello"))]);
 }
+
+// ── is() / as() function forms (expressions from tests-fhir-r5.xml) ──────────
+
+#[test]
+fn is_function_matches_operator_form() {
+    let cases = [
+        ("true.is(Boolean)", true),      // testType5
+        ("1.is(Integer)", true),         // testIntegerLiteralIsInteger
+        ("'1'.is(Integer).not()", true), // testStringLiteralIsNotInteger
+        ("1.0.is(Decimal)", true),       // testDecimalLiteralIsDecimal
+        ("@2015-02-04.is(Date)", true),  // testLiteralDateDay
+        ("$this.is(Patient)", true),     // testType17
+        ("$this.is(Composition)", false),
+        ("$this.ofType(Patient).count() = 1", true), // testType20
+        ("$this is Patient", true),
+    ];
+    for (expr, expected) in cases {
+        assert_eq!(eval_bool(expr), expected, "{expr}");
+    }
+}
+
+#[test]
+fn is_function_on_empty_is_empty() {
+    assert!(eval("deceased.is(Boolean)").is_empty());
+    assert!(eval("deceased.as(Boolean)").is_empty());
+}
+
+#[test]
+fn as_function_returns_matching_singleton() {
+    assert_eq!(eval_str("$this.as(Patient).id"), "patient-1");
+    assert!(eval("$this.as(Composition)").is_empty());
+    assert_eq!(eval_int("1.as(Integer)"), 1);
+}
+
+// testFHIRPathAsFunction21: as() on a multi-item collection is an execution error.
+#[test]
+fn is_as_function_on_multiple_items_is_error() {
+    for expr in ["(1 | 2).as(Integer)", "(1 | 2).is(Integer)"] {
+        assert!(evaluate(expr, &make_patient()).is_err(), "{expr}");
+    }
+}

@@ -194,7 +194,12 @@ pub(super) fn value_is_type(v: &Value, type_name: &str) -> bool {
         "DateTime" | "dateTime" => matches!(v, Value::DateTime(_)),
         "Time" | "time" => matches!(v, Value::Time(_)),
         "Quantity" | "quantity" => matches!(v, Value::Quantity(_, _)),
-        _ => false,
+        // shortcut: resources match on their exact resourceType only (no Resource/DomainResource
+        // inheritance, no complex datatypes), upgrade when the evaluator gets Registry access.
+        _ => matches!(v, Value::Object(fields) if matches!(
+            fields.get("resourceType").map(Vec::as_slice),
+            Some([Value::String(rt)]) if **rt == *type_name
+        )),
     }
 }
 
@@ -265,11 +270,11 @@ pub(super) fn eval_string_arg(col: &Collection, context: &str) -> Result<Arc<str
 }
 
 pub(super) fn eval_type_name(expr: &Expr) -> Result<String, EvalError> {
-    // For ofType(TypeName), the argument is an identifier, not evaluated
+    // For ofType/is/as(TypeName), the argument is an identifier, not evaluated
     match expr {
         Expr::Ident(name) => Ok(name.clone()),
         _ => Err(EvalError::Type(
-            "ofType() argument must be a type name identifier".into(),
+            "type function argument must be a type name identifier".into(),
         )),
     }
 }

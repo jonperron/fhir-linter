@@ -145,6 +145,25 @@ impl Evaluator {
                     .cloned()
                     .collect()
             }
+            // FHIRPath: is()/as() take a singleton; empty in, empty out; more is an error.
+            "is" | "as" => {
+                check_arity(name, args, 1)?;
+                let type_name = eval_type_name(&args[0])?;
+                match focus {
+                    [] => vec![],
+                    [v] if name == "is" => vec![Value::Bool(value_is_type(v, &type_name))],
+                    [v] => value_is_type(v, &type_name)
+                        .then(|| v.clone())
+                        .into_iter()
+                        .collect(),
+                    _ => {
+                        return Err(EvalError::Type(format!(
+                            "{name}() requires a single-item input, got {}",
+                            focus.len()
+                        )));
+                    }
+                }
+            }
 
             // ── Counting / indexing ───────────────────────────────────────
             "count" => {

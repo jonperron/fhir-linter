@@ -376,6 +376,44 @@ fn unevaluable_invariants_are_reported_as_information() {
     }
 }
 
+// bdl-11 uses the function form `resource.is(Composition)`.
+fn document_bundle_diagnostics(first_entry: &str) -> Vec<(String, String)> {
+    let json = format!(
+        r#"{{"resourceType":"Bundle","type":"document","timestamp":"2024-01-01T00:00:00Z",
+        "identifier":{{"system":"urn:ietf:rfc:3986","value":"urn:uuid:0c3151bd-1cbf-4d64-b04d-cd9187a4c6e0"}},
+        "entry":[{{"fullUrl":"urn:uuid:5d3e8a1c-3b1a-4d2a-9f61-1d2f3c4b5a6e","resource":{first_entry}}}]}}"#
+    );
+    let resource = parse_json(&json).unwrap();
+    validate(&resource, &load_registry())
+        .into_iter()
+        .map(|d| (d.code.to_string(), d.message))
+        .collect()
+}
+
+#[test]
+fn document_bundle_starting_with_patient_violates_bdl_11() {
+    let found = document_bundle_diagnostics(r#"{"resourceType":"Patient"}"#);
+    assert!(
+        found.iter().any(|(c, _)| c == "INVARIANT_bdl-11"),
+        "{found:?}"
+    );
+    assert!(
+        !found
+            .iter()
+            .any(|(_, m)| m.starts_with("constraint bdl-11 not checked")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn document_bundle_starting_with_composition_satisfies_bdl_11() {
+    let found = document_bundle_diagnostics(
+        r#"{"resourceType":"Composition","status":"final","type":{"text":"Note"},"date":"2024-01-01","author":[{"display":"A"}],"title":"T"}"#,
+    );
+    let bdl_11 = |(c, m): &(String, String)| c.contains("bdl-11") || m.contains("bdl-11");
+    assert!(!found.iter().any(bdl_11), "{found:?}");
+}
+
 #[test]
 fn content_reference_element_is_not_unknown() {
     let found = codes_for(
