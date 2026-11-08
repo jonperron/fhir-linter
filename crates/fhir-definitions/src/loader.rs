@@ -91,7 +91,7 @@ fn parse_element_definition(elem: &Value) -> Option<ElementDefinition> {
         .map(|type_list| {
             type_list
                 .iter()
-                .filter_map(|t| t["code"].as_str().map(Arc::from))
+                .filter_map(|t| type_code(t).map(Arc::from))
                 .collect()
         })
         .unwrap_or_default();
@@ -111,6 +111,24 @@ fn parse_element_definition(elem: &Value) -> Option<ElementDefinition> {
         constraints,
         binding,
     })
+}
+
+/// The FHIR type code of an `ElementDefinition.type`. FHIRPath system types
+/// (`http://hl7.org/fhirpath/System.String`) carry the real FHIR type in the
+/// `structuredefinition-fhir-type` extension.
+fn type_code(t: &Value) -> Option<&str> {
+    let code = t["code"].as_str()?;
+    if !code.starts_with("http://hl7.org/fhirpath/") {
+        return Some(code);
+    }
+    let fhir_type = t["extension"].as_array().and_then(|exts| {
+        exts.iter().find(|e| {
+            e["url"].as_str()
+                == Some("http://hl7.org/fhir/StructureDefinition/structuredefinition-fhir-type")
+        })?["valueUrl"]
+            .as_str()
+    });
+    Some(fhir_type.unwrap_or(code))
 }
 
 fn parse_constraint(c: &Value) -> Option<Constraint> {
@@ -349,6 +367,37 @@ mod tests {
         assert_eq!(sd.snapshot[0].min, 0);
         assert_eq!(sd.snapshot[0].max.as_ref(), "1");
         assert_eq!(sd.snapshot[0].types[0].as_ref(), "id");
+    }
+
+    #[test]
+    fn fhirpath_type_code_resolves_to_fhir_type_extension() {
+        let elem = serde_json::json!({
+            "path": "Patient.id", "min": 0, "max": "1",
+            "type": [{
+                "extension": [{
+                    "url": "http://hl7.org/fhir/StructureDefinition/structuredefinition-fhir-type",
+                    "valueUrl": "id"
+                }],
+                "code": "http://hl7.org/fhirpath/System.String"
+            }]
+        });
+        let parsed = parse_element_definition(&elem).expect("element should be parsed");
+        assert_eq!(parsed.types[0].as_ref(), "id");
+    }
+
+    #[test]
+    fn fhirpath_type_code_without_fhir_type_extension_is_kept() {
+        let code = "http://hl7.org/fhirpath/System.String";
+        let other_ext = serde_json::json!([{"url": "http://example.com/other", "valueUrl": "id"}]);
+        for ty in [
+            serde_json::json!({"code": code}),
+            serde_json::json!({"code": code, "extension": other_ext}),
+        ] {
+            let elem =
+                serde_json::json!({"path": "Patient.id", "min": 0, "max": "1", "type": [ty]});
+            let parsed = parse_element_definition(&elem).expect("element should be parsed");
+            assert_eq!(parsed.types[0].as_ref(), code);
+        }
     }
 
     #[test]

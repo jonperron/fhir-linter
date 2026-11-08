@@ -515,3 +515,185 @@ fn nested_integer_beyond_i64_produces_type_001() {
     );
     assert_has(&found, "TYPE_001", "Observation.component[0].valueInteger");
 }
+
+// ── Resource and element ids ──────────────────────────────────────────────────
+
+#[test]
+fn invalid_resource_id_produces_type_005() {
+    let found = codes_for(r#"{"resourceType":"Patient","id":"has space!"}"#);
+    assert_has(&found, "TYPE_005", "Patient.id");
+}
+
+#[test]
+fn valid_resource_id_produces_no_type_error() {
+    let found = codes_for(r#"{"resourceType":"Patient","id":"p-1.a"}"#);
+    assert!(
+        !found.iter().any(|(code, _)| code.starts_with("TYPE_")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn non_string_element_id_produces_type_001() {
+    let found = codes_for(r#"{"resourceType":"Patient","name":[{"id":5,"family":"x"}]}"#);
+    assert_has(&found, "TYPE_001", "Patient.name[0].id");
+}
+
+#[test]
+fn element_id_is_a_string_not_an_id() {
+    let found = codes_for(r#"{"resourceType":"Patient","name":[{"id":"n:1","family":"x"}]}"#);
+    assert!(
+        !found.iter().any(|(code, _)| code.starts_with("TYPE_")),
+        "{found:?}"
+    );
+}
+
+// ── Choice element cardinality ────────────────────────────────────────────────
+
+const IMMUNIZATION: &str = concat!(
+    r#""resourceType":"Immunization","status":"completed","#,
+    r#""vaccineCode":{"text":"x"},"patient":{"reference":"Patient/1"}"#,
+);
+
+fn occurrence_errors(extra: &str) -> Vec<(String, String)> {
+    codes_for(&format!("{{{IMMUNIZATION}{extra}}}"))
+        .into_iter()
+        .filter(|(c, p)| c.starts_with("CARDINALITY_") && p.contains("occurrence"))
+        .collect()
+}
+
+#[test]
+fn missing_required_choice_produces_cardinality_001() {
+    assert_eq!(
+        occurrence_errors(""),
+        [(
+            "CARDINALITY_001".to_string(),
+            "Immunization.occurrence[x]".to_string()
+        )]
+    );
+}
+
+#[test]
+fn present_required_choice_produces_no_cardinality_error() {
+    assert!(occurrence_errors(r#","occurrenceDateTime":"2021-01-01""#).is_empty());
+}
+
+#[test]
+fn required_primitive_choice_present_only_as_extension_is_not_missing() {
+    let ext = r#","_occurrenceString":{"extension":[{"url":"http://e","valueBoolean":true}]}"#;
+    assert!(occurrence_errors(ext).is_empty());
+}
+
+#[test]
+fn malformed_choice_extension_does_not_satisfy_required_choice() {
+    assert_eq!(
+        occurrence_errors(r#","_occurrenceString":5"#),
+        [(
+            "CARDINALITY_001".to_string(),
+            "Immunization.occurrence[x]".to_string()
+        )]
+    );
+}
+
+#[test]
+fn malformed_primitive_extension_does_not_satisfy_required_element() {
+    let found = codes_for(r#"{"resourceType":"Observation","code":{"text":"x"},"_status":5}"#);
+    assert_has(&found, "CARDINALITY_001", "Observation.status");
+}
+
+#[test]
+fn extension_array_without_objects_does_not_satisfy_required_element() {
+    for ext in ["[]", "[null]"] {
+        let found = codes_for(&format!(
+            r#"{{"resourceType":"Observation","code":{{"text":"x"}},"_status":{ext}}}"#
+        ));
+        assert_has(&found, "CARDINALITY_001", "Observation.status");
+        let choice = occurrence_errors(&format!(r#","_occurrenceString":{ext}"#));
+        assert_eq!(choice.len(), 1, "{choice:?}");
+    }
+}
+
+#[test]
+fn two_variants_of_one_choice_produce_cardinality_002() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"#,
+        r#""valueString":"a","valueBoolean":true}"#,
+    ));
+    assert!(
+        found.contains(&("CARDINALITY_002".into(), "Observation.valueBoolean".into())),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn missing_nested_required_choice_produces_cardinality_001() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Claim","status":"active","type":{"text":"x"},"#,
+        r#""use":"claim","patient":{"reference":"Patient/1"},"#,
+        r#""created":"2021-01-01","diagnosis":[{"sequence":1}]}"#,
+    ));
+    assert!(
+        found.contains(&(
+            "CARDINALITY_001".into(),
+            "Claim.diagnosis[0].diagnosis[x]".into()
+        )),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn value_and_extension_of_one_variant_count_once() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"#,
+        r#""valueString":"a","_valueString":{"id":"e"}}"#,
+    ));
+    assert!(
+        !found.iter().any(|(c, _)| c == "CARDINALITY_002"),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn two_variants_of_a_nested_choice_produce_cardinality_002() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"#,
+        r#""component":[{"code":{"text":"c"},"valueString":"a","#,
+        r#""valueBoolean":true}]}"#,
+    ));
+    assert!(
+        found.contains(&(
+            "CARDINALITY_002".into(),
+            "Observation.component[0].valueBoolean".into()
+        )),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn complex_choice_present_only_as_extension_is_missing() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Claim","status":"active","type":{"text":"x"},"#,
+        r#""use":"claim","patient":{"reference":"Patient/1"},"#,
+        r#""created":"2021-01-01","diagnosis":[{"sequence":1,"#,
+        r#""_diagnosisCodeableConcept":{}}]}"#,
+    ));
+    assert!(
+        found.contains(&(
+            "CARDINALITY_001".into(),
+            "Claim.diagnosis[0].diagnosis[x]".into()
+        )),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn variants_of_different_choices_do_not_conflict() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"#,
+        r#""valueString":"a","effectiveDateTime":"2021-01-01"}"#,
+    ));
+    assert!(
+        !found.iter().any(|(c, _)| c == "CARDINALITY_002"),
+        "{found:?}"
+    );
+}

@@ -105,7 +105,7 @@ Le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_001` et severity
 
 ### Requirement: Validation de cardinalité — élément requis absent (CARDINALITY_001)
 
-Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severity `Error` pour chaque élément déclaré avec `min > 0` dans le snapshot et absent de la ressource. Un élément requis de type primitif (nom de type commençant par une minuscule) présent uniquement sous la forme `_nom` (extension de primitif) SHALL être considéré présent ; pour un type complexe, `_nom` ne SHALL PAS compter comme présence. Lorsque la valeur est absente et que `_nom` est un tableau plus long que le maximum fini, un `CARDINALITY_002` SHALL être émis (path et position de `_nom`). Un nom d'élément contenant `.`, `[` ou `]` (y compris préfixé par `_`) SHALL produire `STRUCTURE_001`. Un choix `[x]` SHALL être vérifié selon le seul type désigné par son suffixe, et un `integer64` SHALL être une chaîne conforme à `[0]|[-+]?[1-9][0-9]*` et représentable sur 64 bits signés (`TYPE_003` sinon, `TYPE_001` si non chaîne).
+Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severity `Error` pour chaque élément déclaré avec `min > 0` dans le snapshot et absent de la ressource. Un élément requis de type primitif (nom de type commençant par une minuscule) présent uniquement sous la forme `_nom` (extension de primitif) SHALL être considéré présent seulement si la valeur de `_nom` est un objet, ou un tableau d'objets et de `null` contenant au moins un objet (un scalaire tel que `"_status": 5`, `[]` ou `[null]` ne compte pas et produit `CARDINALITY_001`) ; pour un type complexe, `_nom` ne SHALL PAS compter comme présence. Lorsque la valeur est absente et que `_nom` est un tableau plus long que le maximum fini, un `CARDINALITY_002` SHALL être émis (path et position de `_nom`). Un nom d'élément contenant `.`, `[` ou `]` (y compris préfixé par `_`) SHALL produire `STRUCTURE_001`. Un choix `[x]` SHALL être vérifié selon le seul type désigné par son suffixe ; sa cardinalité porte sur l'ensemble de ses variantes (champs `base` + type autorisé capitalisé, `_variante` comptant seulement pour un type primitif et sous la même forme objet que `_nom`), à toute profondeur : aucune variante et `min > 0` produit `CARDINALITY_001` au chemin du choix (ex. `Immunization.occurrence[x]`), plus d'une variante produit `CARDINALITY_002` à la seconde variante. Un `integer64` SHALL être une chaîne conforme à `[0]|[-+]?[1-9][0-9]*` et représentable sur 64 bits signés (`TYPE_003` sinon, `TYPE_001` si non chaîne).
 
 #### Scenario: Élément requis absent
 
@@ -137,12 +137,25 @@ Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severi
 - **WHEN** une ressource ou un `Observation.component[0]` contient la clé `_a.b` ou `_value[x]`
 - **THEN** un Diagnostic `STRUCTURE_001` SHALL être émis, alors que `_status` reste accepté
 
-#### Scenario: Placeholders polymorphiques ignorés
+#### Scenario: Choix requis absent
 
-- **WHEN** le snapshot contient un élément `value[x]`
-- **THEN** la cardinalité de ce placeholder SHALL être ignorée (pas de CARDINALITY_001)
+- **WHEN** une Immunization ne contient aucune variante de `occurrence[x]` (min=1), ou un `Claim.diagnosis[0]` aucune variante de `diagnosis[x]`
+- **THEN** un Diagnostic `CARDINALITY_001` SHALL être émis avec `path` = `Immunization.occurrence[x]` (resp. `Claim.diagnosis[0].diagnosis[x]`)
 
----
+#### Scenario: Choix présent uniquement via _variante
+
+- **WHEN** une Immunization contient seulement `_occurrenceString` (type primitif)
+- **THEN** aucun Diagnostic `CARDINALITY_001` ne SHALL être émis pour `occurrence[x]`
+
+#### Scenario: Plusieurs variantes d'un même choix
+
+- **WHEN** une Observation contient `valueString` et `valueBoolean`
+- **THEN** un Diagnostic `CARDINALITY_002` SHALL être émis avec `path` = `Observation.valueBoolean` (seconde variante)
+
+#### Scenario: Extension de primitif mal formée
+
+- **WHEN** une Observation contient `"_status": 5`, `"_status": []` ou `"_status": [null]` sans `status`, ou une Immunization seulement `"_occurrenceString": 5`
+- **THEN** un Diagnostic `CARDINALITY_001` SHALL être émis pour `Observation.status` (resp. `Immunization.occurrence[x]`)
 
 ### Requirement: Validation de cardinalité — dépassement du maximum (CARDINALITY_002)
 
@@ -238,6 +251,10 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_004` et severity `Err
 
 Le système SHALL émettre un `Diagnostic` avec code `TYPE_005` et severity `Error` lorsqu'un champ de type `id` ne respecte pas le format FHIR (regex : `[A-Za-z0-9\-\.]{1,64}`).
 
+Le système SHALL également vérifier l'`id` de la ressource selon ce format ; un `id` de ressource invalide SHALL produire un `TYPE_005` au chemin `<Type>.id`, sans localisation source.
+
+Les enfants `id` des éléments imbriqués SHALL être vérifiés comme `string` (type de base de `Element.id`), quel que soit le type déclaré dans le snapshot : une valeur non chaîne SHALL produire un `TYPE_001`, et aucun `TYPE_005` ne SHALL être émis pour leur format.
+
 #### Scenario: Identifiant invalide
 
 - **WHEN** un champ de type `id` contient `"invalid id!"`
@@ -248,7 +265,25 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_005` et severity `Err
 - **WHEN** un champ de type `id` contient `"patient-123"`
 - **THEN** aucun Diagnostic `TYPE_005` ne SHALL être émis
 
----
+#### Scenario: Id de ressource invalide
+
+- **WHEN** une ressource `{"resourceType":"Patient","id":"has space!"}` est validée
+- **THEN** un Diagnostic `TYPE_005` SHALL être émis au chemin `Patient.id`, sans localisation source
+
+#### Scenario: Id de ressource valide
+
+- **WHEN** une ressource `{"resourceType":"Patient","id":"p-1.a"}` est validée
+- **THEN** aucun Diagnostic `TYPE_*` ne SHALL être émis
+
+#### Scenario: Id d'élément non chaîne
+
+- **WHEN** un élément imbriqué contient `"id": 5` (par ex. `Patient.name[0].id`)
+- **THEN** un Diagnostic `TYPE_001` SHALL être émis au chemin `Patient.name[0].id`
+
+#### Scenario: Id d'élément au format string
+
+- **WHEN** un élément imbriqué contient `"id": "n:1"`
+- **THEN** aucun Diagnostic `TYPE_*` ne SHALL être émis
 
 ### Requirement: Validation des invariants FHIRPath (INVARIANT_<key>)
 
@@ -410,7 +445,7 @@ Le système SHALL appliquer les vérifications de type à chaque élément d'un 
 
 ### Requirement: Validation des éléments imbriqués
 
-Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001), de cardinalité (CARDINALITY_001/002) et de type primitif (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants, références et profil restent limitées au premier niveau ; les `contentReference` (ignorés sans erreur, jamais signalés STRUCTURE_001) et les ressources contenues ne sont pas parcourus. La règle `_nom` s'applique à toute profondeur : un enfant requis présent uniquement sous la forme `_nom` SHALL être considéré présent seulement si son type est primitif, et un `_nom` en tableau au-delà du maximum fini SHALL produire `CARDINALITY_002`.
+Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001), de cardinalité (CARDINALITY_001/002) et de type primitif (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants, références et profil restent limitées au premier niveau ; les `contentReference` (ignorés sans erreur, jamais signalés STRUCTURE_001) et les ressources contenues ne sont pas parcourus. La règle `_nom` s'applique à toute profondeur : un enfant requis présent uniquement sous la forme `_nom` SHALL être considéré présent seulement si son type est primitif et si `_nom` est un objet ou un tableau d'objets et de `null` contenant au moins un objet, et un `_nom` en tableau au-delà du maximum fini SHALL produire `CARDINALITY_002`.
 
 #### Scenario: Élément inconnu dans un type complexe
 

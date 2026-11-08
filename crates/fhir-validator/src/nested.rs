@@ -114,17 +114,7 @@ fn walk(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let prefix = format!("{def_path}.");
-    let children = || {
-        sd.snapshot
-            .iter()
-            .filter_map(|e| Some((e, e.path.strip_prefix(&prefix)?)))
-            .filter(|(_, rest)| !rest.contains('.'))
-    };
-
-    for (elem, rest) in children().filter(|(_, rest)| !rest.ends_with("[x]")) {
-        let child_path = format!("{path}.{rest}");
-        check_cardinality(elem, present(fields, elem, rest), &child_path, diagnostics);
-    }
+    check_children(fields, sd, def_path, path, diagnostics);
 
     for (name, node) in fields {
         let name = name.as_ref();
@@ -148,13 +138,89 @@ fn walk(
         // contentReference element: no type to check here.
         let Some(ty) = ty else { continue };
 
-        // Choice elements have no fixed name, so the children loop cannot count them.
-        if elem.path.ends_with("[x]") {
-            check_cardinality(elem, Some(node), &child_path, diagnostics);
-        }
-        check_type(&node.value, &ty, &child_path, node.span, diagnostics);
+        // Element.id is a `string`; R5 snapshots label many as `id` in the fhir-type extension.
+        let check_as = if name == "id" { "string" } else { ty.as_ref() };
+        check_type(&node.value, check_as, &child_path, node.span, diagnostics);
         descend(node, elem, &ty, sd, registry, &child_path, diagnostics);
     }
+}
+
+/// Check the cardinality of every child of `def_path` in one object (instance `path`).
+pub(crate) fn check_children(
+    fields: &IndexMap<Arc<str>, Node>,
+    sd: &StructureDefinition,
+    def_path: &str,
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let prefix = format!("{def_path}.");
+    for elem in &sd.snapshot {
+        let Some(rest) = elem.path.strip_prefix(&prefix).filter(|r| !r.contains('.')) else {
+            continue;
+        };
+        if rest.ends_with("[x]") {
+            check_choice(fields, sd, elem, &prefix, path, diagnostics);
+        } else {
+            let child_path = format!("{path}.{rest}");
+            check_cardinality(elem, present(fields, elem, rest), &child_path, diagnostics);
+        }
+    }
+}
+
+/// Check a `[x]` choice element as a whole: its variants are the fields `resolve`
+/// maps to it (a `_variant` counts only for a primitive type), and it holds at most one.
+///
+/// shortcut: profile type restrictions and choice slices are not handled (a disallowed
+/// variant reads as missing, any variant satisfies a slice); revisit when profile
+/// snapshots are walked.
+fn check_choice(
+    fields: &IndexMap<Arc<str>, Node>,
+    sd: &StructureDefinition,
+    elem: &ElementDefinition,
+    prefix: &str,
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let variants: Vec<(&str, &Node)> = fields
+        .iter()
+        .filter_map(|(key, node)| {
+            let name = key.strip_prefix('_');
+            let bare = name.unwrap_or(key);
+            let (e, ty) = resolve(sd, &format!("{prefix}{bare}"), bare)?;
+            // A `_variant` beside its value is the same variant, counted once via the value.
+            let extension_only = name.is_none_or(|n| {
+                !fields.contains_key(n)
+                    && ty.as_deref().is_some_and(is_primitive)
+                    && is_extension_shape(node)
+            });
+            (e.path == elem.path && extension_only).then_some((bare, node))
+        })
+        .collect();
+    match variants.as_slice() {
+        [] => {
+            let choice_path = format!("{path}.{}", elem.path.strip_prefix(prefix).unwrap_or(""));
+            check_cardinality(elem, None, &choice_path, diagnostics);
+        }
+        [(name, node)] => {
+            check_cardinality(elem, Some(node), &format!("{path}.{name}"), diagnostics)
+        }
+        [(first, _), (second, node), ..] => {
+            let second_path = format!("{path}.{second}");
+            diagnostics.push(
+                Diagnostic::error(
+                    "CARDINALITY_002",
+                    format!("Choice element '{second_path}' conflicts with '{first}'"),
+                    second_path,
+                )
+                .with_location(node.span),
+            );
+        }
+    }
+}
+
+/// Primitive FHIR type names start with a lowercase letter.
+fn is_primitive(ty: &str) -> bool {
+    ty.starts_with(|c: char| c.is_ascii_lowercase())
 }
 
 /// The node that makes `elem` present: its value, or the `_name` primitive extension
@@ -164,15 +230,28 @@ pub(crate) fn present<'a>(
     elem: &ElementDefinition,
     name: &str,
 ) -> Option<&'a Node> {
-    let is_primitive = elem
-        .types
-        .first()
-        .is_some_and(|t| t.starts_with(|c: char| c.is_ascii_lowercase()));
     fields.get(name).or_else(|| {
-        fields
-            .get(format!("_{name}").as_str())
-            .filter(|_| is_primitive)
+        fields.get(format!("_{name}").as_str()).filter(|node| {
+            elem.types.first().is_some_and(|t| is_primitive(t)) && is_extension_shape(node)
+        })
     })
+}
+
+/// A `_name` primitive extension is an object, or an array of objects and nulls
+/// holding at least one object.
+fn is_extension_shape(node: &Node) -> bool {
+    match &node.value {
+        Value::Object(_) => true,
+        Value::Array(items) => {
+            items
+                .iter()
+                .all(|item| matches!(item.value, Value::Object(_) | Value::Null))
+                && items
+                    .iter()
+                    .any(|item| matches!(item.value, Value::Object(_)))
+        }
+        _ => false,
+    }
 }
 
 /// Emit `CARDINALITY_001` when a required element is absent and `CARDINALITY_002`
