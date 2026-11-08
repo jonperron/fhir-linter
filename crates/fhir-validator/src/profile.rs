@@ -1,8 +1,8 @@
 use fhir_definitions::{Registry, StructureDefinition};
 use fhir_parser::{Resource, Value};
 
-use crate::cardinality;
 use crate::diagnostic::Diagnostic;
+use crate::nested::check_children_cardinality;
 
 /// Validate the profiles declared in `meta.profile`.
 ///
@@ -51,7 +51,13 @@ pub fn validate(
         } else if sd.url != base.url {
             // Keep only findings the base check did not already report.
             let mut found = Vec::new();
-            cardinality::validate(resource, sd, &mut found);
+            check_children_cardinality(
+                &resource.fields,
+                sd,
+                resource_type,
+                resource_type,
+                &mut found,
+            );
             found.retain(|f| {
                 !diagnostics
                     .iter()

@@ -2,7 +2,8 @@
 //!
 //! Only cases with an inline expected `errorCount` and no supporting
 //! profiles/packages are run. Each is judged on "has errors" vs "expected
-//! errors"; the pass rate must not drop below `MIN_PASS_RATE`.
+//! errors"; the pass rate must not drop below `MIN_PASS_RATE`. A case that
+//! fails to parse counts as "has errors", so parser regressions lower the rate.
 use std::path::PathBuf;
 
 use fhir_definitions::Registry;
@@ -23,6 +24,10 @@ fn fixtures_dir() -> PathBuf {
 fn validator_manifest_pass_rate() {
     let dir = fixtures_dir().join("validator");
     let Ok(manifest) = std::fs::read_to_string(dir.join("manifest.json")) else {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "fixtures submodule missing in CI: run `git submodule update --init`"
+        );
         eprintln!("fixtures submodule not checked out; skipping");
         return;
     };
@@ -48,12 +53,12 @@ fn validator_manifest_pass_rate() {
         if !is_r5 || !standalone {
             continue;
         }
-        let Ok(resource) = parse_json(&std::fs::read_to_string(dir.join(file)).unwrap()) else {
-            continue;
+        let has_errors = match parse_json(&std::fs::read_to_string(dir.join(file)).unwrap()) {
+            Ok(resource) => validate(&resource, &registry)
+                .iter()
+                .any(|d| d.severity == Severity::Error),
+            Err(_) => true,
         };
-        let has_errors = validate(&resource, &registry)
-            .iter()
-            .any(|d| d.severity == Severity::Error);
         run += 1;
         if has_errors == (expected > 0) {
             passed += 1;

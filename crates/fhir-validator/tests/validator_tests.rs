@@ -348,10 +348,32 @@ fn bad_primitive_in_nested_element_is_reported() {
 
 #[test]
 fn valid_nested_resource_has_no_nested_errors() {
-    let found = codes_for(
+    let resource = parse_json(
         r#"{"resourceType":"Patient","name":[{"family":"A","given":["B"]}],"contact":[{"name":{"family":"C"}}]}"#,
-    );
+    )
+    .unwrap();
+    // INVARIANT_SKIPPED reports an unchecked constraint, not a finding about the resource.
+    let found: Vec<_> = validate(&resource, &load_registry())
+        .into_iter()
+        .filter(|d| d.code.as_ref() != "INVARIANT_SKIPPED")
+        .collect();
     assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn unevaluable_invariants_are_reported_as_information() {
+    let resource = parse_json(r#"{"resourceType":"Patient","id":"p1"}"#).unwrap();
+    let skipped: Vec<_> = validate(&resource, &load_registry())
+        .into_iter()
+        .filter(|d| d.code.as_ref() == "INVARIANT_SKIPPED")
+        .collect();
+    // Relies on Patient using `%resource` (dom-3); expected to change once the parser supports it.
+    assert!(!skipped.is_empty(), "expected skipped Patient invariants");
+    for d in &skipped {
+        assert_eq!(d.severity, Severity::Information);
+        assert_eq!(d.path, "Patient");
+        assert!(d.message.starts_with("constraint "), "{}", d.message);
+    }
 }
 
 #[test]
@@ -696,4 +718,330 @@ fn variants_of_different_choices_do_not_conflict() {
         !found.iter().any(|(c, _)| c == "CARDINALITY_002"),
         "{found:?}"
     );
+}
+
+#[test]
+fn top_level_extension_keys_are_not_unknown() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Patient","extension":[],"modifierExtension":[],"#,
+        r#""_birthDate":{"id":"a"}}"#,
+    ));
+    assert!(
+        !found.iter().any(|(code, _)| code == "STRUCTURE_001"),
+        "{found:?}"
+    );
+}
+
+// ── Extensions ───────────────────────────────────────────────────────────────
+
+/// Patient JSON placing `ext` (an extension array or value) at the top level, in a
+/// backbone element and, for `extension` (datatypes have no `modifierExtension`), in a
+/// complex type.
+fn extension_placements(key: &str, ext: &str) -> Vec<(String, String)> {
+    let mut placements = vec![
+        (
+            format!(r#"{{"resourceType":"Patient","{key}":{ext}}}"#),
+            format!("Patient.{key}"),
+        ),
+        (
+            format!(r#"{{"resourceType":"Patient","contact":[{{"{key}":{ext}}}]}}"#),
+            format!("Patient.contact[0].{key}"),
+        ),
+    ];
+    if key == "extension" {
+        placements.push((
+            format!(r#"{{"resourceType":"Patient","name":[{{"{key}":{ext}}}]}}"#),
+            format!("Patient.name[0].{key}"),
+        ));
+    }
+    placements
+}
+
+#[test]
+fn modifier_extension_on_a_datatype_is_unknown() {
+    let found = codes_for(r#"{"resourceType":"Patient","name":[{"modifierExtension":[]}]}"#);
+    assert_has(&found, "STRUCTURE_001", "Patient.name[0].modifierExtension");
+}
+
+#[test]
+fn extension_on_a_resource_without_one_is_unknown() {
+    // Bundle derives from Resource, not DomainResource, so it has no `extension`.
+    let found = codes_for(r#"{"resourceType":"Bundle","type":"collection","extension":[]}"#);
+    assert_has(&found, "STRUCTURE_001", "Bundle.extension");
+}
+
+#[test]
+fn extension_without_url_is_cardinality_001() {
+    for key in ["extension", "modifierExtension"] {
+        for (json, path) in extension_placements(key, r#"[{"valueString":"x"}]"#) {
+            assert_has(
+                &codes_for(&json),
+                "CARDINALITY_001",
+                &format!("{path}[0].url"),
+            );
+        }
+    }
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Patient","extension":[{"url":"http://e","#,
+        r#""extension":[{"valueString":"x"}]}]}"#,
+    ));
+    assert_has(
+        &found,
+        "CARDINALITY_001",
+        "Patient.extension[0].extension[0].url",
+    );
+}
+
+#[test]
+fn extension_that_is_not_an_object_is_type_001() {
+    for key in ["extension", "modifierExtension"] {
+        for ext in [r#""oops""#, r#"["oops"]"#] {
+            for (json, path) in extension_placements(key, ext) {
+                let path = if ext.starts_with('[') {
+                    format!("{path}[0]")
+                } else {
+                    path
+                };
+                assert_has(&codes_for(&json), "TYPE_001", &path);
+            }
+        }
+    }
+}
+
+#[test]
+fn scalar_for_a_complex_element_is_type_001() {
+    let resource = parse_json(r#"{"resourceType":"Patient","meta":null,"name":[{},42]}"#).unwrap();
+    let found: Vec<_> = validate(&resource, &load_registry())
+        .into_iter()
+        .filter(|d| d.code.as_ref() == "TYPE_001")
+        .map(|d| (d.path, d.message))
+        .collect();
+    assert!(
+        found.contains(&(
+            "Patient.meta".into(),
+            "Expected Meta object at 'Patient.meta'".into()
+        )),
+        "{found:?}"
+    );
+    assert!(
+        found.iter().any(|(path, _)| path == "Patient.name[1]"),
+        "{found:?}"
+    );
+    assert!(
+        !found.iter().any(|(path, _)| path == "Patient.name[0]"),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn extension_value_is_type_checked() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Patient","extension":[{"url":"http://e","valueInteger":"x"},"#,
+        r#"{"url":"http://e","valueBogus":1}]}"#,
+    ));
+    assert_has(&found, "TYPE_001", "Patient.extension[0].valueInteger");
+    assert_has(&found, "STRUCTURE_001", "Patient.extension[1].valueBogus");
+}
+
+#[test]
+fn valid_extensions_have_no_diagnostics() {
+    let ext = concat!(
+        r#"[{"url":"http://e","valueString":"x"},"#,
+        r#"{"url":"http://e","valueCodeableConcept":{"coding":[{"code":"a"}]}},"#,
+        r#"{"url":"http://e","extension":[{"url":"n","valueInteger":1}]}]"#,
+    );
+    for key in ["extension", "modifierExtension"] {
+        for (json, path) in extension_placements(key, ext) {
+            let found = codes_for(&json);
+            assert!(
+                !found.iter().any(|(_, p)| p.starts_with(&path)),
+                "{json}: {found:?}"
+            );
+        }
+    }
+    let found = codes_for(
+        r#"{"resourceType":"Patient","_birthDate":{"extension":[{"url":"http://e","valueString":"x"}]}}"#,
+    );
+    assert!(
+        !found.iter().any(|(_, p)| p.contains("birthDate")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn top_level_value_array_over_max_is_cardinality_002() {
+    let found = codes_for(r#"{"resourceType":"Patient","active":[true,false]}"#);
+    assert_has(&found, "CARDINALITY_002", "Patient.active");
+}
+
+#[test]
+fn top_level_choice_array_over_max_is_cardinality_002() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{},"#,
+        r#""valueString":["a","b"]}"#,
+    ));
+    assert_has(&found, "CARDINALITY_002", "Observation.valueString");
+}
+
+#[test]
+fn each_unknown_top_level_key_is_reported_once() {
+    let found = codes_for(r#"{"resourceType":"Patient","foo":1,"bar":2}"#);
+    let unknown: Vec<_> = found
+        .iter()
+        .filter(|(code, _)| code == "STRUCTURE_001")
+        .map(|(_, path)| path.as_str())
+        .collect();
+    assert_eq!(unknown, ["Patient.foo", "Patient.bar"]);
+}
+
+// ── Strict temporal and integer primitives ───────────────────────────────────
+
+/// Type codes reported at `path` for `{"resourceType":<rt>,<field_json>}`.
+fn type_codes_at(registry: &Registry, rt: &str, field_json: &str, path: &str) -> Vec<String> {
+    let resource = parse_json(&format!(r#"{{"resourceType":"{rt}",{field_json}}}"#)).unwrap();
+    validate(&resource, registry)
+        .into_iter()
+        .filter(|d| d.code.starts_with("TYPE_") && d.path == path)
+        .map(|d| d.code.to_string())
+        .collect()
+}
+
+#[test]
+fn temporal_primitives_follow_the_r5_regexes() {
+    let registry = load_registry();
+    let cases: &[(&str, &str, &str, bool)] = &[
+        // (resource, field, value, valid)
+        ("Patient", "birthDate", "2020", true),
+        ("Patient", "birthDate", "2020-02-29", true),
+        ("Patient", "birthDate", "2000-02-29", true),
+        ("Patient", "birthDate", "2021-02-29", false),
+        ("Patient", "birthDate", "1900-02-29", false),
+        ("Patient", "birthDate", "2020-02-31", false),
+        ("Patient", "birthDate", "2020-04-31", false),
+        ("Patient", "birthDate", "0000", false),
+        ("Patient", "deceasedDateTime", "2020-02-31", false),
+        ("Patient", "deceasedDateTime", "2020-01-01T10:00:00Z", true),
+        (
+            "Patient",
+            "deceasedDateTime",
+            "2020-01-01T10:00:00.123+02:00",
+            true,
+        ),
+        (
+            "Patient",
+            "deceasedDateTime",
+            "2020-01-01T10:00:00-14:00",
+            true,
+        ),
+        ("Patient", "deceasedDateTime", "2020-01-01T23:59:60Z", true),
+        (
+            "Patient",
+            "deceasedDateTime",
+            "2020-01-01T10:00:00garbage",
+            false,
+        ),
+        ("Patient", "deceasedDateTime", "2020-01-01T10:00:00", false),
+        (
+            "Patient",
+            "deceasedDateTime",
+            "2020-01-01T10:00:00.Z",
+            false,
+        ),
+        (
+            "Patient",
+            "deceasedDateTime",
+            "2020-01-01T10:00:00.1234567890Z",
+            false,
+        ),
+        (
+            "Patient",
+            "deceasedDateTime",
+            "2020-01-01T10:00:00+14:30",
+            false,
+        ),
+        (
+            "Patient",
+            "deceasedDateTime",
+            "2020-01-01T10:00:00+0200",
+            false,
+        ),
+        ("Patient", "deceasedDateTime", "2020-02-30T10:00:00Z", false),
+        ("Patient", "deceasedDateTime", "2020-01-01Z", false),
+        ("Patient", "deceasedDateTime", "2020-01-01T10:00:00+", false),
+        ("Observation", "issued", "2020-01-01T10:00:00.5Z", true),
+        ("Observation", "issued", "2020", false),
+        ("Observation", "issued", "2020-01-01", false),
+        ("Observation", "issued", "2020-01-01T10:00:00", false),
+        ("Observation", "valueTime", "10:00:00", true),
+        ("Observation", "valueTime", "10:00:00.123456789", true),
+        ("Observation", "valueTime", "10:00:60", true),
+        ("Observation", "valueTime", "10:00:00Z", false),
+        ("Observation", "valueTime", "10:00:00junk", false),
+        ("Observation", "valueTime", "10:00:61", false),
+        ("Observation", "valueTime", "10:00", false),
+    ];
+    for (rt, field, value, valid) in cases {
+        let found = type_codes_at(
+            &registry,
+            rt,
+            &format!(r#""{field}":"{value}""#),
+            &format!("{rt}.{field}"),
+        );
+        let expected: Vec<String> = if *valid {
+            vec![]
+        } else {
+            vec!["TYPE_003".into()]
+        };
+        assert_eq!(found, expected, "{rt}.{field} = {value:?}");
+    }
+}
+
+#[test]
+fn integer_primitives_are_32_bit() {
+    let registry = load_registry();
+    let cases: &[(&str, &str, &str, Option<&str>)] = &[
+        // (resource, field, raw JSON number, expected code)
+        ("Observation", "valueInteger", "2147483647", None),
+        ("Observation", "valueInteger", "-2147483648", None),
+        (
+            "Observation",
+            "valueInteger",
+            "2147483648",
+            Some("TYPE_002"),
+        ),
+        (
+            "Observation",
+            "valueInteger",
+            "-2147483649",
+            Some("TYPE_002"),
+        ),
+        ("Bundle", "total", "2147483647", None),
+        ("Bundle", "total", "2147483648", Some("TYPE_002")),
+        ("Bundle", "total", "-1", Some("TYPE_002")),
+    ];
+    for (rt, field, raw, expected) in cases {
+        let path = format!("{rt}.{field}");
+        let found = type_codes_at(&registry, rt, &format!(r#""{field}":{raw}"#), &path);
+        let expected: Vec<String> = expected.iter().map(|c| c.to_string()).collect();
+        assert_eq!(found, expected, "{path} = {raw}");
+    }
+    // positiveInt, nested in SampledData.
+    for (raw, expected) in [("2147483647", 0), ("2147483648", 1), ("0", 1)] {
+        let found = type_codes_at(
+            &registry,
+            "Observation",
+            &format!(r#""valueSampledData":{{"dimensions":{raw}}}"#),
+            "Observation.valueSampledData.dimensions",
+        );
+        assert_eq!(found.len(), expected, "dimensions = {raw}: {found:?}");
+        assert!(found.iter().all(|c| c == "TYPE_002"), "{found:?}");
+    }
+    // integer64 is a string and is not capped at 32 bits.
+    let found = type_codes_at(
+        &registry,
+        "Patient",
+        r#""photo":[{"size":"9223372036854775807"}]"#,
+        "Patient.photo[0].size",
+    );
+    assert!(found.is_empty(), "{found:?}");
 }
