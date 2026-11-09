@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.5.0](https://github.com/jonperron/fihr-linter/compare/fhir-linter-v0.4.1...fhir-linter-v0.5.0) (2026-11-09)
+
+
+### Features
+
+* **fhirpath:** parse backtick-delimited identifiers ([05baada](https://github.com/jonperron/fihr-linter/commit/05baada7c82f1ed4dfb60dcf47132ae8b301c1ea))
+* **fhirpath:** parse backtick-delimited identifiers ([9610844](https://github.com/jonperron/fihr-linter/commit/9610844ffb53099152ef5c54bc8e92682153abec))
+* **release:** attach cli, wheels and npm tarball to github releases ([bca1c64](https://github.com/jonperron/fihr-linter/commit/bca1c649470bf28d5cabba981c25aa3679cc580d))
+
+
+### Bug Fixes
+
+* **ci:** match crate Cargo.toml files in ci path filters ([8535218](https://github.com/jonperron/fihr-linter/commit/85352187698d16edf51fdeb393a53cf13e50b453))
+* **ci:** match crate Cargo.toml files in ci path filters ([bfe82b9](https://github.com/jonperron/fihr-linter/commit/bfe82b9b84d35dc730cab3d28359908172ffa2c5))
+* **ci:** pin release-please action to a commit sha ([7f044c4](https://github.com/jonperron/fihr-linter/commit/7f044c40c353bc31cc31941c6e1b472e9b600274))
+* **ci:** pin release-please action to a commit sha ([04b74c6](https://github.com/jonperron/fihr-linter/commit/04b74c67d597900bd6b4d92a4e0932f3b0e5353f))
+* **fhirpath:** add is() and as() function forms ([e9194d3](https://github.com/jonperron/fihr-linter/commit/e9194d3e2bf4d51b62a15c7cd651b7491bfec155))
+* **fhirpath:** add is() and as() function forms ([e444051](https://github.com/jonperron/fihr-linter/commit/e444051850a91db4f0fd3756edf93c8fad1f86e6))
+* **fhirpath:** allow expressions to start with the context type name ([5cb716f](https://github.com/jonperron/fihr-linter/commit/5cb716f9ef2cd4e1e51b7114f8cf93112ca27c68))
+* **fhirpath:** allow expressions to start with the context type name ([174ecb0](https://github.com/jonperron/fihr-linter/commit/174ecb071a1a8e4bbb7db4e3043dfab913bafc9b))
+* **fhirpath:** restrict type name prefix to the first path segment ([84c4e35](https://github.com/jonperron/fihr-linter/commit/84c4e35084aaf2c1f17c24bf220b9246992e0d33))
+* **fhirpath:** return empty collection for out-of-range index ([d193b62](https://github.com/jonperron/fihr-linter/commit/d193b628d42c4b58311479d7e0e27acc8d2a7097))
+* **fhirpath:** return empty collection for out-of-range index ([f0cd4cf](https://github.com/jonperron/fihr-linter/commit/f0cd4cfff3d4ce192eb6674f2b2be666366b638e))
+* **release:** keep cargo.lock in sync with the release version ([04f525b](https://github.com/jonperron/fihr-linter/commit/04f525b019bc7cc8a34eae627e4ca1fbaa7cdade))
+* **release:** leave the stub cli out of release assets ([9ce52a1](https://github.com/jonperron/fihr-linter/commit/9ce52a1edacfff3980b54c284be5c6a2bb9feb0e))
+* **release:** pin the rust toolchain and manylinux image ([7a70e72](https://github.com/jonperron/fihr-linter/commit/7a70e72f6cf5440b608bfb271197ebe1a1ed310c))
+* **release:** publish the release only after its assets are uploaded ([db50792](https://github.com/jonperron/fihr-linter/commit/db507927d5d940db0e664978eebd7a9739684960))
+* **validator:** enforce json array shape of repeating elements ([e8a2bab](https://github.com/jonperron/fihr-linter/commit/e8a2babca98c45bf81c0a09fb4eb56b7b620e808))
+* **validator:** enforce json array shape of repeating elements ([4c0c072](https://github.com/jonperron/fihr-linter/commit/4c0c0725a7aad4200b4e981e74d0897e0a037400))
+* **validator:** name non-concrete types in structure_000 message ([376340c](https://github.com/jonperron/fihr-linter/commit/376340c3cfe79d1ef7dce23dbdb55cb0eda924ee))
+* **validator:** reject abstract and non-resource resource types ([26321fa](https://github.com/jonperron/fihr-linter/commit/26321fa5ee12a627f41885a8861e782634835909))
+* **validator:** reject abstract and non-resource resource types ([6043d21](https://github.com/jonperron/fihr-linter/commit/6043d21dab2b9d5540204beb2cda399ac2928bcc))
+* **validator:** reject unknown _name keys and walk primitive extensions ([d25d6ee](https://github.com/jonperron/fihr-linter/commit/d25d6eeb8b0d0705dc9caff08a1f8a56e4a88672))
+* **validator:** reject unknown _name keys and walk primitive extensions ([da504d8](https://github.com/jonperron/fihr-linter/commit/da504d8401b342386a5316c6d857d49b89ac756f))
+* **validator:** skip choice slices in cardinality check ([be0e075](https://github.com/jonperron/fihr-linter/commit/be0e075559fd6ba44c4e8d4cd95b8feaafd01558))
+* **validator:** skip slice elements in profile cardinality check ([365c3bb](https://github.com/jonperron/fihr-linter/commit/365c3bb1a9258f08f1977f2e34bf886531605880))
+* **validator:** skip slice elements in profile cardinality check ([0442d2b](https://github.com/jonperron/fihr-linter/commit/0442d2b08b609037c621977e368bc084dbad2f7a))
+* **validator:** type XML primitive extensions and keep empty primitives ([6607001](https://github.com/jonperron/fihr-linter/commit/6607001642869986b466624758a39a59efd4f2ac))
+* **validator:** type XML primitives and split their extensions ([d0c56b4](https://github.com/jonperron/fihr-linter/commit/d0c56b49fd7222e8b91a7d371b8625ca67cf2ba2))
+* **validator:** type XML primitives and split their extensions ([4ee84b2](https://github.com/jonperron/fihr-linter/commit/4ee84b228f39a96671d08066d93b31e788d9dc5e))
+
 ## [0.4.1](https://github.com/jonperron/fihr-linter/compare/fhir-linter-v0.4.0...fhir-linter-v0.4.1) (2026-11-08)
 
 
