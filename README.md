@@ -15,6 +15,15 @@ Built-in lint rules:
 | `missing-identifier` | Resource has no identifier |
 | `missing-meta-profile` | Resource has no `meta.profile` |
 
+## Install
+
+Each GitHub release carries the Python wheels and sdist, and an npm
+tarball (`npm install ./fhir-linter-<version>.tgz`), for Linux x86_64,
+macOS arm64 and Windows x86_64. The `fhir-lint` CLI is not released yet.
+Nothing is published to PyPI, npm or crates.io yet. On Linux, the npm
+addon needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12, RHEL 10); the
+wheels are manylinux2014 (glibc 2.17).
+
 ## Setup
 
 ```bash

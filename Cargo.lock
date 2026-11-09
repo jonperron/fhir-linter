@@ -259,6 +259,7 @@ dependencies = [
 name = "fhir-definitions"
 version = "0.4.1"
 dependencies = [
+ "fhir-fhirpath",
  "serde_json",
  "thiserror",
 ]

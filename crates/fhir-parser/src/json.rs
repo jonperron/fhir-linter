@@ -65,6 +65,7 @@ pub fn parse_json(source: &str) -> Result<Resource, ParseError> {
     Ok(Resource {
         resource_type,
         id,
+        from_xml: false,
         fields,
     })
 }

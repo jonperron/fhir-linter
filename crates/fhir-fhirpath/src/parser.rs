@@ -119,7 +119,7 @@ fn build_expr(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         )),
         Rule::time_lit => Ok(Expr::Temporal(TemporalKind::Time, trim_at_t(pair.as_str()))),
         Rule::quantity_lit => parse_quantity(pair),
-        Rule::ident => Ok(Expr::Ident(pair.as_str().to_owned())),
+        Rule::ident => Ok(Expr::Ident(ident_name(&pair))),
         Rule::func_call => build_func_call(pair),
         Rule::dollar_this => Ok(Expr::DollarThis),
         Rule::dollar_index => Ok(Expr::DollarIndex),
@@ -235,7 +235,7 @@ fn build_type(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                 .next()
                 .ok_or_else(missing)?
                 .into_inner()
-                .map(|p| p.as_str())
+                .map(|p| ident_name(&p))
                 .collect::<Vec<_>>()
                 .join(".");
             if is_as {
@@ -331,10 +331,7 @@ fn build_postfix(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                         base = Expr::Method(Box::new(base), name, args);
                     }
                     Rule::ident => {
-                        base = Expr::Dot(
-                            Box::new(base),
-                            Box::new(Expr::Ident(inner.as_str().to_owned())),
-                        );
+                        base = Expr::Dot(Box::new(base), Box::new(Expr::Ident(ident_name(&inner))));
                     }
                     other => {
                         return Err(ParseError::Syntax(format!(
@@ -365,7 +362,7 @@ fn build_func_call(pair: Pair<Rule>) -> Result<Expr, ParseError> {
 
 fn parse_func_call_inner(pair: Pair<Rule>) -> Result<(String, Vec<Expr>), ParseError> {
     let mut iter = pair.into_inner();
-    let name = iter.next().ok_or_else(missing)?.as_str().to_owned();
+    let name = ident_name(&iter.next().ok_or_else(missing)?);
     let args = iter.map(build_expr).collect::<Result<Vec<_>, _>>()?;
     Ok((name, args))
 }
@@ -427,13 +424,26 @@ fn strip_quotes(raw: &str) -> &str {
 
 /// Unescape a FHIRPath string literal (strips surrounding `'`).
 fn unescape_string(raw: &str) -> String {
-    let inner = strip_quotes(raw);
+    unescape(strip_quotes(raw))
+}
+
+/// Name of an `ident` pair; a backtick-delimited identifier is unescaped.
+fn ident_name(pair: &Pair<Rule>) -> String {
+    let raw = pair.as_str();
+    raw.strip_prefix('`')
+        .and_then(|s| s.strip_suffix('`'))
+        .map_or_else(|| raw.to_owned(), unescape)
+}
+
+/// Resolve the FHIRPath `ESC` sequences shared by strings and delimited identifiers.
+fn unescape(inner: &str) -> String {
     let mut result = String::with_capacity(inner.len());
     let mut chars = inner.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '\\' {
             match chars.next() {
-                Some('\'') => result.push('\''),
+                Some(c @ ('\'' | '`' | '"' | '/')) => result.push(c),
+                Some('f') => result.push('\u{c}'),
                 Some('\\') => result.push('\\'),
                 Some('n') => result.push('\n'),
                 Some('r') => result.push('\r'),
@@ -564,6 +574,38 @@ mod tests {
             Expr::Union(_, rhs) => assert!(matches!(*rhs, Expr::Is(..))),
             other => panic!("unexpected: {other:?}"),
         }
+    }
+
+    #[test]
+    fn delimited_identifier_parses_to_plain_identifier() {
+        let div = || Box::new(Expr::Ident("div".into()));
+        assert_eq!(
+            parse("text.`div`").unwrap(),
+            Expr::Dot(Box::new(Expr::Ident("text".into())), div()),
+        );
+        assert_eq!(parse("`div`").unwrap(), *div());
+        assert_eq!(parse(r"`a\`b`").unwrap(), Expr::Ident("a`b".into()));
+        assert_eq!(parse("`a b\\u0041`").unwrap(), Expr::Ident("a bA".into()));
+        for (delimited, plain) in [
+            ("1 is `System`.`Integer`", "1 is System.Integer"),
+            ("a.`exists`()", "a.exists()"),
+            ("`today`()", "today()"),
+        ] {
+            assert_eq!(
+                parse(delimited).unwrap(),
+                parse(plain).unwrap(),
+                "{delimited}"
+            );
+        }
+        assert!(parse("`unterminated").is_err());
+    }
+
+    #[test]
+    fn spec_escapes_are_accepted_in_strings() {
+        assert_eq!(
+            parse(r#"'\"\/\f\`'"#).unwrap(),
+            Expr::String("\"/\u{c}`".into())
+        );
     }
 
     #[test]

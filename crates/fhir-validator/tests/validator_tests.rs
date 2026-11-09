@@ -387,7 +387,7 @@ fn bad_primitive_in_nested_element_is_reported() {
 #[test]
 fn valid_nested_resource_has_no_nested_errors() {
     let resource = parse_json(
-        r#"{"resourceType":"Patient","name":[{"family":"A","given":["B"]}],"contact":[{"name":{"family":"C"}}]}"#,
+        r#"{"resourceType":"Patient","text":{"status":"generated","div":"<div xmlns=\"http://www.w3.org/1999/xhtml\">A</div>"},"name":[{"family":"A","given":["B"]}],"contact":[{"name":{"family":"C"}}]}"#,
     )
     .unwrap();
     // INVARIANT_SKIPPED reports an unchecked constraint, not a finding about the resource.
@@ -405,7 +405,7 @@ fn unevaluable_invariants_are_reported_as_information() {
         .into_iter()
         .filter(|d| d.code.as_ref() == "INVARIANT_SKIPPED")
         .collect();
-    // Relies on Patient using `%resource` (dom-3); expected to change once the parser supports it.
+    // Relies on dom-3 needing `%resource`; expected to change once the parser supports it.
     assert!(!skipped.is_empty(), "expected skipped Patient invariants");
     for d in &skipped {
         assert_eq!(d.severity, Severity::Information);
@@ -425,6 +425,15 @@ fn document_bundle_diagnostics(first_entry: &str) -> Vec<(String, String)> {
     validate(&resource, &load_registry())
         .into_iter()
         .map(|d| (d.code.to_string(), d.message))
+        .collect()
+}
+
+fn dom6_diagnostics(json: &str) -> Vec<String> {
+    let resource = parse_json(json).unwrap();
+    validate(&resource, &load_registry())
+        .into_iter()
+        .filter(|d| d.code.as_ref() == "INVARIANT_dom-6" || d.message.contains("dom-6"))
+        .map(|d| format!("{:?} {}", d.severity, d.code))
         .collect()
 }
 
@@ -450,6 +459,22 @@ fn document_bundle_starting_with_composition_satisfies_bdl_11() {
     );
     let bdl_11 = |(c, m): &(String, String)| c.contains("bdl-11") || m.contains("bdl-11");
     assert!(!found.iter().any(bdl_11), "{found:?}");
+}
+
+#[test]
+fn dom6_is_evaluated_not_skipped() {
+    let narrative = r#"{"resourceType":"Patient","id":"p1","text":{"status":"generated","div":"<div xmlns=\"http://www.w3.org/1999/xhtml\">x</div>"}}"#;
+    assert!(dom6_diagnostics(narrative).is_empty());
+    for json in [
+        r#"{"resourceType":"Patient","id":"p1"}"#,
+        r#"{"resourceType":"Patient","id":"p1","text":{"status":"generated"}}"#,
+    ] {
+        assert_eq!(
+            dom6_diagnostics(json),
+            ["Warning INVARIANT_dom-6"],
+            "{json}"
+        );
+    }
 }
 
 #[test]
@@ -1213,4 +1238,198 @@ fn codesystem_csd_4_uses_leading_type_name() {
     let with_supplements = r#"{"resourceType":"CodeSystem","status":"draft",
         "content":"supplement","supplements":"http://x"}"#;
     assert_eq!(codes(&registry, with_supplements, "INVARIANT_csd-4"), 0);
+}
+
+// ── XML input shape ───────────────────────────────────────────────────────────
+
+fn xml_codes(registry: &Registry, xml: &str) -> Vec<String> {
+    let resource = fhir_parser::parse_xml(xml).unwrap();
+    validate(&resource, registry)
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .map(|d| d.code.to_string())
+        .collect()
+}
+
+fn xml_errors(registry: &Registry, xml: &str) -> Vec<String> {
+    let resource = fhir_parser::parse_xml(xml).unwrap();
+    validate(&resource, registry)
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .map(|d| format!("{} {}", d.code, d.path))
+        .collect()
+}
+
+#[test]
+fn xml_typed_primitives_pass_type_checks() {
+    let registry = load_registry();
+    let codes = xml_codes(
+        &registry,
+        concat!(
+            r#"<Patient xmlns="http://hl7.org/fhir"><active value="true"/>"#,
+            r#"<multipleBirthInteger value="2"/></Patient>"#,
+        ),
+    );
+    assert!(!codes.iter().any(|c| c.starts_with("TYPE_")), "{codes:?}");
+}
+
+#[test]
+fn xml_typed_integer_reaches_range_check() {
+    // A value that is dropped or left as text would not give the 32-bit range error.
+    let registry = load_registry();
+    let errors = xml_errors(
+        &registry,
+        concat!(
+            r#"<Patient xmlns="http://hl7.org/fhir">"#,
+            r#"<multipleBirthInteger value="2147483648"/></Patient>"#,
+        ),
+    );
+    assert_eq!(errors, ["TYPE_002 Patient.multipleBirthInteger"]);
+}
+
+#[test]
+fn xml_unsigned_int_is_capped_at_i32_max() {
+    // R5 unsignedInt has maxValueInteger 2147483647, the same cap as JSON input.
+    let registry = load_registry();
+    let study = |n: &str| {
+        format!(
+            r#"<ImagingStudy xmlns="http://hl7.org/fhir"><status value="available"/>
+            <subject><reference value="Patient/1"/></subject>
+            <numberOfSeries value="{n}"/></ImagingStudy>"#
+        )
+    };
+    assert!(xml_errors(&registry, &study("2147483647")).is_empty());
+    assert_eq!(
+        xml_errors(&registry, &study("2147483648")),
+        ["TYPE_002 ImagingStudy.numberOfSeries"],
+    );
+}
+
+#[test]
+fn xml_bad_boolean_still_fails() {
+    let registry = load_registry();
+    let codes = xml_codes(
+        &registry,
+        r#"<Patient xmlns="http://hl7.org/fhir"><active value="yes"/></Patient>"#,
+    );
+    assert!(codes.iter().any(|c| c == "TYPE_001"), "{codes:?}");
+}
+
+fn active_with_extension(value: &str) -> String {
+    format!(
+        r#"<Patient xmlns="http://hl7.org/fhir"><active value="true">
+        <extension url="http://example.org/x"><valueBoolean value="{value}"/></extension>
+        </active></Patient>"#
+    )
+}
+
+#[test]
+fn xml_primitive_extension_value_is_typed() {
+    let registry = load_registry();
+    let errors = xml_errors(&registry, &active_with_extension("true"));
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[test]
+fn xml_primitive_extension_bad_value_fails() {
+    // Proves the extension is kept under `_active` and validated.
+    let registry = load_registry();
+    let errors = xml_errors(&registry, &active_with_extension("maybe"));
+    assert_eq!(errors, ["TYPE_001 Patient._active.extension.valueBoolean"],);
+}
+
+#[test]
+fn xml_primitive_unknown_attribute_fails() {
+    let registry = load_registry();
+    let errors = xml_errors(
+        &registry,
+        r#"<Patient xmlns="http://hl7.org/fhir"><active value="true" foo="x"/></Patient>"#,
+    );
+    assert!(
+        errors.iter().any(|e| e.starts_with("STRUCTURE_001")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn xml_empty_primitive_is_reported() {
+    let registry = load_registry();
+    let errors = xml_errors(
+        &registry,
+        r#"<Patient xmlns="http://hl7.org/fhir"><active/></Patient>"#,
+    );
+    assert_eq!(errors, ["TYPE_001 Patient.active"]);
+}
+
+#[test]
+fn official_valid_xml_cases_have_no_errors() {
+    let registry = load_registry();
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/validator");
+    if !dir.is_dir() {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "fixtures submodule missing in CI: run `git submodule update --init`"
+        );
+        return;
+    }
+    for name in [
+        "patient-animal.xml",
+        "group-choice-good.xml",
+        "list-extension.xml",
+        "xml_v11.xml",
+        "ext-ctxt-good-ext.xml",
+    ] {
+        let codes = xml_codes(&registry, &std::fs::read_to_string(dir.join(name)).unwrap());
+        assert!(codes.is_empty(), "{name}: {codes:?}");
+    }
+}
+
+fn xml_diags(registry: &Registry, xml: &str) -> Vec<String> {
+    let resource = fhir_parser::parse_xml(xml).unwrap();
+    validate(&resource, registry)
+        .iter()
+        .map(|d| format!("{:?} {} {}", d.severity, d.code, d.message))
+        .collect()
+}
+
+#[test]
+fn xml_nested_questionnaire_item_boolean_is_typed() {
+    let registry = load_registry();
+    let out = xml_diags(
+        &registry,
+        r#"<Questionnaire xmlns="http://hl7.org/fhir"><status value="draft"/><item><linkId value="1"/><type value="group"/><item><linkId value="1.1"/><type value="string"/><required value="true"/></item></item></Questionnaire>"#,
+    );
+    assert!(
+        !out.iter()
+            .any(|d| d.contains("TYPE_") || d.contains("CARDINALITY")),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn xml_bundle_entry_resource_boolean_is_typed() {
+    let registry = load_registry();
+    let out = xml_diags(
+        &registry,
+        r#"<Bundle xmlns="http://hl7.org/fhir"><type value="collection"/><entry><resource><Patient><active value="true"/></Patient></resource></entry></Bundle>"#,
+    );
+    assert!(
+        !out.iter()
+            .any(|d| d.contains("TYPE_") || d.contains("CARDINALITY")),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn xml_contained_resource_boolean_is_typed() {
+    let registry = load_registry();
+    let out = xml_diags(
+        &registry,
+        r#"<Patient xmlns="http://hl7.org/fhir"><contained><Patient><id value="a"/><active value="true"/></Patient></contained></Patient>"#,
+    );
+    assert!(
+        !out.iter()
+            .any(|d| d.contains("TYPE_") || d.contains("CARDINALITY")),
+        "{out:?}"
+    );
 }

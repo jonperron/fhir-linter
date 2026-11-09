@@ -58,6 +58,7 @@ pub fn parse_xml(source: &str) -> Result<Resource, ParseError> {
                 let resource = Resource {
                     resource_type,
                     id,
+                    from_xml: true,
                     fields,
                 };
                 expect_eof(&mut reader, &line_index)?;
@@ -69,6 +70,7 @@ pub fn parse_xml(source: &str) -> Result<Resource, ParseError> {
                 let resource = Resource {
                     resource_type,
                     id: None,
+                    from_xml: true,
                     fields: IndexMap::new(),
                 };
                 expect_eof(&mut reader, &line_index)?;

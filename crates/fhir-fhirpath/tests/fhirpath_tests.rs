@@ -180,6 +180,17 @@ fn path_nonexistent_yields_empty() {
     assert!(eval("gender").is_empty());
 }
 
+#[test]
+fn delimited_identifiers_evaluate_like_plain_ones() {
+    assert_eq!(eval("`name`.`family`"), eval("name.family"));
+    assert_eq!(eval("name.`given`.count()"), eval("name.given.count()"));
+    assert!(eval_bool("`active`"));
+    assert!(!eval_bool("`gender`.exists()"));
+    // A delimited leading type name is stripped like a plain one.
+    assert_eq!(eval("Patient.`name`.family"), eval("name.family"));
+    assert_eq!(eval("`Patient`.name.`family`"), eval("name.family"));
+}
+
 // ── Existence functions ──────────────────────────────────────────────────────
 
 #[test]
@@ -1722,6 +1733,7 @@ fn resource_to_value_maps_resource_type_and_id() {
     let resource = Resource {
         resource_type: Arc::from("Patient"),
         id: Some(Arc::from("p1")),
+        from_xml: false,
         fields: IndexMap::new(),
     };
     let v = resource_to_value(&resource);
@@ -1741,6 +1753,7 @@ fn resource_to_value_without_id() {
     let resource = Resource {
         resource_type: Arc::from("Observation"),
         id: None,
+        from_xml: false,
         fields: IndexMap::new(),
     };
     let v = resource_to_value(&resource);
@@ -1768,6 +1781,7 @@ fn resource_to_value_includes_fields() {
     let resource = Resource {
         resource_type: Arc::from("Patient"),
         id: None,
+        from_xml: false,
         fields,
     };
     let v = resource_to_value(&resource);
