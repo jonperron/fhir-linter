@@ -9,6 +9,13 @@ on:
         description: Release tag created by release-please
         required: true
         type: string
+  # Manual retry, e.g. to publish an existing release to the registries.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag (fhir-linter-vX.Y.Z)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -23,6 +30,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          # A manual run starts from a branch; always build the tagged code.
+          ref: ${{ inputs.tag }}
           persist-credentials: false
 
       - name: Tag matches workspace version
@@ -63,6 +72,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          # A manual run starts from a branch; always build the tagged code.
+          ref: ${{ inputs.tag }}
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
@@ -113,6 +124,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          # A manual run starts from a branch; always build the tagged code.
+          ref: ${{ inputs.tag }}
           persist-credentials: false
 
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
@@ -135,6 +148,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          # A manual run starts from a branch; always build the tagged code.
+          ref: ${{ inputs.tag }}
           persist-credentials: false
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -163,3 +178,49 @@ jobs:
           gh release upload "$TAG" dist/* --clobber
           # release-please creates a draft; publish only once every asset is attached.
           gh release edit "$TAG" --draft=false
+
+  publish-npm:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          registry-url: https://npm.pkg.github.com
+          scope: "@jonperron"
+
+      # Publish the exact tarball attached to the release.
+      - name: Publish to GitHub Packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          # A retry must not fail on a version already published.
+          if npm view "@jonperron/fhir-linter@${TAG#fhir-linter-v}" version >/dev/null 2>&1; then
+            echo "already published"; exit 0
+          fi
+          gh release download "$TAG" --pattern '*.tgz'
+          npm publish ./*.tgz
+
+  publish-pypi:
+    needs: release
+    runs-on: ubuntu-latest
+    # Must match the environment of the PyPI trusted publisher.
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: asset-*
+          path: dist
+          merge-multiple: true
+
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          skip-existing: true
