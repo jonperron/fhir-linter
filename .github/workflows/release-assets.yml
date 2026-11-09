@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Exact toolchain for reproducible release builds; >= workspace rust-version.
+  RUST_TOOLCHAIN: 1.99.1
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -45,6 +49,8 @@ jobs:
           # Oldest supported runner: the CLI and napi addon need glibc >= 2.35.
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            # manylinux2014 tag 2026.11.07-1, pinned by digest.
+            container: quay.io/pypa/manylinux2014_x86_64@sha256:62eeff30ef134a85ec0f97109e008a319b0315ca5e8a6d754ee771556c02622a
           - os: macos-latest
             target: aarch64-apple-darwin
           - os: windows-latest
@@ -62,6 +68,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -89,6 +96,11 @@ jobs:
           command: build
           maturin-version: v1.16.0
           manylinux: auto
+          # Empty off Linux; the action only uses a container there.
+          container: ${{ matrix.container }}
+          # Installed by rustup inside the manylinux container too.
+          rust-toolchain: ${{ env.RUST_TOOLCHAIN }}
+          target: ${{ matrix.target }}
           args: --release --locked --out wheels -m bindings/python/Cargo.toml
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -124,6 +136,7 @@ jobs:
         with:
           command: sdist
           maturin-version: v1.16.0
+          rust-toolchain: ${{ env.RUST_TOOLCHAIN }}
           args: --out dist -m bindings/python/Cargo.toml
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
