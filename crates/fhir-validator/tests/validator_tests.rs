@@ -387,7 +387,7 @@ fn bad_primitive_in_nested_element_is_reported() {
 #[test]
 fn valid_nested_resource_has_no_nested_errors() {
     let resource = parse_json(
-        r#"{"resourceType":"Patient","name":[{"family":"A","given":["B"]}],"contact":[{"name":{"family":"C"}}]}"#,
+        r#"{"resourceType":"Patient","text":{"status":"generated","div":"<div xmlns=\"http://www.w3.org/1999/xhtml\">A</div>"},"name":[{"family":"A","given":["B"]}],"contact":[{"name":{"family":"C"}}]}"#,
     )
     .unwrap();
     // INVARIANT_SKIPPED reports an unchecked constraint, not a finding about the resource.
@@ -405,7 +405,7 @@ fn unevaluable_invariants_are_reported_as_information() {
         .into_iter()
         .filter(|d| d.code.as_ref() == "INVARIANT_SKIPPED")
         .collect();
-    // Relies on Patient using `%resource` (dom-3); expected to change once the parser supports it.
+    // Relies on dom-3 needing `%resource`; expected to change once the parser supports it.
     assert!(!skipped.is_empty(), "expected skipped Patient invariants");
     for d in &skipped {
         assert_eq!(d.severity, Severity::Information);
@@ -425,6 +425,15 @@ fn document_bundle_diagnostics(first_entry: &str) -> Vec<(String, String)> {
     validate(&resource, &load_registry())
         .into_iter()
         .map(|d| (d.code.to_string(), d.message))
+        .collect()
+}
+
+fn dom6_diagnostics(json: &str) -> Vec<String> {
+    let resource = parse_json(json).unwrap();
+    validate(&resource, &load_registry())
+        .into_iter()
+        .filter(|d| d.code.as_ref() == "INVARIANT_dom-6" || d.message.contains("dom-6"))
+        .map(|d| format!("{:?} {}", d.severity, d.code))
         .collect()
 }
 
@@ -450,6 +459,22 @@ fn document_bundle_starting_with_composition_satisfies_bdl_11() {
     );
     let bdl_11 = |(c, m): &(String, String)| c.contains("bdl-11") || m.contains("bdl-11");
     assert!(!found.iter().any(bdl_11), "{found:?}");
+}
+
+#[test]
+fn dom6_is_evaluated_not_skipped() {
+    let narrative = r#"{"resourceType":"Patient","id":"p1","text":{"status":"generated","div":"<div xmlns=\"http://www.w3.org/1999/xhtml\">x</div>"}}"#;
+    assert!(dom6_diagnostics(narrative).is_empty());
+    for json in [
+        r#"{"resourceType":"Patient","id":"p1"}"#,
+        r#"{"resourceType":"Patient","id":"p1","text":{"status":"generated"}}"#,
+    ] {
+        assert_eq!(
+            dom6_diagnostics(json),
+            ["Warning INVARIANT_dom-6"],
+            "{json}"
+        );
+    }
 }
 
 #[test]

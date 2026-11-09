@@ -353,9 +353,15 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 
 #### Scenario: Expression non analysable signalée INVARIANT_SKIPPED
 
-- **WHEN** l'expression FHIRPath d'une contrainte ne peut pas être analysée (par ex. `%resource`, identifiants entre backticks, `'#'+id in (...)` non encore supportés par le parseur)
-- **THEN** la contrainte SHALL être ignorée tant que ces lacunes du parseur ne sont pas comblées
+- **WHEN** l'expression FHIRPath d'une contrainte ne peut pas être analysée (par ex. les variables d'environnement `%` telles que `%resource`, non encore supportées par le parseur, si bien que `dom-3` est toujours ignorée)
+- **THEN** la contrainte SHALL être ignorée tant que cette lacune du parseur n'est pas comblée
 - **AND** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` nommant la `key` et la raison SHALL être émis, afin qu'un résultat sans erreur ne masque jamais une contrainte non vérifiée
+
+#### Scenario: Invariant dom-6 évalué (identifiant entre backticks)
+
+- **WHEN** une DomainResource R5 n'a pas de `text.div` (contrainte `dom-6`, ``text.`div`.exists()``, severity `warning`)
+- **THEN** un Diagnostic `Warning` avec code `INVARIANT_dom-6` SHALL être émis
+- **AND** aucun Diagnostic `INVARIANT_SKIPPED` ne SHALL être émis pour `dom-6`
 
 #### Scenario: Severity `information` mappée en Warning
 
