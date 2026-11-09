@@ -20,8 +20,6 @@ pub enum EvalError {
     },
     #[error("division by zero")]
     DivisionByZero,
-    #[error("index out of bounds: {0}")]
-    IndexOutOfBounds(i64),
     #[error("parse error: {0}")]
     Parse(#[from] ParseError),
 }
