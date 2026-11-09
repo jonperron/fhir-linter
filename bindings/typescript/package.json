@@ -1,6 +1,6 @@
 {
   "name": "fhir-linter",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Node.js bindings for the FHIR R5 linter and validator",
   "license": "MIT",
   "type": "module",

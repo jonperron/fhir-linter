@@ -72,14 +72,14 @@ fn parse_structure_definition(resource: &Value) -> Option<StructureDefinition> {
         .map(|elems| elems.iter().filter_map(parse_element_definition).collect())
         .unwrap_or_default();
 
-    Some(StructureDefinition {
+    Some(StructureDefinition::new(
         url,
         name,
         kind,
         is_abstract,
         base_definition,
         snapshot,
-    })
+    ))
 }
 
 fn parse_element_definition(elem: &Value) -> Option<ElementDefinition> {
@@ -102,6 +102,7 @@ fn parse_element_definition(elem: &Value) -> Option<ElementDefinition> {
         .unwrap_or_default();
 
     let binding = parse_binding(&elem["binding"]);
+    let slice_name = elem["sliceName"].as_str().map(Arc::from);
 
     Some(ElementDefinition {
         path,
@@ -110,6 +111,7 @@ fn parse_element_definition(elem: &Value) -> Option<ElementDefinition> {
         types,
         constraints,
         binding,
+        slice_name,
     })
 }
 

@@ -12,7 +12,7 @@ members = [
 ]
 
 [workspace.package]
-version      = "0.4.0"
+version      = "0.4.1"
 edition      = "2024"
 authors      = ["fhir-linter contributors"]
 license      = "MIT"
@@ -26,7 +26,7 @@ serde_json  = "1"
 toml        = "0.8"
 
 # XML parsing
-quick-xml   = { version = "0.41", features = ["serialize"] }
+quick-xml   = "0.41"
 
 # FHIRPath parser
 pest        = "2"
@@ -38,11 +38,7 @@ regex-lite  = "0.1"
 # Collections
 indexmap    = { version = "2", features = ["serde"] }
 
-# CLI
-clap        = { version = "4", features = ["derive"] }
-
 # Diagnostics
-miette      = { version = "7", features = ["fancy"] }
 thiserror   = "2"
 
 # Bindings
@@ -50,13 +46,6 @@ pyo3         = { version = "0.30", features = ["abi3-py310"] }
 napi         = { version = "3", default-features = false, features = ["napi4", "async"] }
 napi-derive  = "3"
 napi-build   = "2"
-
-# Testing
-rstest      = "0.23"
-proptest    = "1"
-assert_cmd  = "2"
-predicates  = "3"
-
 
 # Internal crates
 fhir-definitions = { path = "crates/fhir-definitions" }

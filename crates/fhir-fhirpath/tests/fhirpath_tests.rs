@@ -122,6 +122,32 @@ fn literal_null_yields_empty() {
 // ── Path navigation ──────────────────────────────────────────────────────────
 
 #[test]
+fn leading_type_name_navigates_like_bare_name() {
+    assert!(eval_bool("Patient.active"));
+    assert_eq!(eval_str("Patient.name.family"), "Doe");
+}
+
+#[test]
+fn leading_other_type_name_yields_empty() {
+    assert!(eval("Observation.active").is_empty());
+}
+
+#[test]
+fn type_name_after_first_segment_yields_empty() {
+    assert!(eval("Patient.Patient.id").is_empty());
+    let observation: IndexMap<Arc<str>, Collection> = IndexMap::from([
+        (
+            Arc::from("resourceType"),
+            vec![Value::String(Arc::from("Observation"))],
+        ),
+        (Arc::from("contained"), make_patient()),
+    ]);
+    let ctx = vec![Value::Object(Arc::new(observation))];
+    assert!(evaluate("contained.Patient.id", &ctx).unwrap().is_empty());
+    assert_eq!(evaluate("contained.id", &ctx).unwrap().len(), 1);
+}
+
+#[test]
 fn path_resource_type() {
     let result = eval("resourceType");
     assert_eq!(result, vec![Value::String(Arc::from("Patient"))]);
@@ -1397,12 +1423,21 @@ fn index_operator_accesses_first_element() {
 }
 
 #[test]
-fn index_operator_out_of_bounds_returns_error() {
-    let result = evaluate("(1 | 2)[5]", &[]);
-    assert!(matches!(
-        result,
-        Err(fhir_fhirpath::EvalError::IndexOutOfBounds(_))
-    ));
+fn index_operator_out_of_bounds_returns_empty() {
+    let result = evaluate("(1 | 2)[5]", &[]).unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn index_operator_negative_returns_empty() {
+    let result = evaluate("(1 | 2)[-1]", &[]).unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn index_past_end_then_exists_is_false() {
+    let result = evaluate("(1 | 2)[5].exists()", &[]).unwrap();
+    assert_eq!(result, vec![Value::Bool(false)]);
 }
 
 // ── Parse error ───────────────────────────────────────────────────────────────
@@ -2360,4 +2395,45 @@ fn descendants_is_depth_first_preorder() {
 fn decode_base64_ignores_whitespace() {
     let r = evaluate("'aGVs\nbG8='.decode('base64')", &[]).unwrap();
     assert_eq!(r, vec![Value::String(Arc::from("hello"))]);
+}
+
+// ── is() / as() function forms (expressions from tests-fhir-r5.xml) ──────────
+
+#[test]
+fn is_function_matches_operator_form() {
+    let cases = [
+        ("true.is(Boolean)", true),      // testType5
+        ("1.is(Integer)", true),         // testIntegerLiteralIsInteger
+        ("'1'.is(Integer).not()", true), // testStringLiteralIsNotInteger
+        ("1.0.is(Decimal)", true),       // testDecimalLiteralIsDecimal
+        ("@2015-02-04.is(Date)", true),  // testLiteralDateDay
+        ("$this.is(Patient)", true),     // testType17
+        ("$this.is(Composition)", false),
+        ("$this.ofType(Patient).count() = 1", true), // testType20
+        ("$this is Patient", true),
+    ];
+    for (expr, expected) in cases {
+        assert_eq!(eval_bool(expr), expected, "{expr}");
+    }
+}
+
+#[test]
+fn is_function_on_empty_is_empty() {
+    assert!(eval("deceased.is(Boolean)").is_empty());
+    assert!(eval("deceased.as(Boolean)").is_empty());
+}
+
+#[test]
+fn as_function_returns_matching_singleton() {
+    assert_eq!(eval_str("$this.as(Patient).id"), "patient-1");
+    assert!(eval("$this.as(Composition)").is_empty());
+    assert_eq!(eval_int("1.as(Integer)"), 1);
+}
+
+// testFHIRPathAsFunction21: as() on a multi-item collection is an execution error.
+#[test]
+fn is_as_function_on_multiple_items_is_error() {
+    for expr in ["(1 | 2).as(Integer)", "(1 | 2).is(Integer)"] {
+        assert!(evaluate(expr, &make_patient()).is_err(), "{expr}");
+    }
 }

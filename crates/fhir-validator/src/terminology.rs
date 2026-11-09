@@ -18,7 +18,7 @@ pub fn validate(
 
     for (field_name, node) in &resource.fields {
         let path = format!("{resource_type}.{field_name}");
-        let Some(elem) = sd.snapshot.iter().find(|e| e.path.as_ref() == path) else {
+        let Some(elem) = sd.element(&path) else {
             continue;
         };
         let Some(binding) = &elem.binding else {

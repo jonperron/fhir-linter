@@ -141,7 +141,9 @@ Le système SHALL implémenter `empty()`, `exists()`, `exists(criteria)`, `all(c
 
 ### Requirement: Fonctions de filtrage
 
-Le système SHALL implémenter `where(criteria)`, `select(projection)`, `repeat(projection)`, `ofType(type)`.
+Le système SHALL implémenter `where(criteria)`, `select(projection)`, `repeat(projection)`, `ofType(type)`, `is(type)`, `as(type)`.
+
+L'argument de `ofType`, `is` et `as` est un identifiant de nom de type. La correspondance de type (partagée par `ofType`, les fonctions `is`/`as` et les opérateurs `is`/`as`) SHALL accepter les types primitifs FHIRPath ainsi qu'un objet ressource dont `resourceType` est exactement égal au nom de type. Elle ne SHALL pas gérer l'héritage (`Resource`, `DomainResource`), les noms de types complexes FHIR, ni les noms qualifiés (`FHIR.X`, `System.X`).
 
 #### Scenario: where filtre les éléments
 
@@ -150,8 +152,28 @@ Le système SHALL implémenter `where(criteria)`, `select(projection)`, `repeat(
 
 #### Scenario: ofType filtre par type FHIRPath
 
-- **WHEN** `ofType('string')` est évalué sur une collection mixte
+- **WHEN** `ofType(String)` est évalué sur une collection mixte
 - **THEN** le résultat SHALL contenir uniquement les valeurs de type `String`
+
+#### Scenario: ofType filtre par resourceType
+
+- **WHEN** `ofType(Patient)` est évalué sur une collection de ressources
+- **THEN** le résultat SHALL contenir uniquement les objets dont `resourceType` vaut exactement `Patient`
+
+#### Scenario: is et as sur un seul élément
+
+- **WHEN** `is(Patient)` ou `as(Patient)` est évalué sur une collection d'un seul élément
+- **THEN** `is` SHALL retourner `[Bool(true)]` ou `[Bool(false)]`, et `as` SHALL retourner l'élément s'il correspond, sinon une collection vide
+
+#### Scenario: is et as sur une collection vide
+
+- **WHEN** `is(type)` ou `as(type)` est évalué sur une collection vide
+- **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: is et as sur plusieurs éléments
+
+- **WHEN** `is(type)` ou `as(type)` est évalué sur une collection de plus d'un élément
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))` (test officiel `testFHIRPathAsFunction21`)
 
 ---
 
@@ -173,6 +195,11 @@ Le système SHALL implémenter `first()`, `last()`, `tail()`, `skip(n)`, `take(n
 
 - **WHEN** `{}.single()` est évalué
 - **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: Indexeur hors limites ou négatif
+
+- **WHEN** `coll[i]` est évalué avec `i` négatif ou `i` >= la taille de la collection
+- **THEN** le résultat SHALL être une collection vide (FHIRPath N1 §5.5), sans erreur
 
 #### Scenario: repeat ne retourne que les éléments projetés
 
@@ -382,6 +409,32 @@ Le système SHALL implémenter `not()`, `iif(condition, trueResult, otherwiseRes
 
 ---
 
+### Requirement: Préfixe du nom de type de ressource
+
+Le système SHALL permettre à une expression de commencer par le nom de type de la ressource de contexte.
+
+#### Scenario: Nom de type correspondant
+
+- **WHEN** `CodeSystem.content` est évalué sur une `CodeSystem` sans champ nommé `CodeSystem`
+- **THEN** `evaluate` SHALL retourner la valeur de `content`
+
+#### Scenario: Nom de type différent
+
+- **WHEN** `Patient.id` est évalué sur une `CodeSystem`
+- **THEN** `evaluate` SHALL retourner une collection vide
+
+#### Scenario: Nom de type après le premier segment
+
+- **WHEN** `Patient.Patient.id` est évalué sur une `Patient` sans champ nommé `Patient`
+- **THEN** `evaluate` SHALL retourner une collection vide, le préfixe n'étant admis qu'en tête
+
+#### Scenario: Champ réel prioritaire
+
+- **WHEN** la ressource possède un champ dont le nom est égal au nom demandé
+- **THEN** ce champ SHALL être retourné au lieu de la ressource elle-même
+
+---
+
 ### Requirement: Erreurs d'évaluation
 
 Le système SHALL exposer `EvalError` couvrant toutes les erreurs d'exécution possibles.
@@ -389,7 +442,7 @@ Le système SHALL exposer `EvalError` couvrant toutes les erreurs d'exécution p
 #### Scenario: Variantes d'EvalError
 
 - **WHEN** une erreur se produit à l'évaluation
-- **THEN** `EvalError` SHALL avoir les variantes : `Type(String)` (erreur de type), `UndefinedFunction(String)` (fonction inconnue), `Arity { name, expected, got }` (mauvais nombre d'arguments), `DivisionByZero`, `IndexOutOfBounds(i64)`, `Parse(ParseError)` (erreur de parse propagée)
+- **THEN** `EvalError` SHALL avoir les variantes : `Type(String)` (erreur de type), `UndefinedFunction(String)` (fonction inconnue), `Arity { name, expected, got }` (mauvais nombre d'arguments), `DivisionByZero`, `Parse(ParseError)` (erreur de parse propagée)
 
 ---
 

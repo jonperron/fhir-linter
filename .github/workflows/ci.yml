@@ -12,7 +12,7 @@ on:
       - "bindings/typescript/**"
       - "**/*.pest"
       - "scripts/**"
-      - "Cargo.toml"
+      - "**/Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/ci.yml"
   pull_request:
@@ -22,7 +22,7 @@ on:
       - "bindings/typescript/**"
       - "**/*.pest"
       - "scripts/**"
-      - "Cargo.toml"
+      - "**/Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/ci.yml"
 

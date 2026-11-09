@@ -7,10 +7,10 @@ TBD - created by archiving change fhir-validator-phase5. Update Purpose after ar
 
 Le système SHALL exposer une fonction `validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic>` qui applique toutes les couches de validation dans l'ordre et retourne l'ensemble des findings.
 
-#### Scenario: Ressource valide retourne une liste vide
+#### Scenario: Ressource valide ne retourne aucun finding
 
 - **WHEN** `validate` est appelé avec une ressource Patient valide et un registry R5 chargé
-- **THEN** la fonction SHALL retourner un `Vec<Diagnostic>` vide (aucune erreur)
+- **THEN** le `Vec<Diagnostic>` retourné SHALL ne contenir aucun Diagnostic autre que des `INVARIANT_SKIPPED` de severity `Information` (contraintes non vérifiées, qui ne sont pas des findings)
 
 #### Scenario: Ressource invalide retourne des diagnostics
 
@@ -58,18 +58,23 @@ Le système SHALL fournir une enum `Severity` publique avec les variants `Error`
 
 ### Requirement: Validation structurelle — type de ressource inconnu (STRUCTURE_000)
 
-Le système SHALL émettre exactement un `Diagnostic` avec code `STRUCTURE_000` et severity `Error` lorsque le type de ressource n'est pas connu du registry, et SHALL arrêter toute validation supplémentaire.
+Le système SHALL émettre exactement un `Diagnostic` avec code `STRUCTURE_000` et severity `Error` lorsque `resourceType` ne désigne pas une ressource concrète, c'est-à-dire lorsqu'aucune StructureDefinition du registry n'a ce type avec `kind = resource` et `abstract = false`, et SHALL arrêter toute validation supplémentaire. Les ressources abstraites (`Resource`, `DomainResource`) et les types de données (ex. `HumanName`) SHALL donc être rejetés.
 
 #### Scenario: Type de ressource inconnu
 
 - **WHEN** `validate` est appelé avec une ressource dont `resourceType` n'existe pas dans le registry
 - **THEN** la fonction SHALL retourner exactement un Diagnostic avec code `STRUCTURE_000` et severity `Error`
 
+#### Scenario: Type abstrait ou type de données
+
+- **WHEN** `validate` est appelé avec une ressource dont `resourceType` est `Resource`, `DomainResource` ou `HumanName`
+- **THEN** la fonction SHALL retourner exactement un Diagnostic avec code `STRUCTURE_000` et severity `Error`
+
 ---
 
 ### Requirement: Validation structurelle — élément inconnu (STRUCTURE_001)
 
-Le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_001` et severity `Error` pour chaque champ de la ressource qui ne correspond à aucun chemin de profondeur 1 dans le snapshot de la StructureDefinition. Le suffixe d'un champ polymorphique (`value[x]`) SHALL être valide uniquement s'il nomme l'un des types déclarés de l'élément (aucune liste de suffixes codée en dur). Un nom de champ contenant `.`, `[` ou `]` SHALL toujours être signalé, sans résolution, au premier niveau comme dans les `BackboneElement`.
+Le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_001` et severity `Error` pour chaque champ de la ressource qui ne correspond à aucun chemin de profondeur 1 dans le snapshot de la StructureDefinition. Le suffixe d'un champ polymorphique (`value[x]`) SHALL être valide uniquement s'il nomme l'un des types déclarés de l'élément (aucune liste de suffixes codée en dur). Un nom de champ contenant `.`, `[` ou `]` SHALL toujours être signalé, sans résolution, au premier niveau comme dans les `BackboneElement`. Les champs `extension` et `modifierExtension` SHALL être résolus dans le snapshot comme tout autre champ : absents du snapshot (ex. `Bundle.extension`, Bundle dérivant de `Resource`), ils SHALL produire `STRUCTURE_001`. Un champ `_nom` (extension de primitif) SHALL être accepté seulement si `nom` résout un élément (y compris une variante de choix, ex. `_valueString`) de type primitif (nom de type commençant par une minuscule) ; sinon `STRUCTURE_001` SHALL être émis au chemin de `_nom` (ex. `Patient._bogus`, ou `Patient._name` car `HumanName` est complexe).
 
 #### Scenario: Élément inconnu détecté
 
@@ -81,10 +86,15 @@ Le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_001` et severity
 - **WHEN** une ressource contient uniquement des champs définis dans le snapshot
 - **THEN** aucun Diagnostic `STRUCTURE_001` ne SHALL être émis
 
-#### Scenario: Extensions et extensions primitives toujours autorisées
+#### Scenario: Extensions déclarées et extensions primitives autorisées
 
-- **WHEN** une ressource contient des champs `extension`, `modifierExtension`, ou commençant par `_`
+- **WHEN** un Patient contient des champs `extension`, `modifierExtension` (déclarés dans son snapshot) ou `_birthDate` (extension d'un primitif déclaré)
 - **THEN** aucun Diagnostic `STRUCTURE_001` ne SHALL être émis pour ces champs
+
+#### Scenario: Extension sur une ressource qui n'en déclare pas
+
+- **WHEN** un Bundle contient un champ `extension`
+- **THEN** un Diagnostic `STRUCTURE_001` SHALL être émis avec `path` = `Bundle.extension`
 
 #### Scenario: Champ polymorphique valide (value[x])
 
@@ -101,7 +111,10 @@ Le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_001` et severity
 - **WHEN** une ressource (ou un BackboneElement) contient un champ `component.code` ou le littéral `value[x]`
 - **THEN** un Diagnostic `STRUCTURE_001` SHALL être émis pour ce champ
 
----
+#### Scenario: Extension de primitif sans élément primitif correspondant
+
+- **WHEN** un Patient contient `_bogus` (aucun élément `bogus`) ou `_name` (`name` est de type complexe `HumanName`)
+- **THEN** un Diagnostic `STRUCTURE_001` SHALL être émis avec `path` = `Patient._bogus`, respectivement `Patient._name`
 
 ### Requirement: Validation de cardinalité — élément requis absent (CARDINALITY_001)
 
@@ -175,7 +188,7 @@ Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_002` et severi
 
 ### Requirement: Validation de type — erreur de type de base (TYPE_001)
 
-Le système SHALL émettre un `Diagnostic` avec code `TYPE_001` et severity `Error` lorsqu'une valeur n'est pas du type JSON attendu par la StructureDefinition (ex. : nombre fourni pour un champ `string`, ou chaîne pour un champ `boolean`). Pour un champ polymorphique de premier niveau (`value[x]`), le type vérifié SHALL être celui sélectionné par le suffixe du champ.
+Le système SHALL émettre un `Diagnostic` avec code `TYPE_001` et severity `Error` lorsqu'une valeur n'est pas du type JSON attendu par la StructureDefinition (ex. : nombre fourni pour un champ `string`, ou chaîne pour un champ `boolean`). Pour un champ polymorphique de premier niveau (`value[x]`), le type vérifié SHALL être celui sélectionné par le suffixe du champ. Une valeur scalaire (chaîne, nombre, booléen ou `null`) fournie pour un élément dont le type est un datatype complexe, `BackboneElement` ou `Element` SHALL produire `TYPE_001` avec le message `Expected <type> object at '<path>'` ; un tableau SHALL être vérifié élément par élément.
 
 #### Scenario: Champ polymorphique typé par son suffixe
 
@@ -197,11 +210,19 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_001` et severity `Err
 - **WHEN** un champ de type `integer`, `unsignedInt` ou `positiveInt` contient une valeur parsée en `Value::Decimal` (par exemple `1.5` ou un entier dépassant i64)
 - **THEN** un Diagnostic `TYPE_001` SHALL être émis
 
----
+#### Scenario: Scalaire à la place d'un objet complexe
+
+- **WHEN** un Patient contient `"extension": "oops"` ou `"meta": null`
+- **THEN** un Diagnostic `TYPE_001` SHALL être émis avec le message `Expected Extension object at 'Patient.extension'` (respectivement `Expected Meta object at 'Patient.meta'`)
+
+#### Scenario: Scalaire dans un tableau d'objets complexes
+
+- **WHEN** un Patient contient `"name": [{"family": "Doe"}, 42]`
+- **THEN** un Diagnostic `TYPE_001` SHALL être émis avec `path` = `Patient.name[1]` et aucun pour `Patient.name[0]`
 
 ### Requirement: Validation de type — contrainte de valeur entière (TYPE_002)
 
-Le système SHALL émettre un `Diagnostic` avec code `TYPE_002` et severity `Error` lorsqu'une valeur entière viole une contrainte de valeur : valeur négative pour `unsignedInt`, ou valeur inférieure ou égale à zéro pour `positiveInt`.
+Le système SHALL émettre un `Diagnostic` avec code `TYPE_002` et severity `Error` lorsqu'une valeur entière viole une contrainte de valeur : valeur négative pour `unsignedInt`, valeur inférieure ou égale à zéro pour `positiveInt`, ou valeur d'un `integer`, `unsignedInt` ou `positiveInt` hors de la plage des entiers signés 32 bits (maximum `2147483647` ; minimum `-2147483648` pour `integer`).
 
 #### Scenario: unsignedInt négatif
 
@@ -213,11 +234,21 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_002` et severity `Err
 - **WHEN** un champ de type `positiveInt` contient la valeur JSON `0`
 - **THEN** un Diagnostic `TYPE_002` SHALL être émis
 
+#### Scenario: integer hors de la plage 32 bits
+
+- **WHEN** `valueInteger` contient la valeur JSON `2147483648`
+- **THEN** un Diagnostic `TYPE_002` SHALL être émis
+
 ---
 
 ### Requirement: Validation de type — format date/heure (TYPE_003)
 
-Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Error` lorsqu'une valeur de type `date`, `dateTime`, `instant` ou `time` ne respecte pas le format attendu.
+Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Error` lorsqu'une valeur de type `date`, `dateTime`, `instant` ou `time` ne respecte pas le format attendu, conforme aux expressions régulières R5 :
+
+- `date` : `YYYY(-MM(-DD)?)?`, année de `0001` à `9999`, jour valide pour le mois (années bissextiles comprises) ;
+- `dateTime` : une `date`, ou une date complète suivie de `Thh:mm:ss(.f{1,9})?` et d'un fuseau obligatoire `Z` ou `(+|-)hh:mm` (décalage au plus `14:00`) ; un fuseau sur une valeur réduite à la date SHALL être rejeté ;
+- `instant` : toujours la forme complète avec fuseau ;
+- `time` : `hh:mm:ss(.f{1,9})?` sans fuseau, heures `00`-`23`, minutes `00`-`59`, secondes `00`-`60`.
 
 #### Scenario: Date invalide
 
@@ -228,6 +259,21 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Err
 
 - **WHEN** un champ de type `date` contient `"2024-01-15"`
 - **THEN** aucun Diagnostic `TYPE_003` ne SHALL être émis
+
+#### Scenario: Jour inexistant pour le mois
+
+- **WHEN** un champ de type `date` contient `"2020-02-31"`
+- **THEN** un Diagnostic `TYPE_003` SHALL être émis
+
+#### Scenario: instant partiel
+
+- **WHEN** un champ de type `instant` contient `"2020"`
+- **THEN** un Diagnostic `TYPE_003` SHALL être émis
+
+#### Scenario: dateTime suivi de caractères parasites
+
+- **WHEN** un champ de type `dateTime` contient `"2020-01-01T10:00:00garbage"`
+- **THEN** un Diagnostic `TYPE_003` SHALL être émis
 
 ---
 
@@ -287,7 +333,7 @@ Les enfants `id` des éléments imbriqués SHALL être vérifiés comme `string`
 
 ### Requirement: Validation des invariants FHIRPath (INVARIANT_<key>)
 
-Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur l'élément racine du snapshot. Pour chaque contrainte dont l'expression ne retourne pas `[true]`, il SHALL émettre un `Diagnostic` avec code `INVARIANT_<key>` où `<key>` est la valeur du champ `key` de la contrainte.
+Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur l'élément racine du snapshot. Pour chaque contrainte dont l'expression ne retourne pas `[true]`, il SHALL émettre un `Diagnostic` avec code `INVARIANT_<key>` où `<key>` est la valeur du champ `key` de la contrainte. Le code `INVARIANT_SKIPPED` est réservé : il signale une contrainte non vérifiée et n'est jamais une violation.
 
 #### Scenario: Contrainte violée émet INVARIANT_<key>
 
@@ -299,15 +345,17 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 - **WHEN** une contrainte FHIRPath évalue à `[true]`
 - **THEN** aucun Diagnostic `INVARIANT_` ne SHALL être émis pour cette contrainte
 
-#### Scenario: Erreur d'évaluation FHIRPath silencieusement ignorée
+#### Scenario: Erreur d'évaluation FHIRPath signalée INVARIANT_SKIPPED
 
 - **WHEN** l'évaluation FHIRPath d'une contrainte retourne une erreur
-- **THEN** aucun Diagnostic ne SHALL être émis pour cette contrainte (l'erreur est ignorée)
+- **THEN** aucun Diagnostic `INVARIANT_<key>` ne SHALL être émis pour cette contrainte
+- **AND** exactement un Diagnostic de severity `Information` avec code `INVARIANT_SKIPPED` SHALL être émis, au `path` du type de ressource, avec un message nommant la `key` de la contrainte et la raison de l'erreur
 
-#### Scenario: Expression non analysable silencieusement ignorée
+#### Scenario: Expression non analysable signalée INVARIANT_SKIPPED
 
 - **WHEN** l'expression FHIRPath d'une contrainte ne peut pas être analysée (par ex. `%resource`, identifiants entre backticks, `'#'+id in (...)` non encore supportés par le parseur)
-- **THEN** aucun Diagnostic ne SHALL être émis ; la contrainte SHALL être ignorée tant que ces lacunes du parseur ne sont pas comblées
+- **THEN** la contrainte SHALL être ignorée tant que ces lacunes du parseur ne sont pas comblées
+- **AND** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` nommant la `key` et la raison SHALL être émis, afin qu'un résultat sans erreur ne masque jamais une contrainte non vérifiée
 
 #### Scenario: Severity `information` mappée en Warning
 
@@ -397,7 +445,7 @@ Le système SHALL émettre un Diagnostic de sévérité warning `PROFILE_001` po
 
 ### Requirement: Validation de profil — type incompatible (PROFILE_002) et cardinalité du profil
 
-Le système SHALL émettre `PROFILE_002` (erreur) lorsqu'un profil connu de `meta.profile` s'applique à un autre type de ressource que celui de la ressource, sauf si le profil porte sur un parent abstrait (ex. `DomainResource`). Pour un profil connu compatible et distinct de la définition de base, les règles de cardinalité du profil SHALL être appliquées ; les constats déjà rapportés par la validation de base (même code et même `path`) SHALL être dédupliqués.
+Le système SHALL émettre `PROFILE_002` (erreur) lorsqu'un profil connu de `meta.profile` s'applique à un autre type de ressource que celui de la ressource, sauf si le profil porte sur un parent abstrait (ex. `DomainResource`). Pour un profil connu compatible et distinct de la définition de base, les règles de cardinalité du profil SHALL être appliquées ; les constats déjà rapportés par la validation de base (même code et même `path`) SHALL être dédupliqués. Les éléments du snapshot du profil portant un `sliceName` SHALL être ignorés par la vérification de cardinalité (les slices ne sont pas vérifiées) ; l'élément répétitif de base reste vérifié.
 
 #### Scenario: Profil d'un autre type
 
@@ -413,6 +461,11 @@ Le système SHALL émettre `PROFILE_002` (erreur) lorsqu'un profil connu de `met
 
 - **WHEN** un élément requis par le profil est aussi requis par la base et absent
 - **THEN** un seul Diagnostic `CARDINALITY_001` SHALL être émis pour ce `path`
+
+#### Scenario: Slice du profil ignorée
+
+- **WHEN** le snapshot du profil contient un élément avec `sliceName` (ex. `min` 1)
+- **THEN** aucune cardinalité n'SHALL être vérifiée pour cette slice, l'élément de base restant vérifié
 
 ---
 
@@ -445,7 +498,12 @@ Le système SHALL appliquer les vérifications de type à chaque élément d'un 
 
 ### Requirement: Validation des éléments imbriqués
 
-Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001), de cardinalité (CARDINALITY_001/002) et de type primitif (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants, références et profil restent limitées au premier niveau ; les `contentReference` (ignorés sans erreur, jamais signalés STRUCTURE_001) et les ressources contenues ne sont pas parcourus. La règle `_nom` s'applique à toute profondeur : un enfant requis présent uniquement sous la forme `_nom` SHALL être considéré présent seulement si son type est primitif et si `_nom` est un objet ou un tableau d'objets et de `null` contenant au moins un objet, et un `_nom` en tableau au-delà du maximum fini SHALL produire `CARDINALITY_002`.
+Un seul parcours récursif SHALL appliquer ces vérifications, en partant du premier niveau de la ressource ; il s'exécute avant les couches terminologie, invariants, références et profil. À toute profondeur, un champ `_nom` SHALL être accepté seulement si `nom` résout un élément (ou une variante de choix) de type primitif, sinon `STRUCTURE_001` au chemin de `_nom` (ex. `Patient.name[0]._bogus`). Un `_nom` accepté SHALL être parcouru via la StructureDefinition du type complexe `Element` (contrôle de `id` et `extension`) ; un tableau SHALL être parcouru élément par élément (index dans le `path`, éléments `null` ignorés) ; une valeur non objet, ou un élément de tableau ni objet ni `null`, SHALL produire `TYPE_001` (ex. `"_birthDate": "x"` → `Patient._birthDate`, `"_given": [1]` → `Patient.name[0]._given[0]`). Les champs `extension` et `modifierExtension` SHALL être traités comme tout autre élément de type `Extension`, à toute profondeur : résolus dans le snapshot (STRUCTURE_001 s'ils n'y figurent pas, ex. `Patient.name[0].modifierExtension`), puis parcourus via la StructureDefinition `Extension` (cardinalité de `url`, type de `value[x]`, extensions imbriquées). Un élément `[x]` SHALL être vérifié comme un tout, au premier niveau comme en profondeur : requis sans variante → `CARDINALITY_001` (au chemin `…[x]`), deux variantes → `CARDINALITY_002`, une variante présente soumise à `CARDINALITY_002` selon son `max`. Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001), de cardinalité (CARDINALITY_001/002) et de type (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants, références et profil restent limitées au premier niveau ; les `contentReference` (ignorés sans erreur, jamais signalés STRUCTURE_001) et les ressources contenues ne sont pas parcourus. La règle `_nom` s'applique à toute profondeur : un enfant requis présent uniquement sous la forme `_nom` SHALL être considéré présent seulement si son type est primitif et si `_nom` est un objet ou un tableau d'objets et de `null` contenant au moins un objet, et un `_nom` en tableau au-delà du maximum fini SHALL produire `CARDINALITY_002`.
+
+#### Scenario: Choix [x] en tableau au-delà du maximum
+
+- **WHEN** une Observation contient `"valueString": ["a", "b"]` (`value[x]` a `max="1"`)
+- **THEN** un Diagnostic CARDINALITY_002 SHALL être émis avec `path` = `Observation.valueString`
 
 #### Scenario: Élément inconnu dans un type complexe
 
@@ -456,6 +514,36 @@ Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) e
 
 - **WHEN** `Observation.component[0]` n'a pas de `code`
 - **THEN** un Diagnostic CARDINALITY_001 SHALL être émis avec `path` = `Observation.component[0].code`
+
+#### Scenario: Extension sans url
+
+- **WHEN** un Patient contient `"extension": [{"valueString": "x"}]`
+- **THEN** un Diagnostic CARDINALITY_001 SHALL être émis avec `path` = `Patient.extension[0].url`
+
+#### Scenario: Valeur d'extension mal typée ou inconnue
+
+- **WHEN** `Patient.extension[0]` contient `"valueBoolean": "yes"` ou `"valueBogus": 1`
+- **THEN** un Diagnostic `TYPE_001` SHALL être émis pour `Patient.extension[0].valueBoolean`, respectivement `STRUCTURE_001` pour `Patient.extension[0].valueBogus`
+
+#### Scenario: Extension imbriquée parcourue
+
+- **WHEN** `Patient.extension[0]` contient une extension imbriquée sans `url`
+- **THEN** un Diagnostic CARDINALITY_001 SHALL être émis avec `path` = `Patient.extension[0].extension[0].url`
+
+#### Scenario: modifierExtension sur un datatype
+
+- **WHEN** `Patient.name[0]` contient un champ `modifierExtension`
+- **THEN** un Diagnostic STRUCTURE_001 SHALL être émis avec `path` = `Patient.name[0].modifierExtension`
+
+#### Scenario: Contenu d'une extension de primitif parcouru
+
+- **WHEN** un Patient contient `"_birthDate": {"bogus": 1}` ou `"_birthDate": {"extension": [{"valueString": "x"}]}`
+- **THEN** un Diagnostic STRUCTURE_001 SHALL être émis avec `path` = `Patient._birthDate.bogus`, respectivement CARDINALITY_001 avec `path` = `Patient._birthDate.extension[0].url`
+
+#### Scenario: Extension de primitif de forme invalide
+
+- **WHEN** un Patient contient `"_birthDate": "x"` ou `Patient.name[0]` contient `"_given": [1]`
+- **THEN** un Diagnostic TYPE_001 SHALL être émis avec `path` = `Patient._birthDate`, respectivement `Patient.name[0]._given[0]`
 
 ### Requirement: Nom textuel de Severity
 

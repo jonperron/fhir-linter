@@ -4,13 +4,14 @@ use indexmap::IndexMap;
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
-use crate::type_check::check_type;
+use crate::type_check::{check_type, is_valid_id};
 
-/// Validate elements below the top level: backbone elements and complex types.
+/// Validate the resource's elements at every depth, starting at the top level.
 ///
 /// Applies the structural (`STRUCTURE_001`), cardinality (`CARDINALITY_001/002`)
-/// and primitive type (`TYPE_*`) checks recursively. Terminology, invariants,
-/// references and profile layers remain top-level only.
+/// and primitive type (`TYPE_*`) checks recursively into backbone elements and
+/// complex types. Terminology, invariants, references and profile layers remain
+/// top-level only.
 ///
 /// shortcut: `contentReference` elements (skipped silently) and contained/embedded resources are
 /// not descended into; upgrade when recursive structures need validating.
@@ -21,24 +22,36 @@ pub fn validate(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let resource_type = resource.resource_type.as_ref();
-    for (name, node) in &resource.fields {
-        let path = format!("{resource_type}.{name}");
-        let Some((elem, Some(ty))) = resolve(sd, &path, name) else {
-            continue;
-        };
-        descend(node, elem, &ty, sd, registry, &path, diagnostics);
+
+    // The parser lifts `id` out of `fields` (already rejecting non-strings), without a span.
+    if let Some(id) = resource.id.as_deref().filter(|id| !is_valid_id(id)) {
+        let path = format!("{resource_type}.id");
+        diagnostics.push(Diagnostic::error(
+            "TYPE_005",
+            format!("Invalid id format at '{path}': '{id}'"),
+            path,
+        ));
     }
+
+    walk(
+        &resource.fields,
+        sd,
+        resource_type,
+        registry,
+        resource_type,
+        diagnostics,
+    );
 }
 
 /// Names with path punctuation are never valid element names.
-pub(crate) fn has_punctuation(name: &str) -> bool {
+fn has_punctuation(name: &str) -> bool {
     name.contains(['.', '[', ']'])
 }
 
 /// Find the element for `name` under `parent_path`, and the single type it has
 /// for this instance (the suffix picks the type of a `[x]` element). The type is
 /// `None` for typeless elements such as `contentReference`; `None` overall means not found.
-pub(crate) fn resolve<'a>(
+fn resolve<'a>(
     sd: &'a StructureDefinition,
     path: &str,
     name: &str,
@@ -46,17 +59,19 @@ pub(crate) fn resolve<'a>(
     if has_punctuation(name) {
         return None;
     }
-    let direct = sd.snapshot.iter().find(|e| e.path.as_ref() == path);
-    if let Some(e) = direct {
+    if let Some(e) = sd.element(path) {
         return Some((e, e.types.first().cloned()));
     }
     let parent = path.strip_suffix(name)?;
-    sd.snapshot.iter().find_map(|e| {
-        let base = e.path.strip_prefix(parent)?.strip_suffix("[x]")?;
-        let suffix = name.strip_prefix(base)?;
-        let ty = e.types.iter().find(|t| capitalise(t) == suffix)?;
-        Some((e, Some(ty.clone())))
-    })
+    // A type suffix is capitalised, so a choice can only split before an uppercase letter.
+    (1..name.len())
+        .filter(|&i| name.as_bytes()[i].is_ascii_uppercase())
+        .find_map(|i| {
+            let (base, suffix) = name.split_at(i);
+            let e = sd.element(&format!("{parent}{base}[x]"))?;
+            let ty = e.types.iter().find(|t| capitalise(t) == suffix)?;
+            Some((e, Some(ty.clone())))
+        })
 }
 
 fn capitalise(s: &str) -> String {
@@ -93,15 +108,29 @@ fn descend(
         Value::Object(fields) => {
             if ty == "BackboneElement" || ty == "Element" {
                 walk(fields, sd, &elem.path, registry, path, diagnostics);
-            } else if let Some(type_sd) = registry
-                .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{ty}"))
-                .filter(|t| t.kind.as_ref() == "complex-type")
-            {
+            } else if let Some(type_sd) = complex_type(ty, registry) {
                 walk(fields, type_sd, &type_sd.name, registry, path, diagnostics);
             }
         }
+        _ if ty == "BackboneElement" || ty == "Element" || complex_type(ty, registry).is_some() => {
+            diagnostics.push(
+                Diagnostic::error(
+                    "TYPE_001",
+                    format!("Expected {ty} object at '{path}'"),
+                    path.to_owned(),
+                )
+                .with_location(node.span),
+            );
+        }
         _ => {}
     }
+}
+
+/// The StructureDefinition of `ty` when it is a complex datatype.
+fn complex_type<'a>(ty: &str, registry: &'a Registry) -> Option<&'a StructureDefinition> {
+    registry
+        .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{ty}"))
+        .filter(|t| t.kind.as_ref() == "complex-type")
 }
 
 /// Validate the children of one object against the elements under `def_path`.
@@ -113,17 +142,22 @@ fn walk(
     path: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    check_children_cardinality(fields, sd, def_path, path, diagnostics);
+
     let prefix = format!("{def_path}.");
-    check_children(fields, sd, def_path, path, diagnostics);
 
     for (name, node) in fields {
         let name = name.as_ref();
-        if !has_punctuation(name)
-            && (name.starts_with('_') || name == "extension" || name == "modifierExtension")
-        {
-            continue;
-        }
         let child_path = format!("{path}.{name}");
+        // `_name` carries the id/extensions of primitive `name`, so it must name a primitive.
+        if let Some(bare) = name.strip_prefix('_') {
+            let primitive = resolve(sd, &format!("{prefix}{bare}"), bare)
+                .is_some_and(|(_, ty)| ty.as_deref().is_some_and(is_primitive));
+            if primitive {
+                walk_primitive_extension(node, registry, &child_path, diagnostics);
+                continue;
+            }
+        }
         let Some((elem, ty)) = resolve(sd, &format!("{prefix}{name}"), name) else {
             diagnostics.push(
                 Diagnostic::error(
@@ -145,8 +179,53 @@ fn walk(
     }
 }
 
+/// Check a `_name` primitive extension as an `Element` (an array of them, nulls allowed,
+/// for a repeating primitive), so its `id` and `extension` are validated.
+fn walk_primitive_extension(
+    node: &Node,
+    registry: &Registry,
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some(element_sd) = complex_type("Element", registry) else {
+        return;
+    };
+    match &node.value {
+        Value::Object(fields) => walk(fields, element_sd, "Element", registry, path, diagnostics),
+        Value::Array(items) => {
+            for (i, item) in items.iter().enumerate() {
+                let item_path = format!("{path}[{i}]");
+                match &item.value {
+                    Value::Object(fields) => walk(
+                        fields,
+                        element_sd,
+                        "Element",
+                        registry,
+                        &item_path,
+                        diagnostics,
+                    ),
+                    Value::Null => {}
+                    _ => push_not_element(item, &item_path, diagnostics),
+                }
+            }
+        }
+        _ => push_not_element(node, path, diagnostics),
+    }
+}
+
+fn push_not_element(node: &Node, path: &str, diagnostics: &mut Vec<Diagnostic>) {
+    diagnostics.push(
+        Diagnostic::error(
+            "TYPE_001",
+            format!("Expected Element object at '{path}'"),
+            path.to_owned(),
+        )
+        .with_location(node.span),
+    );
+}
+
 /// Check the cardinality of every child of `def_path` in one object (instance `path`).
-pub(crate) fn check_children(
+pub(crate) fn check_children_cardinality(
     fields: &IndexMap<Arc<str>, Node>,
     sd: &StructureDefinition,
     def_path: &str,
@@ -154,25 +233,34 @@ pub(crate) fn check_children(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let prefix = format!("{def_path}.");
-    for elem in &sd.snapshot {
+    for elem in sd.descendants(def_path) {
         let Some(rest) = elem.path.strip_prefix(&prefix).filter(|r| !r.contains('.')) else {
             continue;
         };
+        // shortcut: slices (choice slices too) are not matched to instances, so a slice's
+        // own cardinality is not enforced; revisit when slicing discriminators are evaluated.
+        if elem.slice_name.is_some() {
+            continue;
+        }
         if rest.ends_with("[x]") {
             check_choice(fields, sd, elem, &prefix, path, diagnostics);
-        } else {
-            let child_path = format!("{path}.{rest}");
-            check_cardinality(elem, present(fields, elem, rest), &child_path, diagnostics);
+            continue;
         }
+        let node = present(fields, elem, rest);
+        // An absent optional element cannot fail; skip building its path.
+        if node.is_none() && elem.min == 0 {
+            continue;
+        }
+        check_cardinality(elem, node, &format!("{path}.{rest}"), diagnostics);
     }
 }
 
 /// Check a `[x]` choice element as a whole: its variants are the fields `resolve`
 /// maps to it (a `_variant` counts only for a primitive type), and it holds at most one.
 ///
-/// shortcut: profile type restrictions and choice slices are not handled (a disallowed
-/// variant reads as missing, any variant satisfies a slice); revisit when profile
-/// snapshots are walked.
+/// shortcut: profile type restrictions are not handled (a disallowed variant reads as
+/// missing) and choice slices are skipped by the caller; revisit when profile snapshots
+/// are walked.
 fn check_choice(
     fields: &IndexMap<Arc<str>, Node>,
     sd: &StructureDefinition,
@@ -225,15 +313,18 @@ fn is_primitive(ty: &str) -> bool {
 
 /// The node that makes `elem` present: its value, or the `_name` primitive extension
 /// (which stands in for an absent value only on primitive types, named in lowercase).
-pub(crate) fn present<'a>(
+fn present<'a>(
     fields: &'a IndexMap<Arc<str>, Node>,
     elem: &ElementDefinition,
     name: &str,
 ) -> Option<&'a Node> {
     fields.get(name).or_else(|| {
-        fields.get(format!("_{name}").as_str()).filter(|node| {
-            elem.types.first().is_some_and(|t| is_primitive(t)) && is_extension_shape(node)
-        })
+        // Only primitives take a `_name`; skip building the key for the rest.
+        let primitive = elem.types.first().is_some_and(|t| is_primitive(t));
+        primitive
+            .then(|| fields.get(format!("_{name}").as_str()))
+            .flatten()
+            .filter(|node| is_extension_shape(node))
     })
 }
 
@@ -256,7 +347,7 @@ fn is_extension_shape(node: &Node) -> bool {
 
 /// Emit `CARDINALITY_001` when a required element is absent and `CARDINALITY_002`
 /// when it holds more values than a finite maximum.
-pub(crate) fn check_cardinality(
+fn check_cardinality(
     elem: &ElementDefinition,
     node: Option<&Node>,
     path: &str,
@@ -289,5 +380,88 @@ pub(crate) fn check_cardinality(
             )
             .with_location(node.span),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn elem(path: &str, min: u32) -> ElementDefinition {
+        ElementDefinition {
+            path: Arc::from(path),
+            min,
+            max: Arc::from("1"),
+            types: vec![],
+            constraints: vec![],
+            binding: None,
+            slice_name: None,
+        }
+    }
+
+    #[test]
+    fn children_cardinality_checks_direct_children_only() {
+        let sd = StructureDefinition::new(
+            Arc::from("http://example.org/StructureDefinition/obs-profile"),
+            Arc::from("ObsProfile"),
+            Arc::from("resource"),
+            false,
+            None,
+            vec![
+                elem("Observation", 0),
+                elem("Observation.subject", 1),
+                elem("Observation.value[x]", 1),
+                elem("Observation.component.code", 1),
+            ],
+        );
+        let mut found = vec![];
+        check_children_cardinality(
+            &IndexMap::new(),
+            &sd,
+            "Observation",
+            "Observation",
+            &mut found,
+        );
+        let found: Vec<_> = found
+            .iter()
+            .map(|d| (d.code.as_ref(), d.path.as_str()))
+            .collect();
+        // A missing required choice is reported at its placeholder path.
+        assert_eq!(
+            found,
+            [
+                ("CARDINALITY_001", "Observation.subject"),
+                ("CARDINALITY_001", "Observation.value[x]"),
+            ],
+        );
+    }
+
+    #[test]
+    fn children_cardinality_skips_choice_slices() {
+        let slice = ElementDefinition {
+            slice_name: Some(Arc::from("valueQuantity")),
+            ..elem("Observation.value[x]", 1)
+        };
+        let sd = StructureDefinition::new(
+            Arc::from("http://example.org/StructureDefinition/obs-profile"),
+            Arc::from("ObsProfile"),
+            Arc::from("resource"),
+            false,
+            None,
+            vec![
+                elem("Observation", 0),
+                elem("Observation.value[x]", 0),
+                slice,
+            ],
+        );
+        let mut found = vec![];
+        check_children_cardinality(
+            &IndexMap::new(),
+            &sd,
+            "Observation",
+            "Observation",
+            &mut found,
+        );
+        assert!(found.is_empty(), "{found:?}");
     }
 }

@@ -3,7 +3,7 @@
 ## Project Overview
 
 Rust workspace implementing a FHIR R5 linter and validator, with Python (PyO3) and
-TypeScript (WASM) bindings.
+TypeScript (napi-rs, native Node addon) bindings.
 
 ## Specifications
 
@@ -15,7 +15,7 @@ Always read the relevant spec before implementing or modifying a feature.
 
 - Rust for core logic and validation rules
 - PyO3 for Python bindings
-- wasm-bindgen for TypeScript bindings
+- napi-rs for TypeScript (Node.js) bindings
 - clap for CLI argument parsing
 
 ### FHIR definitions
@@ -43,10 +43,10 @@ crates/
   fhir-fhirpath/      # FHIRPath 2.0 evaluator (required for invariants)
   fhir-validator/     # Structural, cardinality, type, terminology, invariant checks
   fhir-linter/        # Configurable lint rules (fhir-linter.toml)
-  fhir-cli/           # CLI binary (clap), outputs text / JSON / SARIF
+  fhir-cli/           # CLI binary (planned: clap, text / JSON / SARIF output; currently a stub)
 bindings/
   python/             # maturin + PyO3
-  typescript/         # wasm-pack + wasm-bindgen
+  typescript/         # napi-rs (@napi-rs/cli)
 definitions/r5/       # Bundled FHIR R5 JSON artifacts (do not edit manually)
 tests/fixtures/       # git submodule → github.com/FHIR/fhir-test-cases
 ```
@@ -85,3 +85,21 @@ When implementing a new feature or modifying an existing one, use the following 
 - **OpenSpec Agent** — Use the openspec agent (`.claude/agents/openspec.md`) to update specifications after implementing or modifying features
 
 Specifications must always be up to date at the end of any task that adds, changes, or removes functionality. After completing implementation work, run the OpenSpec subagent to synchronize openspec/specs/ with the current state of the code.
+
+### Factory agents (multi-issue and PR work)
+
+For work spanning several issues or PRs, delegate to these agents instead of
+general-purpose ones. They share `.claude/factory/loop.md` (the quality loop)
+and read every repo-specific detail from `.claude/factory/project.md`.
+
+| Agent | Use it to |
+| --- | --- |
+| `issue-driver` | Take one issue from a failing test to a reviewed commit or PR |
+| `pr-consolidator` | Merge several branches on the same component into one PR |
+| `pr-rebaser` | Rebase a conflicting PR, keeping both sides' behaviour |
+| `bot-review-responder` | Verify, fix and reply to every automated review comment |
+| `behaviour-differ` | Compare corpus output between two refs to prove what changed |
+
+Group issues that touch the same component into one PR (`pr-consolidator`).
+Run each agent with `isolation: "worktree"`, except `behaviour-differ`, which
+is read-only.
