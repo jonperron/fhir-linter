@@ -25,6 +25,24 @@ fn unknown_resource_type_produces_structure_000() {
     assert_eq!(diagnostics[0].severity, Severity::Error);
 }
 
+#[test]
+fn non_concrete_resource_type_produces_structure_000() {
+    let registry = load_registry();
+    // Abstract resources and datatypes have a StructureDefinition but are not
+    // valid values of resourceType.
+    for rt in ["Resource", "DomainResource", "HumanName"] {
+        let resource = parse_json(&format!(r#"{{"resourceType":"{rt}","id":"x"}}"#)).unwrap();
+        let diagnostics = validate(&resource, &registry);
+        assert_eq!(diagnostics.len(), 1, "{rt}: {diagnostics:?}");
+        assert_eq!(diagnostics[0].code.as_ref(), "STRUCTURE_000", "{rt}");
+        assert_eq!(
+            diagnostics[0].message.as_ref(),
+            format!("'{rt}' is not a concrete resource type"),
+            "{rt}",
+        );
+    }
+}
+
 // ── Structural validation ─────────────────────────────────────────────────────
 
 #[test]
