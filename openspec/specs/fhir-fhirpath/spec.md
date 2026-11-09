@@ -68,6 +68,16 @@ Le système SHALL implémenter une grammaire PEG via `pest` couvrant l'intégral
 - **WHEN** l'expression dépasse 1 KiB ou plus de 16 niveaux d'imbrication de `(` / `[` (hors chaînes, backticks et commentaires)
 - **THEN** `parse` SHALL retourner `Err(ParseError::Syntax(...))` sans dépasser la pile ; toute expression acceptée au maximum de ces limites (chaînes `a.a.a…`, `1+1+…`, parenthèses imbriquées) SHALL pouvoir être parsée, évaluée et libérée dans un thread de 2 Mo en debug
 
+#### Scenario: Identifiants délimités par backticks
+
+- **WHEN** l'expression contient un DELIMITEDIDENTIFIER (ex. ``text.`div` ``) dans un chemin, un nom de fonction ou un spécificateur de type
+- **THEN** il SHALL être évalué exactement comme l'identifiant simple correspondant
+
+#### Scenario: Séquences d'échappement
+
+- **WHEN** une chaîne littérale ou un identifiant délimité contient une séquence d'échappement
+- **THEN** le parser SHALL accepter l'ensemble ESC de la spécification : `` \` ``, `\'`, `\"`, `\\`, `\/`, `\f`, `\n`, `\r`, `\t`, `\uXXXX`
+
 #### Scenario: Identifiants débutant par true/false
 
 - **WHEN** l'expression contient un identifiant tel que `trueValue`

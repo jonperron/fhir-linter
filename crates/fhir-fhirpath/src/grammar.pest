@@ -91,7 +91,9 @@ null_lit    = { "{}" }
 bool_lit    = @{ ("true" | "false") ~ !(ASCII_ALPHANUMERIC | "_") }
 
 string_lit  = @{ "'" ~ string_char* ~ "'" }
-string_char = _{ !("'" | "\\") ~ ANY | "\\" ~ ("'" | "\\" | "n" | "r" | "t" | "u" ~ ASCII_HEX_DIGIT{4}) }
+string_char = _{ !("'" | "\\") ~ ANY | escape }
+// ESC from the FHIRPath grammar, shared by strings and delimited identifiers.
+escape      = _{ "\\" ~ ("`" | "'" | "\"" | "\\" | "/" | "f" | "n" | "r" | "t" | "u" ~ ASCII_HEX_DIGIT{4}) }
 
 // Dates and times (FHIR temporal literals)
 // datetime_lit matches both full (T with time) and partial (T alone, e.g. @2014T).
@@ -115,4 +117,8 @@ decimal_num  = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
 integer_num  = @{ ASCII_DIGIT+ }
 
 // ── Identifiers ────────────────────────────────────────────────────────────
-ident = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+// DELIMITEDIDENTIFIER (`` `div` ``) names the same element as the plain identifier.
+ident = @{
+    (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")*
+  | "`" ~ (!("`" | "\\") ~ ANY | escape)* ~ "`"
+}

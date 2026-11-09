@@ -180,6 +180,17 @@ fn path_nonexistent_yields_empty() {
     assert!(eval("gender").is_empty());
 }
 
+#[test]
+fn delimited_identifiers_evaluate_like_plain_ones() {
+    assert_eq!(eval("`name`.`family`"), eval("name.family"));
+    assert_eq!(eval("name.`given`.count()"), eval("name.given.count()"));
+    assert!(eval_bool("`active`"));
+    assert!(!eval_bool("`gender`.exists()"));
+    // A delimited leading type name is stripped like a plain one.
+    assert_eq!(eval("Patient.`name`.family"), eval("name.family"));
+    assert_eq!(eval("`Patient`.name.`family`"), eval("name.family"));
+}
+
 // ── Existence functions ──────────────────────────────────────────────────────
 
 #[test]

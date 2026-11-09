@@ -10,9 +10,9 @@ use crate::diagnostic::{Diagnostic, Severity};
 /// Emits `INVARIANT_<key>` for every constraint whose expression evaluates to
 /// anything other than `[true]`. Expressions that fail to parse or evaluate
 /// emit one `Information` `INVARIANT_SKIPPED` naming the key and the reason, so
-/// a clean result never hides an unchecked constraint (shortcut: parser lacks
-/// `%resource`, backtick identifiers and `'#'+id in (...)`; these skips shrink
-/// as those gaps close).
+/// a clean result never hides an unchecked constraint (shortcut: the parser
+/// lacks `%` environment variables such as `%resource`, so `dom-3` is always
+/// skipped; add them, with a real `resolve()`, to check contained references).
 pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut Vec<Diagnostic>) {
     let resource_type = resource.resource_type.as_ref();
 
