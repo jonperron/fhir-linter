@@ -3,7 +3,7 @@
 ## Project Overview
 
 Rust workspace implementing a FHIR R5 linter and validator, with Python (PyO3) and
-TypeScript (WASM) bindings.
+TypeScript (napi-rs, native Node addon) bindings.
 
 ## Specifications
 
@@ -15,7 +15,7 @@ Always read the relevant spec before implementing or modifying a feature.
 
 - Rust for core logic and validation rules
 - PyO3 for Python bindings
-- wasm-bindgen for TypeScript bindings
+- napi-rs for TypeScript (Node.js) bindings
 - clap for CLI argument parsing
 
 ### FHIR definitions
@@ -43,10 +43,10 @@ crates/
   fhir-fhirpath/      # FHIRPath 2.0 evaluator (required for invariants)
   fhir-validator/     # Structural, cardinality, type, terminology, invariant checks
   fhir-linter/        # Configurable lint rules (fhir-linter.toml)
-  fhir-cli/           # CLI binary (clap), outputs text / JSON / SARIF
+  fhir-cli/           # CLI binary (planned: clap, text / JSON / SARIF output; currently a stub)
 bindings/
   python/             # maturin + PyO3
-  typescript/         # wasm-pack + wasm-bindgen
+  typescript/         # napi-rs (@napi-rs/cli)
 definitions/r5/       # Bundled FHIR R5 JSON artifacts (do not edit manually)
 tests/fixtures/       # git submodule → github.com/FHIR/fhir-test-cases
 ```
