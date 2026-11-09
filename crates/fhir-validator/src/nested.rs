@@ -51,7 +51,7 @@ fn has_punctuation(name: &str) -> bool {
 /// Find the element for `name` under `parent_path`, and the single type it has
 /// for this instance (the suffix picks the type of a `[x]` element). The type is
 /// `None` for typeless elements such as `contentReference`; `None` overall means not found.
-fn resolve<'a>(
+pub(crate) fn resolve<'a>(
     sd: &'a StructureDefinition,
     path: &str,
     name: &str,
@@ -127,7 +127,10 @@ fn descend(
 }
 
 /// The StructureDefinition of `ty` when it is a complex datatype.
-fn complex_type<'a>(ty: &str, registry: &'a Registry) -> Option<&'a StructureDefinition> {
+pub(crate) fn complex_type<'a>(
+    ty: &str,
+    registry: &'a Registry,
+) -> Option<&'a StructureDefinition> {
     registry
         .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{ty}"))
         .filter(|t| t.kind.as_ref() == "complex-type")
@@ -307,7 +310,7 @@ fn check_choice(
 }
 
 /// Primitive FHIR type names start with a lowercase letter.
-fn is_primitive(ty: &str) -> bool {
+pub(crate) fn is_primitive(ty: &str) -> bool {
     ty.starts_with(|c: char| c.is_ascii_lowercase())
 }
 

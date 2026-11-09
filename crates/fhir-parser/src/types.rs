@@ -42,6 +42,9 @@ pub struct Node {
 /// A parsed FHIR resource.
 #[derive(Debug, Clone)]
 pub struct Resource {
+    /// True when parsed from XML, where every primitive is text and a primitive with
+    /// an extension is an object holding `value`; the validator reshapes it to the JSON form.
+    pub from_xml: bool,
     pub resource_type: Arc<str>,
     pub id: Option<Arc<str>>,
     pub fields: IndexMap<Arc<str>, Node>,
