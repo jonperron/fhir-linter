@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+use fhir_fhirpath::{Expr, ParseError};
 
 /// A lightweight StructureDefinition — only the fields the validator needs.
 ///
@@ -86,6 +88,9 @@ pub struct ElementDefinition {
 }
 
 /// A FHIRPath constraint expression on an element.
+///
+/// The expression is parsed at most once, on first use, and the result (or the
+/// parse error) is cached in a [`OnceLock`] so a shared `Registry` stays `Send + Sync`.
 #[derive(Debug, Clone)]
 pub struct Constraint {
     pub key: Arc<str>,
@@ -94,6 +99,31 @@ pub struct Constraint {
     pub human: Arc<str>,
     /// FHIRPath expression; absent for extension-only constraints.
     pub expression: Option<Arc<str>>,
+    parsed: OnceLock<Result<Expr, ParseError>>,
+}
+
+impl Constraint {
+    #[must_use]
+    pub fn new(
+        key: Arc<str>,
+        severity: Arc<str>,
+        human: Arc<str>,
+        expression: Option<Arc<str>>,
+    ) -> Self {
+        Self {
+            key,
+            severity,
+            human,
+            expression,
+            parsed: OnceLock::new(),
+        }
+    }
+
+    /// The parsed expression, parsed on the first call only; `None` when absent.
+    pub fn parsed_expression(&self) -> Option<&Result<Expr, ParseError>> {
+        let expression = self.expression.as_deref()?;
+        Some(self.parsed.get_or_init(|| fhir_fhirpath::parse(expression)))
+    }
 }
 
 /// A terminology binding on an element.
@@ -170,6 +200,29 @@ mod tests {
             None,
             paths.iter().map(|&(p, min)| elem(p, min)).collect(),
         )
+    }
+
+    #[test]
+    fn parsed_expression_is_computed_once_and_reused() {
+        let constraint =
+            Constraint::new("k".into(), "error".into(), "h".into(), Some("true".into()));
+        let first = constraint.parsed_expression().expect("has expression");
+        let second = constraint.parsed_expression().expect("has expression");
+        assert!(std::ptr::eq(first, second));
+        assert!(first.is_ok());
+    }
+
+    #[test]
+    fn parsed_expression_caches_parse_errors_and_skips_absent() {
+        let bad = Constraint::new(
+            "k".into(),
+            "error".into(),
+            "h".into(),
+            Some("name.where(".into()),
+        );
+        assert!(bad.parsed_expression().expect("has expression").is_err());
+        let none = Constraint::new("k".into(), "error".into(), "h".into(), None);
+        assert!(none.parsed_expression().is_none());
     }
 
     #[test]

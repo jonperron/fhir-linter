@@ -25,11 +25,15 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
     let context = vec![context_value];
 
     for constraint in &root_elem.constraints {
-        let Some(expression) = &constraint.expression else {
+        let Some(parsed) = constraint.parsed_expression() else {
             continue;
         };
 
-        let result = match fhir_fhirpath::evaluate(expression, &context) {
+        let result = match parsed
+            .as_ref()
+            .map_err(|e| fhir_fhirpath::EvalError::from(e.clone()))
+            .and_then(|expr| fhir_fhirpath::evaluate_parsed(expr, &context))
+        {
             Ok(r) => r,
             // Parse/evaluation errors are non-fatal: report the skip, then move on.
             Err(e) => {
@@ -75,12 +79,12 @@ mod tests {
     use indexmap::IndexMap;
 
     fn make_constraint(key: &str, severity: &str, expression: &str) -> Constraint {
-        Constraint {
-            key: Arc::from(key),
-            severity: Arc::from(severity),
-            human: Arc::from(format!("Constraint {key} violated").as_str()),
-            expression: Some(Arc::from(expression)),
-        }
+        Constraint::new(
+            Arc::from(key),
+            Arc::from(severity),
+            Arc::from(format!("Constraint {key} violated").as_str()),
+            Some(Arc::from(expression)),
+        )
     }
 
     fn make_sd_with_constraints(
@@ -154,12 +158,12 @@ mod tests {
     fn absent_expression_is_skipped() {
         let sd = make_sd_with_constraints(
             "Patient",
-            vec![Constraint {
-                key: Arc::from("test-4"),
-                severity: Arc::from("error"),
-                human: Arc::from("no expression"),
-                expression: None,
-            }],
+            vec![Constraint::new(
+                Arc::from("test-4"),
+                Arc::from("error"),
+                Arc::from("no expression"),
+                None,
+            )],
         );
         let resource = make_empty_resource("Patient");
         let mut d = vec![];

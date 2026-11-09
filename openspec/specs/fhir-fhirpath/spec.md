@@ -26,6 +26,11 @@ Le système SHALL exposer `evaluate(expression: &str, context: &[Value]) -> Resu
 - **WHEN** `evaluate` reçoit un contexte vide (`&[]`)
 - **THEN** il SHALL retourner `Ok(vec![])` pour les expressions de navigation
 
+#### Scenario: Expression déjà parsée
+
+- **WHEN** `evaluate_parsed(&Expr, context)` reçoit un `Expr` produit par `parse`
+- **THEN** il SHALL évaluer sans reparser, avec le même résultat que `evaluate` ; `fhir-definitions` met en cache le résultat de `parse` par `Constraint` (au plus un parse par contrainte)
+
 ---
 
 ### Requirement: API publique parse
