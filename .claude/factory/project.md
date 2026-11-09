@@ -27,21 +27,48 @@ and write a new copy of this file with the same headings.
   To update a PR whose branch lives elsewhere, work on a new local branch
   from `origin/<branch>` and push with
   `--force-with-lease=<branch>:origin/<branch> origin <local>:<branch>`.
+- `gh` has no `/usr/bin` copy: call it bare.
+
+## Shell quirks
+
+A worktree guard and the `rtk` output filter sit between agents and the
+shell. Work with them, not around them:
+
+- One command per Bash call. The guard refuses `&&` / `;` chains that
+  contain git, `cd <dir> && ...`, heredocs, `for` / `while` loops,
+  command substitution `$(...)`, `gh --jq`, grep patterns with `\|`,
+  and `git -C <primary checkout>`. Paths containing `eval/` can be
+  misread as shell `eval`: reach them with the Read / Grep tools.
+- Commit messages: write the message to a scratch file with the Write
+  tool, then `git commit -F <file>`.
+- `rtk` mangles or hides `cat`, `grep` and `cargo test` output. Read
+  files with the Read tool, search with the Grep tool (or
+  `/usr/bin/grep`), and run tests as `rtk proxy cargo test ...` when you
+  need their output.
+- Run Bash calls one at a time when the auto-mode classifier is active:
+  parallel calls can lose its verdict and must be re-run alone.
+- Waiting: foreground `sleep` is blocked and subagents have no Monitor
+  tool. Poll with one `gh api --paginate ...` call per Bash call, run in
+  the background (`run_in_background`), or with `timeout <s> <cmd>`.
+- To compare with `main`, export it with `git archive origin/main` into
+  the scratchpad; do not touch the primary checkout.
 
 ## Worktree setup
 
-Run in every fresh worktree, before building:
+Run in every fresh worktree, before building, as three separate Bash
+calls (the guard refuses the loop form):
 
 ```bash
-for f in "$PRIMARY"/definitions/r5/*.json "$PRIMARY"/definitions/r5/*.zip \
-         "$PRIMARY"/definitions/r5/*.sentinel; do
-  ln -sf "$f" definitions/r5/
-done
+ln -sf "$PRIMARY"/definitions/r5/*.json definitions/r5/
+ln -sf "$PRIMARY"/definitions/r5/*.zip "$PRIMARY"/definitions/r5/*.sentinel definitions/r5/
 git submodule update --init tests/fixtures   # /usr/bin/git, see above
 ```
 
 `$PRIMARY` is the primary checkout: the first path of `git worktree list`.
-The definition files are untracked: never commit them.
+The definition files are untracked: never commit them. Never link
+`definitions/r5/*` as a whole: `README.md` there is tracked, and a
+symlink over it shows up as a change. If `git status` shows it modified,
+run `git checkout definitions/r5/README.md`.
 
 ## Before every commit
 
