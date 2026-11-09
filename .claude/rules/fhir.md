@@ -34,9 +34,13 @@ When the spec is silent, flag the case to the user instead of choosing.
 - Structure, cardinality and type checks run in the single recursive walk
   in `crates/fhir-validator/src/nested.rs`. Do not add a separate
   top-level pass: copies drift and disagree.
-- A rule fixed at the top level must hold inside backbone elements,
-  extensions and profiles, and the reverse. Test both depths.
-- Profiles reuse `check_children_cardinality`; do not re-implement it.
+- A rule fixed at the top level must hold inside backbone elements and
+  extensions, and the reverse. Test both depths.
+- Profiles must be enforced at every depth, against the profile's own
+  StructureDefinition, not the base one. Today `profile.rs` only checks
+  the root's children with `check_children_cardinality`; nested profile
+  constraints are a known gap. Close it by walking the profile snapshot
+  with the shared helpers, never by copying them.
 
 ## Choice elements (`[x]`)
 
@@ -63,13 +67,16 @@ When the spec is silent, flag the case to the user instead of choosing.
   day valid for its month (leap years included), no trailing garbage.
 - instant always needs a zone; a dateTime with a time needs a zone; time
   takes no zone.
-- integer, unsignedInt and positiveInt are 32-bit signed (`TYPE_002` out of
-  range); integer64 follows `[0]|[-+]?[1-9][0-9]*` and must fit in i64.
+- Ranges (`TYPE_002` outside): integer is -2147483648..2147483647,
+  unsignedInt is 0..2147483647, positiveInt is 1..2147483647. integer64
+  follows `[0]|[-+]?[1-9][0-9]*` and must fit in i64.
 - Resource `id` follows the FHIR id format (`TYPE_005` at `<Type>.id`).
   Nested element `id` children are checked as `string` (Element.id).
 - A scalar where a complex or backbone element is expected
   (`"meta": null`, `"extension": "oops"`) is `TYPE_001`, not ignored.
-- Never byte-slice strings: non-ASCII input must be rejected, not panic.
+- Never byte-slice strings. Formats whose R5 regex is ASCII-only (date,
+  dateTime, instant, time, id) reject non-ASCII input with a diagnostic,
+  never a panic. `string` and `markdown` accept any Unicode.
 
 ## Parser and JSON numbers
 
