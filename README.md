@@ -37,6 +37,18 @@ severity = "error"      # error | warning | information | hint
 enabled = false
 ```
 
+## Run
+
+```bash
+cargo run -p fhir-cli -- [--format text|json|sarif] [--config fhir-linter.toml] \
+    [--strict] [--definitions definitions/r5] <FILES|DIRS>...
+```
+
+Directories are scanned recursively for `*.json` and `*.xml`. The definitions
+directory defaults to `definitions/r5` (or `$FHIR_DEFINITIONS_DIR`).
+Exit codes: `0` clean, `1` errors found (warnings too with `--strict`),
+`2` tool error (bad arguments, unreadable file, bad config or definitions).
+
 ## Layout
 
 | Crate | Job |
@@ -46,7 +58,7 @@ enabled = false
 | `fhir-fhirpath` | FHIRPath evaluator |
 | `fhir-validator` | Validation checks |
 | `fhir-linter` | Configurable lint rules |
-| `fhir-cli` | The `fhir-lint` binary (not yet implemented: it only prints its version) |
+| `fhir-cli` | The `fhir-lint` binary |
 
 Specs live in `openspec/specs/`.
 

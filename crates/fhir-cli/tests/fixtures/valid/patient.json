@@ -1,0 +1,13 @@
+{
+  "resourceType": "Patient",
+  "id": "example",
+  "meta": {
+    "profile": ["http://hl7.org/fhir/StructureDefinition/Patient"]
+  },
+  "text": {
+    "status": "generated",
+    "div": "<div xmlns=\"http://www.w3.org/1999/xhtml\"><p>Jane Doe</p></div>"
+  },
+  "identifier": [{ "system": "urn:oid:1.2.36.146.595.217.0.1", "value": "12345" }],
+  "gender": "female"
+}

@@ -1,0 +1,239 @@
+//! Black-box tests for the `fhir-lint` binary.
+use std::path::PathBuf;
+
+use assert_cmd::Command;
+use predicates::prelude::*;
+
+fn manifest_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn fixture(name: &str) -> PathBuf {
+    manifest_dir().join("tests/fixtures").join(name)
+}
+
+/// `fhir-lint` pointed at the repository's R5 definitions.
+fn fhir_lint() -> Command {
+    let mut cmd = Command::cargo_bin("fhir-lint").unwrap();
+    cmd.arg("--definitions")
+        .arg(manifest_dir().join("../../definitions/r5"));
+    cmd
+}
+
+fn stdout_json(cmd: &mut Command) -> serde_json::Value {
+    let out = cmd.output().unwrap();
+    serde_json::from_slice(&out.stdout).expect("stdout is not valid JSON")
+}
+
+#[test]
+fn valid_directory_exits_zero() {
+    fhir_lint().arg(fixture("valid")).assert().code(0);
+}
+
+#[test]
+fn directory_recursion_finds_json_and_xml() {
+    let diags = stdout_json(fhir_lint().args(["--format", "json"]).arg(fixture("tree")));
+    let mut files: Vec<&str> = diags
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["file"].as_str().unwrap())
+        .collect();
+    files.dedup();
+    assert_eq!(files.len(), 2, "{files:?}");
+    assert!(files[0].ends_with("bare.json"), "{files:?}");
+    assert!(files[1].ends_with("bare.xml"), "{files:?}");
+}
+
+#[test]
+fn xml_file_is_validated() {
+    fhir_lint()
+        .arg(fixture("valid/nested/patient.xml"))
+        .assert()
+        .code(0);
+}
+
+#[test]
+fn invalid_resource_exits_one_with_diagnostic() {
+    fhir_lint()
+        .arg(fixture("invalid.json"))
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("invalid.json:"))
+        .stdout(predicate::str::contains("error"))
+        .stdout(predicate::str::contains("notAFhirElement"));
+}
+
+#[test]
+fn malformed_resource_is_a_diagnostic_not_a_tool_error() {
+    fhir_lint()
+        .arg(fixture("malformed.json"))
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("malformed.json:"))
+        .stdout(predicate::str::contains("PARSE_001"));
+}
+
+#[test]
+fn warnings_alone_exit_zero() {
+    fhir_lint()
+        .arg(fixture("warnings.json"))
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("LINT_003"));
+}
+
+#[test]
+fn strict_turns_warnings_into_failure() {
+    fhir_lint()
+        .arg("--strict")
+        .arg(fixture("warnings.json"))
+        .assert()
+        .code(1);
+}
+
+#[test]
+fn unknown_fhir_version_is_tool_error() {
+    fhir_lint()
+        .args(["--fhir-version", "r4"])
+        .arg(fixture("valid"))
+        .assert()
+        .code(2);
+}
+
+#[test]
+fn r5_fhir_version_is_accepted() {
+    fhir_lint()
+        .args(["--fhir-version", "r5"])
+        .arg(fixture("valid"))
+        .assert()
+        .code(0);
+}
+
+#[test]
+fn missing_path_is_tool_error() {
+    fhir_lint()
+        .arg(fixture("does-not-exist.json"))
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("does-not-exist.json"));
+}
+
+#[test]
+fn no_path_is_tool_error() {
+    fhir_lint().assert().code(2);
+}
+
+#[test]
+fn missing_definitions_is_tool_error() {
+    Command::cargo_bin("fhir-lint")
+        .unwrap()
+        .args(["--definitions", "/nonexistent/definitions"])
+        .arg(fixture("valid"))
+        .assert()
+        .code(2);
+}
+
+#[test]
+fn json_format_is_array_of_diagnostics_with_file() {
+    let diags = stdout_json(
+        fhir_lint()
+            .args(["--format", "json"])
+            .arg(fixture("warnings.json")),
+    );
+    let diags = diags.as_array().expect("top level is an array");
+    let lint = diags
+        .iter()
+        .find(|d| d["code"] == "LINT_003")
+        .expect("LINT_003 present");
+    assert!(lint["file"].as_str().unwrap().ends_with("warnings.json"));
+    assert_eq!(lint["severity"], "warning");
+    assert_eq!(lint["rule"], "missing-meta-profile");
+}
+
+#[test]
+fn sarif_format_is_minimal_valid_log() {
+    let log = stdout_json(
+        fhir_lint()
+            .args(["--format", "sarif"])
+            .arg(fixture("invalid.json")),
+    );
+    assert_eq!(log["version"], "2.1.0");
+    let run = &log["runs"][0];
+    assert_eq!(run["tool"]["driver"]["name"], "fhir-lint");
+    let results = run["results"].as_array().expect("runs[0].results");
+    let error = results
+        .iter()
+        .find(|r| r["level"] == "error")
+        .expect("an error result");
+    let rule_id = error["ruleId"].as_str().unwrap();
+    assert!(
+        run["tool"]["driver"]["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["id"] == rule_id)
+    );
+    assert!(error["message"]["text"].is_string());
+    let uri = error["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+        .as_str()
+        .unwrap();
+    assert!(uri.ends_with("invalid.json"));
+}
+
+#[test]
+fn sarif_for_valid_resources_has_no_error_or_warning_results() {
+    let log = stdout_json(
+        fhir_lint()
+            .args(["--format", "sarif"])
+            .arg(fixture("valid")),
+    );
+    let results = log["runs"][0]["results"]
+        .as_array()
+        .expect("runs[0].results");
+    // Only `note` results (e.g. skipped invariants) may remain for clean resources.
+    assert!(results.iter().all(|r| r["level"] == "note"), "{results:?}");
+}
+
+#[test]
+fn text_format_prints_one_line_per_finding() {
+    let out = fhir_lint()
+        .args(["--format", "text"])
+        .arg(fixture("warnings.json"))
+        .output()
+        .unwrap();
+    let json = stdout_json(
+        fhir_lint()
+            .args(["--format", "json"])
+            .arg(fixture("warnings.json")),
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(
+        stdout.lines().count(),
+        json.as_array().unwrap().len(),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn config_disabling_rule_removes_its_diagnostic() {
+    fhir_lint()
+        .arg("--config")
+        .arg(fixture("no-meta-profile.toml"))
+        .arg(fixture("warnings.json"))
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("LINT_003").not())
+        .stdout(predicate::str::contains("LINT_002"));
+}
+
+#[test]
+fn config_with_unknown_rule_is_tool_error() {
+    fhir_lint()
+        .arg("--config")
+        .arg(fixture("unknown-rule.toml"))
+        .arg(fixture("warnings.json"))
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("no-such-rule"));
+}

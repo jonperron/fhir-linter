@@ -45,33 +45,39 @@ impl RuleRegistry {
         self.rules.push(rule);
     }
 
-    /// Run every enabled rule; severities are overridden per `config`.
+    /// Check `config` against the registered rules without running them.
     ///
     /// Returns an error naming the rule when `config` holds an unknown rule id
     /// or severity, so typos in `fhir-linter.toml` are not silently ignored.
+    pub fn check_config(&self, config: &Config) -> Result<(), String> {
+        for (id, rule_config) in &config.rules {
+            if !self.rules.iter().any(|r| r.id() == id.as_str()) {
+                return Err(format!("unknown lint rule '{id}'"));
+            }
+            if let Some(s) = rule_config.severity.as_deref() {
+                parse_severity(s).ok_or(format!("invalid severity '{s}' for rule '{id}'"))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Run every enabled rule; severities are overridden per `config`.
+    ///
+    /// Fails like [`RuleRegistry::check_config`] on an invalid `config`.
     pub fn run(
         &self,
         resource: &Resource,
         registry: &Registry,
         config: &Config,
     ) -> Result<Vec<Diagnostic>, String> {
-        if let Some(id) = config
-            .rules
-            .keys()
-            .find(|id| !self.rules.iter().any(|r| r.id() == id.as_str()))
-        {
-            return Err(format!("unknown lint rule '{id}'"));
-        }
+        self.check_config(config)?;
         let mut out = Vec::new();
         for rule in &self.rules {
             let cfg = config.rules.get(rule.id());
+            // Already validated by `check_config`.
             let severity = cfg
                 .and_then(|c| c.severity.as_deref())
-                .map(|s| {
-                    parse_severity(s)
-                        .ok_or(format!("invalid severity '{s}' for rule '{}'", rule.id()))
-                })
-                .transpose()?;
+                .and_then(parse_severity);
             if cfg.and_then(|c| c.enabled) == Some(false) {
                 continue;
             }
