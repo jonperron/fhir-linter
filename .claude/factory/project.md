@@ -48,19 +48,22 @@ shell. Work with them, not around them:
 - Run Bash calls one at a time when the auto-mode classifier is active:
   parallel calls can lose its verdict and must be re-run alone.
 - Waiting: foreground `sleep` is blocked and subagents have no Monitor
-  tool. Poll with one `gh api --paginate ...` call per Bash call, run in
-  the background (`run_in_background`), or with `timeout <s> <cmd>`.
+  tool. Start one background Bash call (`run_in_background`) that loops
+  `sleep 30` and polls `gh api` until the bot has posted or the budget is
+  spent, then prints and exits. When it finishes, read its output file
+  with the Read tool. A single one-shot `gh api` call does not wait.
 - To compare with `main`, export it with `git archive origin/main` into
   the scratchpad; do not touch the primary checkout.
 
 ## Worktree setup
 
-Run in every fresh worktree, before building, as three separate Bash
-calls (the guard refuses the loop form):
+Run in every fresh worktree, before building, as separate Bash calls
+(the guard refuses the loop form). The download script deletes the zip
+archives after extraction, so only link the JSON files and sentinels:
 
 ```bash
 ln -sf "$PRIMARY"/definitions/r5/*.json definitions/r5/
-ln -sf "$PRIMARY"/definitions/r5/*.zip "$PRIMARY"/definitions/r5/*.sentinel definitions/r5/
+ln -sf "$PRIMARY"/definitions/r5/*.sentinel definitions/r5/
 git submodule update --init tests/fixtures   # /usr/bin/git, see above
 ```
 
@@ -89,8 +92,11 @@ cargo test --workspace
 
 When bindings are touched, also:
 
-- Python: `cd bindings/python && tox -e py312`
-- TypeScript: `cd bindings/typescript && npm run build:debug && npx vitest run`
+Run each as its own Bash call, with no `cd` and no chaining:
+
+- Python: `tox -c bindings/python -e py312`
+- TypeScript: `npm --prefix bindings/typescript run build:debug`, then
+  `npm --prefix bindings/typescript exec vitest run`
 
 Say so in the report if a toolchain is missing; do not claim it passed.
 
