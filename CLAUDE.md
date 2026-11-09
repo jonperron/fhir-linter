@@ -56,6 +56,7 @@ tests/fixtures/       # git submodule → github.com/FHIR/fhir-test-cases
 Coding rules are defined in `.claude/rules/` and loaded automatically by file pattern:
 
 - [Coding style](.claude/rules/coding-style.md): Guidelines for code formatting, organization, and idiomatic patterns.
+- [FHIR rules](.claude/rules/fhir.md): The FHIR R5 spec is always right; validator, parser and FHIRPath lessons from the audit rounds.
 - [Python coding style](.claude/rules/python-coding-style.md): Conventions for the Python bindings (`bindings/python/`).
 - [TypeScript coding style](.claude/rules/typescript-coding-style.md): Conventions for the TypeScript bindings (`bindings/typescript/`).
 - [Testing](.claude/rules/testing.md): Best practices for writing tests, TDD workflow, coverage targets, and test types.
