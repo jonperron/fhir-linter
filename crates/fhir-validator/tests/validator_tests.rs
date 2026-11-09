@@ -464,6 +464,78 @@ fn content_reference_element_is_not_unknown() {
 }
 
 #[test]
+fn unknown_or_non_primitive_underscore_key_is_reported() {
+    let found = codes_for(r#"{"resourceType":"Patient","_bogus":{}}"#);
+    assert!(
+        found.contains(&("STRUCTURE_001".into(), "Patient._bogus".into())),
+        "{found:?}"
+    );
+    // The `_name` form only exists for primitives; `name` is a HumanName.
+    let found = codes_for(r#"{"resourceType":"Patient","_name":{}}"#);
+    assert!(
+        found.contains(&("STRUCTURE_001".into(), "Patient._name".into())),
+        "{found:?}"
+    );
+    let found = codes_for(r#"{"resourceType":"Patient","name":[{"_bogus":{}}]}"#);
+    assert!(
+        found.contains(&("STRUCTURE_001".into(), "Patient.name[0]._bogus".into())),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn primitive_extension_keys_are_accepted() {
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Patient","birthDate":"2000-01-01","#,
+        r#""_birthDate":{"id":"b","extension":[{"url":"http://example.org/x","valueString":"v"}]},"#,
+        r#""name":[{"given":["A",null],"_given":[null,{"id":"g"}]}]}"#
+    ));
+    assert!(
+        !found.iter().any(|(code, _)| code == "STRUCTURE_001"),
+        "{found:?}"
+    );
+    let found = codes_for(concat!(
+        r#"{"resourceType":"Observation","status":"final","code":{},"#,
+        r#""_valueString":{"extension":[{"url":"http://example.org/x","valueString":"v"}]}}"#
+    ));
+    assert!(
+        !found.iter().any(|(code, _)| code == "STRUCTURE_001"),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn primitive_extension_content_is_walked_as_element() {
+    let found = codes_for(r#"{"resourceType":"Patient","_birthDate":{"bogus":1}}"#);
+    assert!(
+        found.contains(&("STRUCTURE_001".into(), "Patient._birthDate.bogus".into())),
+        "{found:?}"
+    );
+    let found = codes_for(r#"{"resourceType":"Patient","_birthDate":{"extension":[{}]}}"#);
+    assert!(
+        found.contains(&(
+            "CARDINALITY_001".into(),
+            "Patient._birthDate.extension[0].url".into()
+        )),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn primitive_extension_that_is_not_an_object_is_reported() {
+    let found = codes_for(r#"{"resourceType":"Patient","_birthDate":"x"}"#);
+    assert!(
+        found.contains(&("TYPE_001".into(), "Patient._birthDate".into())),
+        "{found:?}"
+    );
+    let found = codes_for(r#"{"resourceType":"Patient","name":[{"given":["A"],"_given":[1]}]}"#);
+    assert!(
+        found.contains(&("TYPE_001".into(), "Patient.name[0]._given[0]".into())),
+        "{found:?}"
+    );
+}
+
+#[test]
 fn required_child_present_only_as_primitive_extension_is_not_missing() {
     let found = codes_for(
         r#"{"resourceType":"Questionnaire","status":"draft","item":[{"_linkId":{"extension":[{"url":"http://example.org/x","valueString":"v"}]},"type":"string"}]}"#,

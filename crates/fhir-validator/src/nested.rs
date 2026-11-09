@@ -148,12 +148,16 @@ fn walk(
 
     for (name, node) in fields {
         let name = name.as_ref();
-        // `_name` primitive extensions only count towards presence; `extension` and
-        // `modifierExtension` are typed `Extension` and walked like any other element.
-        if !has_punctuation(name) && name.starts_with('_') {
-            continue;
-        }
         let child_path = format!("{path}.{name}");
+        // `_name` carries the id/extensions of primitive `name`, so it must name a primitive.
+        if let Some(bare) = name.strip_prefix('_') {
+            let primitive = resolve(sd, &format!("{prefix}{bare}"), bare)
+                .is_some_and(|(_, ty)| ty.as_deref().is_some_and(is_primitive));
+            if primitive {
+                walk_primitive_extension(node, registry, &child_path, diagnostics);
+                continue;
+            }
+        }
         let Some((elem, ty)) = resolve(sd, &format!("{prefix}{name}"), name) else {
             diagnostics.push(
                 Diagnostic::error(
@@ -173,6 +177,51 @@ fn walk(
         check_type(&node.value, check_as, &child_path, node.span, diagnostics);
         descend(node, elem, &ty, sd, registry, &child_path, diagnostics);
     }
+}
+
+/// Check a `_name` primitive extension as an `Element` (an array of them, nulls allowed,
+/// for a repeating primitive), so its `id` and `extension` are validated.
+fn walk_primitive_extension(
+    node: &Node,
+    registry: &Registry,
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some(element_sd) = complex_type("Element", registry) else {
+        return;
+    };
+    match &node.value {
+        Value::Object(fields) => walk(fields, element_sd, "Element", registry, path, diagnostics),
+        Value::Array(items) => {
+            for (i, item) in items.iter().enumerate() {
+                let item_path = format!("{path}[{i}]");
+                match &item.value {
+                    Value::Object(fields) => walk(
+                        fields,
+                        element_sd,
+                        "Element",
+                        registry,
+                        &item_path,
+                        diagnostics,
+                    ),
+                    Value::Null => {}
+                    _ => push_not_element(item, &item_path, diagnostics),
+                }
+            }
+        }
+        _ => push_not_element(node, path, diagnostics),
+    }
+}
+
+fn push_not_element(node: &Node, path: &str, diagnostics: &mut Vec<Diagnostic>) {
+    diagnostics.push(
+        Diagnostic::error(
+            "TYPE_001",
+            format!("Expected Element object at '{path}'"),
+            path.to_owned(),
+        )
+        .with_location(node.span),
+    );
 }
 
 /// Check the cardinality of every child of `def_path` in one object (instance `path`).
