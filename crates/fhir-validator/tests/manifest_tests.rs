@@ -19,15 +19,6 @@ use serde_json::Value;
 const MIN_JSON_PASS_RATE: f64 = 0.66;
 const MIN_XML_PASS_RATE: f64 = 0.58;
 
-/// Case files whose manifest expectation is stale for R5; skipped and counted.
-const STALE_EXPECTATIONS: &[&str] = &[
-    // Inline `errorCount: 0`, but the case has no `version` (so R5, readme.md:33) and its
-    // object-valued `List.subject` is identical to list-contained-bad.json, for which
-    // outcomes/java/R5.list-contained-bad-json-base.json reports "The property subject
-    // must be a JSON Array, not an Object".
-    "list-contained.json",
-];
-
 fn fixtures_dir() -> PathBuf {
     std::env::var_os("FHIR_FIXTURES_DIR").map_or_else(
         || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures"),
@@ -77,7 +68,7 @@ struct Tally {
     false_errors: u32,
     missed_errors: u32,
     parse_failures: u32,
-    /// Cases with no expected result (no outcome file) or a stale one.
+    /// Cases with no expected result (no outcome file).
     skipped: u32,
     failing: Vec<String>,
 }
@@ -94,7 +85,7 @@ impl Tally {
     fn report(&self, format: &str) {
         eprintln!(
             "manifest {format}: {}/{} passed ({:.1}%), false errors {}, missed errors {}, \
-             parse failures {}, skipped (no or stale expected result) {}\nfailing {format}: {:?}",
+             parse failures {}, skipped (no expected result) {}\nfailing {format}: {:?}",
             self.passed,
             self.cases,
             self.rate() * 100.0,
@@ -178,8 +169,7 @@ fn validator_manifest_pass_rate() {
         } else {
             continue;
         };
-        let expected = expected_errors(&case["java"], &dir);
-        let Some(expected) = expected.filter(|_| !STALE_EXPECTATIONS.contains(&file)) else {
+        let Some(expected) = expected_errors(&case["java"], &dir) else {
             tally.skipped += 1;
             continue;
         };
