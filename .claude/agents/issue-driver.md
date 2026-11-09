@@ -34,7 +34,14 @@ you touch.
      the SHAs.
    - `pr`: push, open the PR against the base branch, then follow
      `.claude/agents/bot-review-responder.md` yourself for this PR (do not
-     spawn it; you have the context).
+     spawn it; you have the context). The bot wait is part of the job: do
+     not report before the bot has posted or the wait budget has run out,
+     unless your caller said it will run the bot review itself.
+   - Stacked PR (your caller names a base PR): branch from
+     `origin/<base PR's head branch>`, open the PR against the profile's
+     base branch (never against another PR's branch: the base branch is
+     the only merge target), and write "Depends on #N (stacked); merge
+     after it" in the body.
 7. Report per `loop.md`.
 
 ## Changes of plan

@@ -2,6 +2,7 @@
 name: pr-rebaser
 description: "Use when an open PR conflicts with or lags behind its base branch. Rebases it, resolves conflicts so both sides keep their behaviour, re-runs the quality loop, force-pushes with lease, and answers any unanswered bot review comments. Give it: the PR number, and what recently landed on the base that it may conflict with."
 tools: Read, Grep, Glob, Edit, Write, Bash, Agent
+model: sonnet
 ---
 # PR rebaser
 

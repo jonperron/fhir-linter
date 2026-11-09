@@ -41,15 +41,32 @@ Repeat until clean, at most 5 rounds:
 1. Change: implement, fix, merge or resolve.
 2. Gate: run the profile's quality gate. Everything must pass.
 3. Review: spawn the reviewer subagents the profile's routing table names
-   for the changed files. Give each one the worktree path, the base ref to
+   for the changed files. This is not optional: a diff that touches a
+   routed file gets its reviewer even when the change looks trivial
+   (a signature edit, two constants). Give each one the worktree path, the base ref to
    diff against, and what the change is meant to do. If you cannot spawn
    subagents, review against their definition files yourself, honestly.
 4. Triage: any CRITICAL or MAJOR finding → fix it (failing-first test for
-   real bugs) and go back to 2. MINOR: fix it if cheap, otherwise list it
+   real bugs) and go back to 2. You may decline a CRITICAL or MAJOR only
+   with evidence that it is wrong: a test that passes on the case it
+   describes, or a code path showing it cannot happen. Keep that test and
+   cite it in the PR body. An argument alone is not enough. MINOR: fix it if cheap, otherwise list it
    in your report. NIT: list or ignore.
 5. After 5 rounds that are still not clean, stop and report what remains.
 
-Then run the profile's spec sync if behaviour or an API changed.
+Then run the profile's spec sync if behaviour or an API changed, through
+its subagent, not by hand.
+
+When a change moves a measured rate (for example the official-suite pass
+rate) down, explain every case that flipped before you accept it: name
+the case, what was reported before and after, and why the new result is
+right. A rate that drops because a fix stopped a wrong-reason pass is
+fine; a rate that drops because a real check was lost is a bug.
+
+Stacked or sibling PRs: if another open PR sets a floor or threshold
+that your change can move (a test-suite pass rate, for example), merge
+it into a scratch branch, measure, and report the combined result. Do
+not push that merge.
 
 ## Commits and PRs
 
@@ -67,7 +84,8 @@ End with a report to your caller, within the length limit you were given
 (default 1500 characters):
 
 - the outcome first (PR URL, branch, commit SHAs, merge state);
-- review rounds and what each found;
+- review rounds and what each found: one line per reviewer subagent
+  with its verdict, or "not run" and why;
 - automated-review comments and what you did with each;
 - behaviour or performance numbers if you measured any;
 - what you did not do or could not check.
