@@ -13,6 +13,11 @@ Le crate `fhir-linter` SHALL exposer le trait `Rule` (`id()`, `check(&Resource, 
 - **WHEN** `RuleRegistry::default().run` est appliqué à une `Patient` nue
 - **THEN** chaque Diagnostic SHALL avoir `rule` égal à l'identifiant de la règle émettrice
 
+#### Scenario: Identifiant de règle renseigné
+
+- **WHEN** `run` produit un Diagnostic `LINT_003`
+- **THEN** son champ `rule` SHALL valoir `missing-meta-profile`
+
 ### Requirement: Règles intégrées
 
 Le `RuleRegistry` par défaut SHALL contenir les règles suivantes.
@@ -159,4 +164,23 @@ LINT_002 et LINT_003 SHALL porter comme `location` le span de `meta` lorsque `me
 
 - **WHEN** une `Patient` a `text.status = "empty"` et un div non vide
 - **THEN** dom-6 SHALL être satisfait et LINT_001 SHALL être émis
+
+### Requirement: Vérification de la configuration
+
+`RuleRegistry::check_config(&Config) -> Result<(), String>` SHALL vérifier, sans exécuter aucune règle, que chaque identifiant de `[rules.<id>]` désigne une règle enregistrée et que chaque `severity` vaut `fatal|error|warning|information` ou l'alias `hint`. La vérification SHALL porter aussi sur les règles désactivées. Le message d'erreur SHALL nommer la règle fautive. `run` SHALL appeler `check_config` avant d'exécuter les règles et échouer avec le même message.
+
+#### Scenario: Règle inconnue
+
+- **WHEN** la configuration contient `[rules.no-such-rule]`
+- **THEN** `check_config` SHALL renvoyer une erreur contenant `no-such-rule`
+
+#### Scenario: Sévérité invalide sur une règle désactivée
+
+- **WHEN** la configuration contient `[rules.narrative-absent]` avec `enabled = false` et `severity = "loud"`
+- **THEN** `check_config` SHALL renvoyer une erreur
+
+#### Scenario: Configuration valide
+
+- **WHEN** la configuration ne référence que des règles intégrées avec des sévérités valides
+- **THEN** `check_config` SHALL renvoyer `Ok(())`
 

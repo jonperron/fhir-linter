@@ -1,0 +1,1 @@
+Not a FHIR resource: directory scans must skip it.
