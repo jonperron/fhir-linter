@@ -9,6 +9,7 @@ mod files;
 mod output;
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -69,13 +70,13 @@ fn main() -> ExitCode {
 fn run(cli: &Cli) -> Result<bool, String> {
     // Only R5 exists; adding a version makes this a compile error until it is handled.
     let FhirVersion::R5 = cli.fhir_version;
-    let inputs = files::collect(&cli.paths)?;
     let rules = RuleRegistry::default();
     let config = load_config(cli.config.as_deref())?;
-    // Checked up front so config errors surface even when no resource parses.
+    // Checked before reading inputs so config errors are never hidden by path errors.
     rules
         .check_config(&config)
         .map_err(|e| format!("invalid config: {e}"))?;
+    let inputs = files::collect(&cli.paths)?;
     let registry = Registry::from_definitions_dir(&cli.definitions).map_err(|e| {
         format!(
             "cannot load definitions from '{}': {e}",
@@ -96,7 +97,11 @@ fn run(cli: &Cli) -> Result<bool, String> {
 
     let report = output::render(&findings, cli.format);
     if !report.is_empty() {
-        println!("{report}");
+        match writeln!(std::io::stdout().lock(), "{report}") {
+            // The reader went away (`| head`): the verdict is still the exit code.
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+            result => result.map_err(|e| format!("cannot write report: {e}"))?,
+        }
     }
     Ok(findings.iter().any(|f| match f.diagnostic.severity {
         Severity::Error => true,

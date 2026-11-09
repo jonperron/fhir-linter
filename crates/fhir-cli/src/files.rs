@@ -1,5 +1,6 @@
 //! Input discovery: explicit files plus `*.json` / `*.xml` found under directories.
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -15,10 +16,19 @@ pub fn collect(paths: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
             fs::metadata(path).map_err(|e| format!("cannot access '{}': {e}", path.display()))?;
         if metadata.is_dir() {
             walk(path, &mut out)?;
-        } else {
+        } else if metadata.is_file() {
             out.push(path.clone());
+        } else {
+            // A FIFO or device could block the read forever.
+            return Err(format!(
+                "cannot read '{}': not a regular file",
+                path.display()
+            ));
         }
     }
+    // Overlapping inputs must not repeat findings; the first spelling wins.
+    let mut seen = HashSet::new();
+    out.retain(|path| seen.insert(fs::canonicalize(path).unwrap_or_else(|_| path.clone())));
     Ok(out)
 }
 

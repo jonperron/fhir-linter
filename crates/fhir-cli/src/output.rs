@@ -55,7 +55,15 @@ fn terminal_safe(text: &str) -> String {
         .chars()
         .map(|c| {
             // Bidi controls are escaped too: they can reorder what the terminal shows.
-            let bidi = matches!(c, '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}');
+            let bidi = matches!(
+                c,
+                '\u{61C}'
+                    | '\u{200E}'
+                    | '\u{200F}'
+                    | '\u{202A}'..='\u{202E}'
+                    | '\u{2066}'..='\u{2069}'
+                    | '\u{206A}'..='\u{206F}'
+            );
             if c.is_control() || bidi {
                 c.escape_debug().to_string()
             } else {
@@ -205,6 +213,14 @@ mod tests {
     #[test]
     fn terminal_safe_escapes_bidi_controls() {
         assert_eq!(terminal_safe("a\u{202E}b"), "a\\u{202e}b");
+    }
+
+    #[test]
+    fn terminal_safe_escapes_arabic_letter_mark_and_deprecated_bidi_controls() {
+        assert_eq!(
+            terminal_safe("a\u{61C}b\u{206A}c\u{206F}"),
+            "a\\u{61c}b\\u{206a}c\\u{206f}"
+        );
     }
 
     #[test]

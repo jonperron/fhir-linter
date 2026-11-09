@@ -47,6 +47,13 @@ Un fichier passé explicitement SHALL être analysé quelle que soit son extensi
 - **WHEN** un fichier `patient.xml` valide est passé
 - **THEN** il SHALL être parsé en XML et le code de sortie SHALL être 0
 
+#### Scenario: Entrées répétées ou spéciales
+
+- **WHEN** un même fichier est passé plusieurs fois (ou via des chemins qui se recouvrent)
+- **THEN** il SHALL être analysé une seule fois
+- **WHEN** un chemin explicite n'est ni un fichier régulier ni un répertoire (FIFO, périphérique)
+- **THEN** le code de sortie SHALL être 2 (erreur d'outil), sans lecture bloquante
+
 #### Scenario: Chemin manquant
 
 - **WHEN** `does-not-exist.json` est passé
@@ -78,6 +85,8 @@ Pour chaque fichier, `fhir-lint` SHALL exécuter `fhir_validator::validate` puis
 - 0 si aucun diagnostic ne fait échouer l'exécution ;
 - 1 si au moins un diagnostic `error` est produit, ou un `warning` avec `--strict` ; `information` et `hint` SHALL NOT faire échouer l'exécution ;
 - 2 en cas d'erreur d'outil : erreur d'usage clap, chemin manquant ou illisible, configuration illisible ou invalide (règle ou sévérité inconnue, vérifiée par `check_config` avant la lecture des entrées), échec du chargement des définitions.
+
+La configuration SHALL être chargée et vérifiée avant la collecte des chemins : une configuration invalide SHALL être signalée même si un chemin est manquant. Si stdout est fermé par le lecteur (`BrokenPipe`), `fhir-lint` SHALL NOT paniquer et SHALL sortir avec le code du verdict.
 
 En cas d'erreur d'outil, `fhir-lint` SHALL écrire `fhir-lint: <message>` sur stderr et SHALL NOT produire de rapport.
 

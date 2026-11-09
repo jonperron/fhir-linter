@@ -237,3 +237,70 @@ fn config_with_unknown_rule_is_tool_error() {
         .code(2)
         .stderr(predicate::str::contains("no-such-rule"));
 }
+
+#[test]
+fn repeated_input_is_linted_once() {
+    let once = stdout_json(
+        fhir_lint()
+            .args(["--format", "json"])
+            .arg(fixture("invalid.json")),
+    );
+    // Same file through a different spelling of the path.
+    let twice = stdout_json(
+        fhir_lint()
+            .args(["--format", "json"])
+            .arg(fixture("invalid.json"))
+            .arg(fixture("../fixtures/invalid.json")),
+    );
+    assert_eq!(
+        once.as_array().unwrap().len(),
+        twice.as_array().unwrap().len()
+    );
+}
+
+#[test]
+fn config_error_wins_over_missing_path() {
+    fhir_lint()
+        .arg("--config")
+        .arg(fixture("unknown-rule.toml"))
+        .arg(fixture("does-not-exist.json"))
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("no-such-rule"));
+}
+
+#[cfg(unix)]
+#[test]
+fn fifo_input_is_tool_error_not_a_hang() {
+    let fifo = std::env::temp_dir().join(format!("fhir-lint-fifo-{}", std::process::id()));
+    let _ = std::fs::remove_file(&fifo);
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let result = fhir_lint()
+        .timeout(std::time::Duration::from_secs(20))
+        .arg(&fifo)
+        .assert();
+    let _ = std::fs::remove_file(&fifo);
+    result
+        .code(2)
+        .stderr(predicate::str::contains("not a regular file"));
+}
+
+#[test]
+fn closed_stdout_does_not_panic() {
+    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("fhir-lint"))
+        .arg("--definitions")
+        .arg(manifest_dir().join("../../definitions/r5"))
+        .arg(fixture("invalid.json"))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take());
+    let status = child.wait().unwrap();
+    // Exit 1 (the resource is invalid), not the panic status 101.
+    assert_eq!(status.code(), Some(1), "{status:?}");
+}
