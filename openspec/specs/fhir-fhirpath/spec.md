@@ -382,6 +382,32 @@ Le système SHALL implémenter `not()`, `iif(condition, trueResult, otherwiseRes
 
 ---
 
+### Requirement: Préfixe du nom de type de ressource
+
+Le système SHALL permettre à une expression de commencer par le nom de type de la ressource de contexte.
+
+#### Scenario: Nom de type correspondant
+
+- **WHEN** `CodeSystem.content` est évalué sur une `CodeSystem` sans champ nommé `CodeSystem`
+- **THEN** `evaluate` SHALL retourner la valeur de `content`
+
+#### Scenario: Nom de type différent
+
+- **WHEN** `Patient.id` est évalué sur une `CodeSystem`
+- **THEN** `evaluate` SHALL retourner une collection vide
+
+#### Scenario: Nom de type après le premier segment
+
+- **WHEN** `Patient.Patient.id` est évalué sur une `Patient` sans champ nommé `Patient`
+- **THEN** `evaluate` SHALL retourner une collection vide, le préfixe n'étant admis qu'en tête
+
+#### Scenario: Champ réel prioritaire
+
+- **WHEN** la ressource possède un champ dont le nom est égal au nom demandé
+- **THEN** ce champ SHALL être retourné au lieu de la ressource elle-même
+
+---
+
 ### Requirement: Erreurs d'évaluation
 
 Le système SHALL exposer `EvalError` couvrant toutes les erreurs d'exécution possibles.

@@ -60,12 +60,16 @@ impl Evaluator {
             )),
 
             // ── Identifier / path step ─────────────────────────────────────
-            Expr::Ident(name) => self.eval_ident(name, ctx),
+            Expr::Ident(name) => self.eval_ident(name, ctx, true),
 
             // ── Navigation ─────────────────────────────────────────────────
             Expr::Dot(base, step) => {
                 let base_col = self.eval(base, ctx)?;
-                self.eval(step, &base_col)
+                match &**step {
+                    // A type name may only lead the expression, not follow a dot.
+                    Expr::Ident(name) => self.eval_ident(name, &base_col, false),
+                    _ => self.eval(step, &base_col),
+                }
             }
 
             Expr::Index(base, index_expr) => {
@@ -212,12 +216,25 @@ impl Evaluator {
 
     // ── Path navigation ─────────────────────────────────────────────────────
 
-    fn eval_ident(&self, name: &str, ctx: &[Value]) -> Result<Collection, EvalError> {
+    fn eval_ident(
+        &self,
+        name: &str,
+        ctx: &[Value],
+        allow_type_name: bool,
+    ) -> Result<Collection, EvalError> {
         let mut result = Vec::new();
         for item in ctx {
             if let Value::Object(fields) = item {
                 if let Some(children) = fields.get(name) {
                     result.extend_from_slice(children);
+                } else if allow_type_name
+                    && matches!(
+                        fields.get("resourceType").map(Vec::as_slice),
+                        Some([Value::String(resource_type)]) if &**resource_type == name
+                    )
+                {
+                    // FHIRPath: an expression may start with the context's type name.
+                    result.push(item.clone());
                 }
             }
         }

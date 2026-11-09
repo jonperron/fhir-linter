@@ -122,6 +122,32 @@ fn literal_null_yields_empty() {
 // ── Path navigation ──────────────────────────────────────────────────────────
 
 #[test]
+fn leading_type_name_navigates_like_bare_name() {
+    assert!(eval_bool("Patient.active"));
+    assert_eq!(eval_str("Patient.name.family"), "Doe");
+}
+
+#[test]
+fn leading_other_type_name_yields_empty() {
+    assert!(eval("Observation.active").is_empty());
+}
+
+#[test]
+fn type_name_after_first_segment_yields_empty() {
+    assert!(eval("Patient.Patient.id").is_empty());
+    let observation: IndexMap<Arc<str>, Collection> = IndexMap::from([
+        (
+            Arc::from("resourceType"),
+            vec![Value::String(Arc::from("Observation"))],
+        ),
+        (Arc::from("contained"), make_patient()),
+    ]);
+    let ctx = vec![Value::Object(Arc::new(observation))];
+    assert!(evaluate("contained.Patient.id", &ctx).unwrap().is_empty());
+    assert_eq!(evaluate("contained.id", &ctx).unwrap().len(), 1);
+}
+
+#[test]
 fn path_resource_type() {
     let result = eval("resourceType");
     assert_eq!(result, vec![Value::String(Arc::from("Patient"))]);
