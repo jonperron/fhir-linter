@@ -1433,3 +1433,96 @@ fn xml_contained_resource_boolean_is_typed() {
         "{out:?}"
     );
 }
+
+// ── JSON array shape ──────────────────────────────────────────────────────────
+
+fn shape_paths(found: &[(String, String)]) -> Vec<&str> {
+    found
+        .iter()
+        .filter(|(code, _)| code == "STRUCTURE_002")
+        .map(|(_, path)| path.as_str())
+        .collect()
+}
+
+#[test]
+fn json_repeating_element_as_object_is_reported() {
+    let found = codes_for(r#"{"resourceType":"Patient","name":{"family":"x"}}"#);
+    assert_eq!(shape_paths(&found), ["Patient.name"], "{found:?}");
+}
+
+#[test]
+fn json_single_element_as_array_is_reported() {
+    let found = codes_for(r#"{"resourceType":"Patient","gender":["male"]}"#);
+    assert_eq!(shape_paths(&found), ["Patient.gender"], "{found:?}");
+}
+
+#[test]
+fn json_array_shape_is_checked_in_nested_and_choice_elements() {
+    let found = codes_for(
+        r#"{"resourceType":"Patient","name":[{"given":"A"}],
+            "extension":[{"url":"http://example.org/x","valueString":["a"]}]}"#,
+    );
+    assert_eq!(
+        shape_paths(&found),
+        ["Patient.name[0].given", "Patient.extension[0].valueString"],
+        "{found:?}"
+    );
+}
+
+#[test]
+fn json_well_shaped_elements_pass() {
+    let found = codes_for(
+        r#"{"resourceType":"Patient","gender":"male","name":[{"given":["A"]}],
+            "extension":[{"url":"http://example.org/x","valueString":"a"}]}"#,
+    );
+    assert!(shape_paths(&found).is_empty(), "{found:?}");
+}
+
+#[test]
+fn json_array_shape_checks_content_reference_elements() {
+    let found = codes_for(
+        r#"{"resourceType":"Questionnaire","status":"draft",
+            "item":[{"linkId":"1","type":"group","item":{"linkId":"1.1","type":"string"}}]}"#,
+    );
+    assert_eq!(
+        shape_paths(&found),
+        ["Questionnaire.item[0].item"],
+        "{found:?}"
+    );
+}
+
+#[test]
+fn json_array_shape_skips_null_values() {
+    let found = codes_for(r#"{"resourceType":"Patient","name":null,"gender":null}"#);
+    assert!(shape_paths(&found).is_empty(), "{found:?}");
+}
+
+#[test]
+fn json_too_many_values_as_array_reports_shape_and_cardinality() {
+    let found = codes_for(r#"{"resourceType":"Patient","gender":["male","female"]}"#);
+    assert_eq!(shape_paths(&found), ["Patient.gender"], "{found:?}");
+    assert_has(&found, "CARDINALITY_002", "Patient.gender");
+}
+
+#[test]
+fn json_primitive_extension_is_not_shape_checked_but_its_content_is() {
+    let found = codes_for(
+        r#"{"resourceType":"Patient","_birthDate":[{}],
+            "name":[{"given":["A"],"_given":{"extension":{"url":"http://e","valueString":"x"}}}]}"#,
+    );
+    assert_eq!(
+        shape_paths(&found),
+        ["Patient.name[0]._given.extension"],
+        "{found:?}"
+    );
+}
+
+#[test]
+fn xml_single_repeating_element_is_not_a_shape_error() {
+    let registry = load_registry();
+    let codes = xml_codes(
+        &registry,
+        r#"<Patient xmlns="http://hl7.org/fhir"><name><given value="A"/></name><gender value="male"/></Patient>"#,
+    );
+    assert!(!codes.iter().any(|c| c == "STRUCTURE_002"), "{codes:?}");
+}
