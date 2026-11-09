@@ -435,7 +435,7 @@ Le système SHALL émettre un Diagnostic de sévérité warning `PROFILE_001` po
 
 ### Requirement: Validation de profil — type incompatible (PROFILE_002) et cardinalité du profil
 
-Le système SHALL émettre `PROFILE_002` (erreur) lorsqu'un profil connu de `meta.profile` s'applique à un autre type de ressource que celui de la ressource, sauf si le profil porte sur un parent abstrait (ex. `DomainResource`). Pour un profil connu compatible et distinct de la définition de base, les règles de cardinalité du profil SHALL être appliquées ; les constats déjà rapportés par la validation de base (même code et même `path`) SHALL être dédupliqués.
+Le système SHALL émettre `PROFILE_002` (erreur) lorsqu'un profil connu de `meta.profile` s'applique à un autre type de ressource que celui de la ressource, sauf si le profil porte sur un parent abstrait (ex. `DomainResource`). Pour un profil connu compatible et distinct de la définition de base, les règles de cardinalité du profil SHALL être appliquées ; les constats déjà rapportés par la validation de base (même code et même `path`) SHALL être dédupliqués. Les éléments du snapshot du profil portant un `sliceName` SHALL être ignorés par la vérification de cardinalité (les slices ne sont pas vérifiées) ; l'élément répétitif de base reste vérifié.
 
 #### Scenario: Profil d'un autre type
 
@@ -451,6 +451,11 @@ Le système SHALL émettre `PROFILE_002` (erreur) lorsqu'un profil connu de `met
 
 - **WHEN** un élément requis par le profil est aussi requis par la base et absent
 - **THEN** un seul Diagnostic `CARDINALITY_001` SHALL être émis pour ce `path`
+
+#### Scenario: Slice du profil ignorée
+
+- **WHEN** le snapshot du profil contient un élément avec `sliceName` (ex. `min` 1)
+- **THEN** aucune cardinalité n'SHALL être vérifiée pour cette slice, l'élément de base restant vérifié
 
 ---
 

@@ -81,6 +81,8 @@ pub struct ElementDefinition {
     pub constraints: Vec<Constraint>,
     /// Terminology binding, if any.
     pub binding: Option<Binding>,
+    /// `sliceName` when this element is a slice of a repeating element, not the element itself.
+    pub slice_name: Option<Arc<str>>,
 }
 
 /// A FHIRPath constraint expression on an element.
@@ -146,6 +148,7 @@ mod tests {
             types: vec![],
             constraints: vec![],
             binding: None,
+            slice_name: None,
         }
     }
 

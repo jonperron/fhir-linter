@@ -188,6 +188,11 @@ pub(crate) fn check_children_cardinality(
         let Some(rest) = elem.path.strip_prefix(&prefix).filter(|r| !r.contains('.')) else {
             continue;
         };
+        // shortcut: slices (choice slices too) are not matched to instances, so a slice's
+        // own cardinality is not enforced; revisit when slicing discriminators are evaluated.
+        if elem.slice_name.is_some() {
+            continue;
+        }
         if rest.ends_with("[x]") {
             check_choice(fields, sd, elem, &prefix, path, diagnostics);
             continue;
@@ -204,9 +209,9 @@ pub(crate) fn check_children_cardinality(
 /// Check a `[x]` choice element as a whole: its variants are the fields `resolve`
 /// maps to it (a `_variant` counts only for a primitive type), and it holds at most one.
 ///
-/// shortcut: profile type restrictions and choice slices are not handled (a disallowed
-/// variant reads as missing, any variant satisfies a slice); revisit when profile
-/// snapshots are walked.
+/// shortcut: profile type restrictions are not handled (a disallowed variant reads as
+/// missing) and choice slices are skipped by the caller; revisit when profile snapshots
+/// are walked.
 fn check_choice(
     fields: &IndexMap<Arc<str>, Node>,
     sd: &StructureDefinition,
@@ -341,6 +346,7 @@ mod tests {
             types: vec![],
             constraints: vec![],
             binding: None,
+            slice_name: None,
         }
     }
 
@@ -379,5 +385,34 @@ mod tests {
                 ("CARDINALITY_001", "Observation.value[x]"),
             ],
         );
+    }
+
+    #[test]
+    fn children_cardinality_skips_choice_slices() {
+        let slice = ElementDefinition {
+            slice_name: Some(Arc::from("valueQuantity")),
+            ..elem("Observation.value[x]", 1)
+        };
+        let sd = StructureDefinition::new(
+            Arc::from("http://example.org/StructureDefinition/obs-profile"),
+            Arc::from("ObsProfile"),
+            Arc::from("resource"),
+            false,
+            None,
+            vec![
+                elem("Observation", 0),
+                elem("Observation.value[x]", 0),
+                slice,
+            ],
+        );
+        let mut found = vec![];
+        check_children_cardinality(
+            &IndexMap::new(),
+            &sd,
+            "Observation",
+            "Observation",
+            &mut found,
+        );
+        assert!(found.is_empty(), "{found:?}");
     }
 }

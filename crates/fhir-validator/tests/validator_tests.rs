@@ -287,6 +287,26 @@ fn vitalsigns_profile_cardinality_is_enforced() {
 }
 
 #[test]
+fn vitalsigns_extra_category_is_not_a_cardinality_error() {
+    // The profile's `category:VSCat` slice is 1..1, but `category` itself stays 0..*.
+    let json = VITAL_SIGNS_HEART_RATE.replace(
+        r#""text": "Vital Signs"
+  }],"#,
+        r#""text": "Vital Signs"
+  }, {"coding": [{
+    "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+    "code": "exam"
+  }]}],"#,
+    );
+    assert_ne!(json, VITAL_SIGNS_HEART_RATE);
+    let found = codes_for(&json);
+    assert!(
+        !found.iter().any(|(c, _)| c.starts_with("CARDINALITY")),
+        "{found:?}"
+    );
+}
+
+#[test]
 fn profile_for_other_resource_type_produces_profile_002() {
     let registry = load_registry();
     let json = r#"{"resourceType":"Patient","meta":{"profile":["http://hl7.org/fhir/StructureDefinition/Observation"]}}"#;

@@ -78,7 +78,7 @@ Le `Registry` SHALL être partageable entre threads via `Arc<Registry>` sans né
 
 ### Requirement: Données snapshot de StructureDefinition
 
-Le système SHALL charger les éléments du snapshot d'une `StructureDefinition` avec leurs cardinalités et types. Une `StructureDefinition` SHALL être construite par `StructureDefinition::new(url, name, kind, is_abstract, base_definition, snapshot)`, qui indexe une seule fois les éléments par `path` ; le snapshot ne SHALL plus être modifié ensuite. `element(path)` SHALL retourner le premier élément du snapshot dont le `path` est exactement `path` (premier élément pour les chemins répétés des slices), `None` sinon. `descendants(path)` SHALL retourner la suite contiguë d'éléments qui suit cet élément et dont le `path` commence par `path.` (ou répète `path` pour les slices), et une suite vide si `path` est inconnu.
+Le système SHALL charger les éléments du snapshot d'une `StructureDefinition` avec leurs cardinalités, types et `slice_name: Option<Arc<str>>` (valeur de `sliceName`, `None` sinon). Une `StructureDefinition` SHALL être construite par `StructureDefinition::new(url, name, kind, is_abstract, base_definition, snapshot)`, qui indexe une seule fois les éléments par `path` ; le snapshot ne SHALL plus être modifié ensuite. `element(path)` SHALL retourner le premier élément du snapshot dont le `path` est exactement `path` (premier élément pour les chemins répétés des slices), `None` sinon. `descendants(path)` SHALL retourner la suite contiguë d'éléments qui suit cet élément et dont le `path` commence par `path.` (ou répète `path` pour les slices), et une suite vide si `path` est inconnu.
 
 #### Scenario: Snapshot contient les éléments avec path et types
 
