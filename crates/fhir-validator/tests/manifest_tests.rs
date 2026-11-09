@@ -36,12 +36,24 @@ fn outcome_error_count(outcome: &Value) -> Option<u64> {
     (outcome["resourceType"] == "OperationOutcome").then_some(count as u64)
 }
 
-/// Expected error count of a case, or `None` when the manifest gives none
-/// (or names an outcome file that is not in the fixtures).
+/// Expected error count of a case, or `None` when the manifest gives none or
+/// names an outcome file the fixtures do not ship (counted as skipped).
+/// Panics when a named outcome file exists but is not a valid OperationOutcome,
+/// so a corrupt fixture cannot silently drop out of the pass rate.
 fn expected_errors(java: &Value, dir: &Path) -> Option<u64> {
     if let Some(file) = java.as_str() {
-        let text = std::fs::read_to_string(dir.join("outcomes").join(file)).ok()?;
-        return outcome_error_count(&serde_json::from_str(&text).ok()?);
+        let path = dir.join("outcomes").join(file);
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(e) => panic!("outcome file {}: {e}", path.display()),
+        };
+        let outcome = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("outcome file {}: {e}", path.display()));
+        return Some(
+            outcome_error_count(&outcome)
+                .unwrap_or_else(|| panic!("{} is not an OperationOutcome", path.display())),
+        );
     }
     if let Some(count) = java["errorCount"].as_u64() {
         return Some(count + java["fatalCount"].as_u64().unwrap_or(0));
@@ -103,6 +115,22 @@ fn outcome_error_count_counts_error_and_fatal_only() {
         Some(0)
     );
     assert_eq!(outcome_error_count(&Value::Null), None);
+}
+
+#[test]
+fn absent_outcome_file_is_skipped_but_corrupt_one_fails() {
+    let dir = std::env::temp_dir().join(format!("manifest-outcomes-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("outcomes")).unwrap();
+    std::fs::write(dir.join("outcomes/bad.json"), "{not json").unwrap();
+    assert_eq!(
+        expected_errors(&serde_json::json!("absent.json"), &dir),
+        None
+    );
+    let corrupt = std::panic::catch_unwind(|| {
+        expected_errors(&serde_json::json!("bad.json"), &dir);
+    });
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(corrupt.is_err());
 }
 
 #[test]
