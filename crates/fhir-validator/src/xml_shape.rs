@@ -50,8 +50,10 @@ fn reshape_fields(
                 Value::Array(items) => items.as_slice(),
                 _ => std::slice::from_ref(node),
             };
-            let (values, extensions): (Vec<Node>, Vec<Node>) =
-                items.iter().map(|item| split_primitive(item, &ty)).unzip();
+            let (values, extensions): (Vec<Node>, Vec<Node>) = items
+                .iter()
+                .map(|item| split_primitive(item, &ty, registry))
+                .unzip();
             let wrap = |nodes: Vec<Node>| match &node.value {
                 Value::Array(_) => Node {
                     value: Value::Array(nodes),
@@ -108,7 +110,9 @@ fn reshape_complex(
 }
 
 /// Split one XML primitive into its typed value and its `_name` part (`Null` when absent).
-fn split_primitive(node: &Node, ty: &str) -> (Node, Node) {
+/// The `_name` part is reshaped as an `Element`, so its extension values are typed too.
+/// An element with neither value nor `_name` part is kept as is, so the type check reports it.
+fn split_primitive(node: &Node, ty: &str, registry: &Registry) -> (Node, Node) {
     let null = Node {
         value: Value::Null,
         span: node.span,
@@ -137,9 +141,16 @@ fn split_primitive(node: &Node, ty: &str) -> (Node, Node) {
                     _ => v.clone(),
                 },
             );
+            if rest.is_empty() && matches!(value.value, Value::Null) {
+                return (node.clone(), null);
+            }
             let extension = if rest.is_empty() {
                 null
             } else {
+                let rest = match complex_type("Element", registry) {
+                    Some(element_sd) => reshape_fields(&rest, element_sd, "Element", registry),
+                    None => rest,
+                };
                 Node {
                     value: Value::Object(rest),
                     span: node.span,
