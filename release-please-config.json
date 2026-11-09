@@ -4,6 +4,8 @@
     ".": {
       "release-type": "simple",
       "package-name": "fhir-linter",
+      "draft": true,
+      "force-tag-creation": true,
       "extra-files": [
         {
           "type": "toml",
