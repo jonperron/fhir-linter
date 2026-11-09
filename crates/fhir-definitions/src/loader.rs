@@ -138,12 +138,7 @@ fn parse_constraint(c: &Value) -> Option<Constraint> {
     let severity: Arc<str> = c["severity"].as_str()?.into();
     let human: Arc<str> = c["human"].as_str()?.into();
     let expression = c["expression"].as_str().map(Arc::from);
-    Some(Constraint {
-        key,
-        severity,
-        human,
-        expression,
-    })
+    Some(Constraint::new(key, severity, human, expression))
 }
 
 /// Strip a canonical version suffix ("http://x/foo|5.0.0" becomes "http://x/foo").
