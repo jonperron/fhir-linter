@@ -8,10 +8,10 @@ use crate::type_check::{check_type, is_valid_id};
 
 /// Validate the resource's elements at every depth, starting at the top level.
 ///
-/// Applies the structural (`STRUCTURE_001`), cardinality (`CARDINALITY_001/002`)
-/// and primitive type (`TYPE_*`) checks recursively into backbone elements and
-/// complex types. Terminology, invariants, references and profile layers remain
-/// top-level only.
+/// Applies the structural (`STRUCTURE_001`, and `STRUCTURE_002` array shape when `json`),
+/// cardinality (`CARDINALITY_001/002`) and primitive type (`TYPE_*`) checks recursively
+/// into backbone elements and complex types. Terminology, invariants, references and
+/// profile layers remain top-level only.
 ///
 /// shortcut: `contentReference` elements (skipped silently) and contained/embedded resources are
 /// not descended into; upgrade when recursive structures need validating.
@@ -19,6 +19,7 @@ pub fn validate(
     resource: &Resource,
     sd: &StructureDefinition,
     registry: &Registry,
+    json: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let resource_type = resource.resource_type.as_ref();
@@ -39,6 +40,7 @@ pub fn validate(
         resource_type,
         registry,
         resource_type,
+        json,
         diagnostics,
     );
 }
@@ -82,6 +84,7 @@ fn capitalise(s: &str) -> String {
 }
 
 /// Check the value of `elem` (instance `path`), recursing into objects.
+#[allow(clippy::too_many_arguments)] // recursion state threaded through walk/descend
 fn descend(
     node: &Node,
     elem: &ElementDefinition,
@@ -89,6 +92,7 @@ fn descend(
     sd: &StructureDefinition,
     registry: &Registry,
     path: &str,
+    json: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match &node.value {
@@ -101,15 +105,24 @@ fn descend(
                     sd,
                     registry,
                     &format!("{path}[{i}]"),
+                    json,
                     diagnostics,
                 );
             }
         }
         Value::Object(fields) => {
             if ty == "BackboneElement" || ty == "Element" {
-                walk(fields, sd, &elem.path, registry, path, diagnostics);
+                walk(fields, sd, &elem.path, registry, path, json, diagnostics);
             } else if let Some(type_sd) = complex_type(ty, registry) {
-                walk(fields, type_sd, &type_sd.name, registry, path, diagnostics);
+                walk(
+                    fields,
+                    type_sd,
+                    &type_sd.name,
+                    registry,
+                    path,
+                    json,
+                    diagnostics,
+                );
             }
         }
         _ if ty == "BackboneElement" || ty == "Element" || complex_type(ty, registry).is_some() => {
@@ -143,6 +156,7 @@ fn walk(
     def_path: &str,
     registry: &Registry,
     path: &str,
+    json: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     check_children_cardinality(fields, sd, def_path, path, diagnostics);
@@ -157,7 +171,7 @@ fn walk(
             let primitive = resolve(sd, &format!("{prefix}{bare}"), bare)
                 .is_some_and(|(_, ty)| ty.as_deref().is_some_and(is_primitive));
             if primitive {
-                walk_primitive_extension(node, registry, &child_path, diagnostics);
+                walk_primitive_extension(node, registry, &child_path, json, diagnostics);
                 continue;
             }
         }
@@ -172,13 +186,25 @@ fn walk(
             );
             continue;
         };
+        if json {
+            check_array_shape(node, elem, &child_path, diagnostics);
+        }
         // contentReference element: no type to check here.
         let Some(ty) = ty else { continue };
 
         // Element.id is a `string`; R5 snapshots label many as `id` in the fhir-type extension.
         let check_as = if name == "id" { "string" } else { ty.as_ref() };
         check_type(&node.value, check_as, &child_path, node.span, diagnostics);
-        descend(node, elem, &ty, sd, registry, &child_path, diagnostics);
+        descend(
+            node,
+            elem,
+            &ty,
+            sd,
+            registry,
+            &child_path,
+            json,
+            diagnostics,
+        );
     }
 }
 
@@ -188,13 +214,22 @@ fn walk_primitive_extension(
     node: &Node,
     registry: &Registry,
     path: &str,
+    json: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let Some(element_sd) = complex_type("Element", registry) else {
         return;
     };
     match &node.value {
-        Value::Object(fields) => walk(fields, element_sd, "Element", registry, path, diagnostics),
+        Value::Object(fields) => walk(
+            fields,
+            element_sd,
+            "Element",
+            registry,
+            path,
+            json,
+            diagnostics,
+        ),
         Value::Array(items) => {
             for (i, item) in items.iter().enumerate() {
                 let item_path = format!("{path}[{i}]");
@@ -205,6 +240,7 @@ fn walk_primitive_extension(
                         "Element",
                         registry,
                         &item_path,
+                        json,
                         diagnostics,
                     ),
                     Value::Null => {}
@@ -224,6 +260,36 @@ fn push_not_element(node: &Node, path: &str, diagnostics: &mut Vec<Diagnostic>) 
             path.to_owned(),
         )
         .with_location(node.span),
+    );
+}
+
+/// Emit `STRUCTURE_002` when a JSON value's shape contradicts the base definition:
+/// a repeating element (`max != "1"`) must be an array, a single one must not be.
+///
+/// shortcut: `_name` companion arrays are not shape-checked; upgrade with the `_name` rules.
+/// shortcut: uses `elem.max`, which equals the base max in every core SD walked here; switch
+/// to the base max if `walk` ever runs on constrained (profile) snapshots.
+fn check_array_shape(
+    node: &Node,
+    elem: &ElementDefinition,
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let repeating = elem.max.as_ref() != "1";
+    let is_array = matches!(node.value, Value::Array(_));
+    if is_array == repeating || matches!(node.value, Value::Null) {
+        return;
+    }
+    let message = if repeating {
+        format!(
+            "Element '{path}' repeats (max={}) and must be a JSON array",
+            elem.max
+        )
+    } else {
+        format!("Element '{path}' has max=1 and must not be a JSON array")
+    };
+    diagnostics.push(
+        Diagnostic::error("STRUCTURE_002", message, path.to_owned()).with_location(node.span),
     );
 }
 

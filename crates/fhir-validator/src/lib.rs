@@ -44,6 +44,8 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
     };
 
     // XML input is reshaped once, so every layer sees the JSON form (typed primitives, `_name`).
+    // The reshape keeps XML grouping, so only JSON input has a meaningful array shape.
+    let json = !resource.from_xml;
     let reshaped;
     let resource = if resource.from_xml {
         reshaped = xml_shape::to_json_shape(resource, sd, registry);
@@ -54,7 +56,7 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
 
     let mut diagnostics = Vec::new();
 
-    nested::validate(resource, sd, registry, &mut diagnostics);
+    nested::validate(resource, sd, registry, json, &mut diagnostics);
     terminology::validate(resource, sd, registry, &mut diagnostics);
     invariants::validate(resource, sd, &mut diagnostics);
     references::validate(resource, sd, registry, &mut diagnostics);

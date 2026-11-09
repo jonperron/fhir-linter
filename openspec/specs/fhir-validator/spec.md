@@ -116,6 +116,30 @@ Le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_001` et severity
 - **WHEN** un Patient contient `_bogus` (aucun élément `bogus`) ou `_name` (`name` est de type complexe `HumanName`)
 - **THEN** un Diagnostic `STRUCTURE_001` SHALL être émis avec `path` = `Patient._bogus`, respectivement `Patient._name`
 
+### Requirement: Validation structurelle — forme tableau JSON (STRUCTURE_002)
+
+Pour une ressource issue du JSON (`Resource.from_xml` faux), le système SHALL émettre un `Diagnostic` avec code `STRUCTURE_002` et severity `Error` pour chaque champ résolu, à toute profondeur (premier niveau, `BackboneElement`, types complexes, `Extension`, variantes `[x]` comme `valueString`), dont la forme contredit l'élément de la définition de base : un élément de `max` différent de `"1"` SHALL être un tableau JSON, un élément de `max="1"` ne SHALL PAS être un tableau. Le `path` SHALL être le chemin d'instance (ex. `Patient.name`, `Patient.name[0].given`, `Patient.extension[0].valueString`). Une valeur `null` ne SHALL PAS être signalée. Les champs `_nom` (extensions de primitif) ne SHALL PAS être soumis à ce contrôle ; leur contenu, parcouru comme un `Element`, l'est. La forme SHALL être déterminée uniquement par la définition de base : les couches de cardinalité de profil n'appliquent pas ce contrôle. Une ressource issue de l'XML ne SHALL jamais être soumise à ce contrôle, le remodelage XML conservant le regroupement XML (un élément XML unique reste scalaire). `STRUCTURE_002` et `CARDINALITY_002` PEUVENT être émis pour le même champ (ex. `"gender": ["male", "female"]`).
+
+#### Scenario: Élément répétable sous forme d'objet
+
+- **WHEN** un Patient JSON contient `"name": {"family": "Doe"}`
+- **THEN** un Diagnostic `STRUCTURE_002` SHALL être émis avec `path` = `Patient.name`
+
+#### Scenario: Élément max="1" sous forme de tableau
+
+- **WHEN** un Patient JSON contient `"gender": ["male"]`
+- **THEN** un Diagnostic `STRUCTURE_002` SHALL être émis avec `path` = `Patient.gender`
+
+#### Scenario: Forme incorrecte en profondeur et dans une extension
+
+- **WHEN** un Patient JSON contient `"name": [{"given": "A"}]` et `"extension": [{"url": "http://example.org/x", "valueString": ["a"]}]`
+- **THEN** un Diagnostic `STRUCTURE_002` SHALL être émis avec `path` = `Patient.name[0].given`, et un autre avec `path` = `Patient.extension[0].valueString`
+
+#### Scenario: Élément XML unique non signalé
+
+- **WHEN** un Patient XML contient un unique élément `<name>`
+- **THEN** aucun Diagnostic `STRUCTURE_002` ne SHALL être émis
+
 ### Requirement: Validation de cardinalité — élément requis absent (CARDINALITY_001)
 
 Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severity `Error` pour chaque élément déclaré avec `min > 0` dans le snapshot et absent de la ressource. Un élément requis de type primitif (nom de type commençant par une minuscule) présent uniquement sous la forme `_nom` (extension de primitif) SHALL être considéré présent seulement si la valeur de `_nom` est un objet, ou un tableau d'objets et de `null` contenant au moins un objet (un scalaire tel que `"_status": 5`, `[]` ou `[null]` ne compte pas et produit `CARDINALITY_001`) ; pour un type complexe, `_nom` ne SHALL PAS compter comme présence. Lorsque la valeur est absente et que `_nom` est un tableau plus long que le maximum fini, un `CARDINALITY_002` SHALL être émis (path et position de `_nom`). Un nom d'élément contenant `.`, `[` ou `]` (y compris préfixé par `_`) SHALL produire `STRUCTURE_001`. Un choix `[x]` SHALL être vérifié selon le seul type désigné par son suffixe ; sa cardinalité porte sur l'ensemble de ses variantes (champs `base` + type autorisé capitalisé, `_variante` comptant seulement pour un type primitif et sous la même forme objet que `_nom`), à toute profondeur : aucune variante et `min > 0` produit `CARDINALITY_001` au chemin du choix (ex. `Immunization.occurrence[x]`), plus d'une variante produit `CARDINALITY_002` à la seconde variante. Un `integer64` SHALL être une chaîne conforme à `[0]|[-+]?[1-9][0-9]*` et représentable sur 64 bits signés (`TYPE_003` sinon, `TYPE_001` si non chaîne).
@@ -504,7 +528,7 @@ Le système SHALL appliquer les vérifications de type à chaque élément d'un 
 
 ### Requirement: Validation des éléments imbriqués
 
-Un seul parcours récursif SHALL appliquer ces vérifications, en partant du premier niveau de la ressource ; il s'exécute avant les couches terminologie, invariants, références et profil. À toute profondeur, un champ `_nom` SHALL être accepté seulement si `nom` résout un élément (ou une variante de choix) de type primitif, sinon `STRUCTURE_001` au chemin de `_nom` (ex. `Patient.name[0]._bogus`). Un `_nom` accepté SHALL être parcouru via la StructureDefinition du type complexe `Element` (contrôle de `id` et `extension`) ; un tableau SHALL être parcouru élément par élément (index dans le `path`, éléments `null` ignorés) ; une valeur non objet, ou un élément de tableau ni objet ni `null`, SHALL produire `TYPE_001` (ex. `"_birthDate": "x"` → `Patient._birthDate`, `"_given": [1]` → `Patient.name[0]._given[0]`). Les champs `extension` et `modifierExtension` SHALL être traités comme tout autre élément de type `Extension`, à toute profondeur : résolus dans le snapshot (STRUCTURE_001 s'ils n'y figurent pas, ex. `Patient.name[0].modifierExtension`), puis parcourus via la StructureDefinition `Extension` (cardinalité de `url`, type de `value[x]`, extensions imbriquées). Un élément `[x]` SHALL être vérifié comme un tout, au premier niveau comme en profondeur : requis sans variante → `CARDINALITY_001` (au chemin `…[x]`), deux variantes → `CARDINALITY_002`, une variante présente soumise à `CARDINALITY_002` selon son `max`. Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001), de cardinalité (CARDINALITY_001/002) et de type (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants, références et profil restent limitées au premier niveau ; les `contentReference` (ignorés sans erreur, jamais signalés STRUCTURE_001) et les ressources contenues ne sont pas parcourus. La règle `_nom` s'applique à toute profondeur : un enfant requis présent uniquement sous la forme `_nom` SHALL être considéré présent seulement si son type est primitif et si `_nom` est un objet ou un tableau d'objets et de `null` contenant au moins un objet, et un `_nom` en tableau au-delà du maximum fini SHALL produire `CARDINALITY_002`.
+Un seul parcours récursif SHALL appliquer ces vérifications, en partant du premier niveau de la ressource ; il s'exécute avant les couches terminologie, invariants, références et profil. À toute profondeur, un champ `_nom` SHALL être accepté seulement si `nom` résout un élément (ou une variante de choix) de type primitif, sinon `STRUCTURE_001` au chemin de `_nom` (ex. `Patient.name[0]._bogus`). Un `_nom` accepté SHALL être parcouru via la StructureDefinition du type complexe `Element` (contrôle de `id` et `extension`) ; un tableau SHALL être parcouru élément par élément (index dans le `path`, éléments `null` ignorés) ; une valeur non objet, ou un élément de tableau ni objet ni `null`, SHALL produire `TYPE_001` (ex. `"_birthDate": "x"` → `Patient._birthDate`, `"_given": [1]` → `Patient.name[0]._given[0]`). Le champ `_nom` lui-même n'est pas soumis à STRUCTURE_002 ; son contenu l'est pour une entrée JSON. Les champs `extension` et `modifierExtension` SHALL être traités comme tout autre élément de type `Extension`, à toute profondeur : résolus dans le snapshot (STRUCTURE_001 s'ils n'y figurent pas, ex. `Patient.name[0].modifierExtension`), puis parcourus via la StructureDefinition `Extension` (cardinalité de `url`, type de `value[x]`, extensions imbriquées). Un élément `[x]` SHALL être vérifié comme un tout, au premier niveau comme en profondeur : requis sans variante → `CARDINALITY_001` (au chemin `…[x]`), deux variantes → `CARDINALITY_002`, une variante présente soumise à `CARDINALITY_002` selon son `max`. Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001, et STRUCTURE_002 pour les entrées JSON), de cardinalité (CARDINALITY_001/002) et de type (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants, références et profil restent limitées au premier niveau ; les `contentReference` (ignorés sans erreur, jamais signalés STRUCTURE_001) et les ressources contenues ne sont pas parcourus. La règle `_nom` s'applique à toute profondeur : un enfant requis présent uniquement sous la forme `_nom` SHALL être considéré présent seulement si son type est primitif et si `_nom` est un objet ou un tableau d'objets et de `null` contenant au moins un objet, et un `_nom` en tableau au-delà du maximum fini SHALL produire `CARDINALITY_002`.
 
 #### Scenario: Choix [x] en tableau au-delà du maximum
 
@@ -515,6 +539,11 @@ Un seul parcours récursif SHALL appliquer ces vérifications, en partant du pre
 
 - **WHEN** `Patient.name[0]` contient un champ `bogus`
 - **THEN** un Diagnostic STRUCTURE_001 SHALL être émis avec `path` = `Patient.name[0].bogus`
+
+#### Scenario: Forme tableau incorrecte dans un type complexe
+
+- **WHEN** `Patient.name[0]` (JSON) contient `"given": "A"`
+- **THEN** un Diagnostic STRUCTURE_002 SHALL être émis avec `path` = `Patient.name[0].given`
 
 #### Scenario: Élément requis manquant dans un BackboneElement
 
