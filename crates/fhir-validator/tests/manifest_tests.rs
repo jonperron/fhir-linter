@@ -212,6 +212,12 @@ fn validator_manifest_pass_rate() {
     json.report("json");
     xml.report("xml");
     assert!(
+        json.cases > 0 && xml.cases > 0,
+        "no eligible manifest cases (json {}, xml {}): floors would pass vacuously",
+        json.cases,
+        xml.cases,
+    );
+    assert!(
         json.rate() >= MIN_JSON_PASS_RATE,
         "JSON pass rate {:.3} below floor {MIN_JSON_PASS_RATE}",
         json.rate(),
