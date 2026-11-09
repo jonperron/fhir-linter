@@ -46,7 +46,7 @@ jobs:
     strategy:
       matrix:
         include:
-          # Oldest supported runner: the CLI and napi addon need glibc >= 2.35.
+          # Oldest supported runner: the napi addon needs glibc >= 2.35.
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             # manylinux2014 tag 2026.11.07-1, pinned by digest.
@@ -59,7 +59,6 @@ jobs:
       run:
         shell: bash
     env:
-      TAG: ${{ inputs.tag }}
       TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -74,22 +73,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
-
-      - name: Build CLI
-        run: |
-          cargo build --release --locked -p fhir-cli --target "$TARGET"
-          mkdir dist
-          name="fhir-lint-$TAG-$TARGET"
-          if [ "$RUNNER_OS" = Windows ]; then
-            7z a "dist/$name.zip" "./target/$TARGET/release/fhir-lint.exe"
-          else
-            tar -czf "dist/$name.tar.gz" -C "target/$TARGET/release" fhir-lint
-          fi
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: asset-cli-${{ matrix.target }}
-          path: dist
 
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
