@@ -21,8 +21,7 @@ pub use value::{Collection, Value, from_parser_value, resource_to_value};
 /// [`EvalError`] if evaluation fails (type errors, undefined functions, etc.).
 pub fn evaluate(expression: &str, context: &[Value]) -> Result<Collection, EvalError> {
     let expr = parser::parse(expression)?;
-    let root = context.to_vec();
-    eval::eval(&expr, &root, &root)
+    eval::eval(&expr, context)
 }
 
 /// Parse a FHIRPath expression into an AST without evaluating it.

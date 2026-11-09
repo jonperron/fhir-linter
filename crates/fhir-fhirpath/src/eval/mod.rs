@@ -27,7 +27,7 @@ use helpers::{
 ///
 /// `context` is the *input collection* (the current `$this` node).
 /// Returns a collection of results.
-pub fn eval(expr: &Expr, context: &[Value], _root: &[Value]) -> Result<Collection, EvalError> {
+pub fn eval(expr: &Expr, context: &[Value]) -> Result<Collection, EvalError> {
     Evaluator.eval(expr, context)
 }
 
