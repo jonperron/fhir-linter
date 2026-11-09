@@ -38,10 +38,10 @@ you touch.
      not report before the bot has posted or the wait budget has run out,
      unless your caller said it will run the bot review itself.
    - Stacked PR (your caller names a base PR): branch from
-     `origin/<base PR's head branch>`, open the PR against that head
-     branch (so the diff shows only your change; retarget it to the
-     profile's base branch once the base PR has merged), and write
-     "Depends on #N (stacked); merge after it" in the body.
+     `origin/<base PR's head branch>`, open the PR against the profile's
+     base branch (never against another PR's branch: the base branch is
+     the only merge target), and write "Depends on #N (stacked); merge
+     after it" in the body.
 7. Report per `loop.md`.
 
 ## Changes of plan
