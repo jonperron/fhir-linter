@@ -1,14 +1,22 @@
 {
   "name": "fhir-linter",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Node.js bindings for the FHIR R5 linter and validator",
   "license": "MIT",
   "type": "module",
   "main": "index.js",
   "types": "index.d.ts",
-  "files": ["index.js", "index.d.ts", "*.node"],
-  "engines": { "node": ">=22" },
-  "napi": { "binaryName": "fhir-linter" },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "napi": {
+    "binaryName": "fhir-linter"
+  },
   "scripts": {
     "build": "napi build --platform --release --esm",
     "build:debug": "napi build --platform --esm",
