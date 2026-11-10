@@ -5,7 +5,7 @@ use crate::value::{Collection, Value};
 use super::Evaluator;
 use super::helpers::{
     check_arity, check_arity_range, collect_descendants, compare_values, contains_value,
-    eval_type_name, single_integer, value_is_type,
+    eval_type_name, is_type, single_integer, value_is_type,
 };
 
 impl Evaluator {
@@ -145,13 +145,16 @@ impl Evaluator {
                     .cloned()
                     .collect()
             }
-            // FHIRPath: is()/as() take a singleton; empty in, empty out; more is an error.
-            "is" | "as" => {
+            "is" => {
+                check_arity(name, args, 1)?;
+                is_type(focus, &eval_type_name(&args[0])?)?
+            }
+            // FHIRPath: as() takes a singleton; empty in, empty out; more is an error.
+            "as" => {
                 check_arity(name, args, 1)?;
                 let type_name = eval_type_name(&args[0])?;
                 match focus {
                     [] => vec![],
-                    [v] if name == "is" => vec![Value::Bool(value_is_type(v, &type_name))],
                     [v] => value_is_type(v, &type_name)
                         .then(|| v.clone())
                         .into_iter()

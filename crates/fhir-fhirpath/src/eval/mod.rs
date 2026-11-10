@@ -19,8 +19,8 @@ mod string_fns;
 mod type_conv;
 
 use helpers::{
-    bool_col, contains_value, numeric_op, three_valued_and, three_valued_or, value_is_type,
-    values_equal, values_equivalent,
+    bool_col, contains_value, is_type, numeric_op, three_valued_and, three_valued_or,
+    value_is_type, values_equal, values_equivalent,
 };
 
 /// Evaluate a FHIRPath expression against a context value.
@@ -172,11 +172,7 @@ impl Evaluator {
             }
 
             // ── Type operators ────────────────────────────────────────────
-            Expr::Is(base, type_name) => {
-                let col = self.eval(base, ctx)?;
-                let result = col.iter().any(|v| value_is_type(v, type_name));
-                Ok(vec![Value::Bool(result)])
-            }
+            Expr::Is(base, type_name) => is_type(&self.eval(base, ctx)?, type_name),
             Expr::As(base, type_name) => {
                 let col = self.eval(base, ctx)?;
                 Ok(col

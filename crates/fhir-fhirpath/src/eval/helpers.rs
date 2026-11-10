@@ -203,6 +203,19 @@ pub(super) fn value_is_type(v: &Value, type_name: &str) -> bool {
     }
 }
 
+/// Shared by the `is` operator and `is()` (N1 §6.3.1): empty in, empty out;
+/// more than one item is an error.
+pub(super) fn is_type(focus: &[Value], type_name: &str) -> Result<Collection, EvalError> {
+    match focus {
+        [] => Ok(vec![]),
+        [v] => Ok(vec![Value::Bool(value_is_type(v, type_name))]),
+        _ => Err(EvalError::Type(format!(
+            "is requires a single-item input, got {}",
+            focus.len()
+        ))),
+    }
+}
+
 // ── String helpers ────────────────────────────────────────────────────────────
 
 pub(super) fn string_or_empty(col: &[Value]) -> Arc<str> {

@@ -2456,3 +2456,16 @@ fn is_as_function_on_multiple_items_is_error() {
         assert!(evaluate(expr, &make_patient()).is_err(), "{expr}");
     }
 }
+
+// N1 §6.3.1: the `is` operator behaves like is(): empty in, empty out.
+#[test]
+fn is_operator_on_empty_is_empty() {
+    assert!(eval("{} is Boolean").is_empty());
+    assert!(eval("deceased is Boolean").is_empty());
+}
+
+// N1 §6.3.1: the `is` operator on more than one item is an error.
+#[test]
+fn is_operator_on_multiple_items_is_error() {
+    assert!(evaluate("(1 | 2) is Integer", &make_patient()).is_err());
+}

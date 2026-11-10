@@ -159,6 +159,8 @@ Le système SHALL implémenter `where(criteria)`, `select(projection)`, `repeat(
 
 L'argument de `ofType`, `is` et `as` est un identifiant de nom de type. La correspondance de type (partagée par `ofType`, les fonctions `is`/`as` et les opérateurs `is`/`as`) SHALL accepter les types primitifs FHIRPath ainsi qu'un objet ressource dont `resourceType` est exactement égal au nom de type. Elle ne SHALL pas gérer l'héritage (`Resource`, `DomainResource`), les noms de types complexes FHIR, ni les noms qualifiés (`FHIR.X`, `System.X`).
 
+L'opérateur `is` (`X is Type`) SHALL avoir exactement la même sémantique que la fonction `is(Type)` (N1 §6.3.1) : collection vide en entrée -> collection vide, un seul élément -> `[Bool(true)]` ou `[Bool(false)]`, plus d'un élément -> `Err(EvalError::Type(...))`.
+
 #### Scenario: where filtre les éléments
 
 - **WHEN** `where(active = true)` est évalué sur une collection d'objets
@@ -188,6 +190,11 @@ L'argument de `ofType`, `is` et `as` est un identifiant de nom de type. La corre
 
 - **WHEN** `is(type)` ou `as(type)` est évalué sur une collection de plus d'un élément
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))` (test officiel `testFHIRPathAsFunction21`)
+
+#### Scenario: l'opérateur is suit la sémantique de is()
+
+- **WHEN** `X is Type` est évalué avec `X` vide, d'un seul élément, ou de plusieurs éléments
+- **THEN** le résultat SHALL être respectivement une collection vide, `[Bool(true)]`/`[Bool(false)]`, ou `Err(EvalError::Type(...))`, comme pour `X.is(Type)`
 
 ---
 
