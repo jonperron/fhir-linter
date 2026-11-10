@@ -60,6 +60,35 @@ fn empty_div_counts_as_absent() {
     );
 }
 
+fn fires(json: &str, rule: &str) -> bool {
+    run(json, "").unwrap().iter().any(|(id, _)| id == rule)
+}
+
+fn patient_with_div(div: &str) -> String {
+    format!(r#"{{"resourceType":"Patient","text":{{"status":"generated","div":"{div}"}}}}"#)
+}
+
+// narrative.html: the div SHALL have some non-whitespace content (text or an image).
+#[test]
+fn div_with_only_markup_and_whitespace_counts_as_absent() {
+    for div in [
+        r#"<div xmlns=\"http://www.w3.org/1999/xhtml\">   </div>"#,
+        r#"<div xmlns=\"http://www.w3.org/1999/xhtml\"><p> </p><br/></div>"#,
+    ] {
+        assert!(fires(&patient_with_div(div), "narrative-absent"), "{div}");
+    }
+}
+
+#[test]
+fn div_with_text_or_image_has_content() {
+    for div in [
+        r#"<div xmlns=\"http://www.w3.org/1999/xhtml\"><p>hi</p></div>"#,
+        r#"<div xmlns=\"http://www.w3.org/1999/xhtml\"><img src=\"x.png\"/></div>"#,
+    ] {
+        assert!(!fires(&patient_with_div(div), "narrative-absent"), "{div}");
+    }
+}
+
 #[test]
 fn resource_without_text_or_identifier_element_is_not_flagged() {
     let ids: Vec<_> = run(r#"{"resourceType":"Parameters"}"#, "")

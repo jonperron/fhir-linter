@@ -11,6 +11,28 @@ fn has_element(resource: &Resource, registry: &Registry, name: &str) -> bool {
         .is_some_and(|sd| sd.element(&format!("{rt}.{name}")).is_some())
 }
 
+/// narrative.html: the div SHALL have some non-whitespace content (text or an image), so
+/// it has content when, tags stripped, non-whitespace text or an `<img>` element remains.
+fn div_has_content(div: &str) -> bool {
+    let mut rest = div;
+    while let Some(open) = rest.find('<') {
+        if !rest[..open].trim().is_empty() {
+            return true;
+        }
+        let tag = &rest[open + 1..];
+        let end = tag.find('>').unwrap_or(tag.len());
+        let name = tag[..end]
+            .split(|c: char| c.is_whitespace() || c == '/')
+            .next()
+            .unwrap_or_default();
+        if name.rsplit(':').next() == Some("img") {
+            return true;
+        }
+        rest = &tag[(end + 1).min(tag.len())..];
+    }
+    !rest.trim().is_empty()
+}
+
 /// The resource has no (or an empty) human-readable narrative.
 pub struct NarrativeAbsent;
 
@@ -25,7 +47,7 @@ impl Rule for NarrativeAbsent {
         }
         let div_empty = match resource.fields.get("text").map(|n| &n.value) {
             Some(Value::Object(text)) => {
-                !matches!(text.get("div").map(|n| &n.value), Some(Value::Str(s)) if !s.trim().is_empty())
+                !matches!(text.get("div").map(|n| &n.value), Some(Value::Str(s)) if div_has_content(s))
             }
             _ => true,
         };
