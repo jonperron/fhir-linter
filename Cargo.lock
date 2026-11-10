@@ -130,6 +130,7 @@ dependencies = [
  "fhir-definitions",
  "fhir-parser",
  "fhir-validator",
+ "quick-xml",
  "serde",
  "toml",
 ]
