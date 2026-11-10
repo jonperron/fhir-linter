@@ -477,6 +477,21 @@ fn dom6_is_evaluated_not_skipped() {
     }
 }
 
+// dgr-1 calls `resolve()`, which the evaluator does not implement: it must be
+// reported as skipped, never as a violation.
+#[test]
+fn dgr1_with_unimplemented_resolve_is_skipped_not_violated() {
+    let json = r#"{"resourceType":"DiagnosticReport","status":"final","code":{"text":"x"},
+        "composition":{"reference":"Composition/c1"}}"#;
+    let resource = parse_json(json).unwrap();
+    let found: Vec<String> = validate(&resource, &load_registry())
+        .into_iter()
+        .filter(|d| d.code.contains("dgr-1") || d.message.contains("dgr-1"))
+        .map(|d| format!("{:?} {} {}", d.severity, d.code, d.path))
+        .collect();
+    assert_eq!(found, ["Information INVARIANT_SKIPPED DiagnosticReport"]);
+}
+
 #[test]
 fn content_reference_element_is_not_unknown() {
     let found = codes_for(

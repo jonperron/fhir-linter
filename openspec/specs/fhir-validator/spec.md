@@ -412,6 +412,12 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 - **THEN** un Diagnostic `Warning` avec code `INVARIANT_dom-6` SHALL être émis
 - **AND** aucun Diagnostic `INVARIANT_SKIPPED` ne SHALL être émis pour `dom-6`
 
+#### Scenario: Invariant dgr-1 ignoré (resolve() non implémenté)
+
+- **WHEN** une DiagnosticReport R5 avec `composition` est validée (contrainte `dgr-1`, dont l'expression appelle `resolve()`)
+- **THEN** aucun Diagnostic `INVARIANT_dgr-1` ne SHALL être émis
+- **AND** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` nommant `dgr-1` SHALL être émis
+
 #### Scenario: Severity `information` mappée en Warning
 
 - **WHEN** une contrainte violée a `severity="information"`

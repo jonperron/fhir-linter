@@ -1266,25 +1266,30 @@ fn get_value_returns_non_null_items() {
     assert_eq!(result, vec![Value::Integer(42)]);
 }
 
+// Unimplemented functions must error, never return a plausible-looking answer.
 #[test]
-fn html_checks_returns_true() {
-    let result = evaluate("htmlChecks()", &[]).unwrap();
-    assert_eq!(result, vec![Value::Bool(true)]);
-}
-
-#[test]
-fn comparable_true_for_numeric_collection() {
-    let col = vec![Value::Integer(1), Value::Decimal(2.0)];
-    let result = fhir_fhirpath::evaluate("$this.comparable()", &col).unwrap();
-    assert_eq!(result, vec![Value::Bool(true)]);
-}
-
-#[test]
-fn comparable_false_when_collection_contains_object() {
-    let fields: IndexMap<Arc<str>, Collection> = IndexMap::new();
-    let col = vec![Value::Object(Arc::new(fields))];
-    let result = fhir_fhirpath::evaluate("$this.comparable()", &col).unwrap();
-    assert_eq!(result, vec![Value::Bool(false)]);
+fn unimplemented_functions_are_undefined() {
+    for expr in [
+        "resolve()",
+        "memberOf('http://hl7.org/fhir/ValueSet/x')",
+        "conformsTo('http://hl7.org/fhir/StructureDefinition/Patient')",
+        "today()",
+        "now()",
+        "timeOfDay()",
+        "1.5.lowBoundary()",
+        "1.5.highBoundary()",
+        "1.5.precision()",
+        "htmlChecks()",
+        "1.comparable(2)",
+    ] {
+        assert!(
+            matches!(
+                evaluate(expr, &[]),
+                Err(fhir_fhirpath::EvalError::UndefinedFunction(_))
+            ),
+            "{expr}"
+        );
+    }
 }
 
 #[test]

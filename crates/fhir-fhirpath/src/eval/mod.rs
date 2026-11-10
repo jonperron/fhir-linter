@@ -1,8 +1,8 @@
-/// FHIRPath 3.0 expression evaluator.
+/// FHIRPath expression evaluator (FHIRPath release 2, as used by FHIR R5).
 ///
 /// The evaluator walks an [`Expr`] AST and produces a [`Collection`].
-/// All functions described in the FHIRPath 3.0 specification are implemented
-/// here, grouped by category.
+/// Implemented functions are grouped by category; any other function name
+/// yields [`EvalError::UndefinedFunction`].
 use std::sync::Arc;
 
 use crate::ast::{Expr, TemporalKind};

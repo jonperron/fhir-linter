@@ -2,8 +2,9 @@
 
 ## Purpose
 
-Évaluateur FHIRPath 3.0 (STU) en Rust, utilisé pour valider les invariants `constraint.expression` des StructureDefinitions FHIR R5.
-Implémente la spécification HL7 FHIRPath 3.0 (https://build.fhir.org/ig/HL7/FHIRPath/en/).
+Évaluateur FHIRPath en Rust, utilisé pour valider les invariants `constraint.expression` des StructureDefinitions FHIR R5.
+Implémente un sous-ensemble de FHIRPath release 2 (2.0.0, http://hl7.org/fhirpath/N1/), version utilisée par FHIR R5, plus quelques ajouts ultérieurs ; les fonctions non implémentées retournent `EvalError::UndefinedFunction`.
+
 ## Requirements
 ### Requirement: API publique evaluate
 
@@ -47,9 +48,9 @@ Le système SHALL exposer `parse(expression: &str) -> Result<ast::Expr, ParseErr
 
 ---
 
-### Requirement: Grammaire PEG FHIRPath 3.0
+### Requirement: Grammaire PEG FHIRPath release 2
 
-Le système SHALL implémenter une grammaire PEG via `pest` couvrant l'intégralité de la syntaxe FHIRPath 3.0.
+Le système SHALL implémenter une grammaire PEG via `pest` couvrant la syntaxe de FHIRPath release 2 (2.0.0), version utilisée par FHIR R5, plus quelques ajouts ultérieurs (par ex. le littéral Long).
 
 #### Scenario: Littéraux pris en charge
 
@@ -95,7 +96,7 @@ Le système SHALL implémenter une grammaire PEG via `pest` couvrant l'intégral
 
 ### Requirement: AST Expr
 
-Le système SHALL exposer un enum `Expr` couvrant toutes les constructions FHIRPath 3.0.
+Le système SHALL exposer un enum `Expr` couvrant toutes les constructions de la grammaire prise en charge.
 
 #### Scenario: Variantes de l'AST
 
@@ -408,7 +409,7 @@ Le système SHALL implémenter `children()` et `descendants()`.
 
 ### Requirement: Fonctions diverses
 
-Le système SHALL implémenter `not()`, `iif(condition, trueResult, otherwiseResult)`, `trace(name)`, `now()`, `today()`, `timeOfDay()`, `hasValue()`, `getValue()`, `htmlChecks()`, `comparable(other)`, `type()`, `lowBoundary()`, `highBoundary()`, `precision()`.
+Le système SHALL implémenter `not()`, `iif(condition, trueResult, otherwiseResult)`, `trace(name)`, `hasValue()`, `getValue()`, `type()`. Les autres fonctions diverses de FHIRPath ne sont pas implémentées (voir « Limitations connues »).
 
 #### Scenario: not inverse un booléen
 
@@ -473,10 +474,11 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 - **WHEN** `aggregate()` est utilisé avec une référence à `$total`
 - **THEN** l'accumulateur `$total` ne sera pas accessible (comportement non défini dans l'implémentation actuelle)
 
-#### Scenario: Fonctions terminologiques retournent une collection vide
+#### Scenario: Fonctions non implémentées retournent UndefinedFunction
 
-- **WHEN** `resolve()`, `conformsTo()` ou `memberOf()` sont évalués
-- **THEN** le résultat SHALL être une collection vide (aucun serveur terminologique connecté)
+- **WHEN** `resolve()`, `memberOf()`, `conformsTo()`, `today()`, `now()`, `timeOfDay()`, `lowBoundary()`, `highBoundary()`, `precision()`, `htmlChecks()` ou `comparable()` est évalué
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::UndefinedFunction(name))` où `name` est le nom de la fonction
+- **AND** il SHALL NOT retourner de résultat deviné (collection vide, booléen), afin que le validateur signale la contrainte comme non vérifiée (`INVARIANT_SKIPPED`)
 
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 

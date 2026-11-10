@@ -1,8 +1,11 @@
 #![forbid(unsafe_code)]
-//! FHIRPath 2.0 evaluator.
+//! FHIRPath evaluator for `constraint.expression` invariants in FHIR R5
+//! StructureDefinitions.
 //!
-//! Implements the full FHIRPath specification required to evaluate
-//! `constraint.expression` invariants from FHIR StructureDefinitions.
+//! FHIR R5 uses FHIRPath release 2 (2.0.0). This crate implements a subset
+//! of it, plus a few later additions; functions it does not implement
+//! (for example `resolve()` or `memberOf()`) return
+//! [`EvalError::UndefinedFunction`] rather than a guessed result.
 
 mod ast;
 mod error;
