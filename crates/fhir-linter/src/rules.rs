@@ -1,8 +1,17 @@
 use fhir_definitions::Registry;
-use fhir_parser::{Resource, Value};
+use fhir_parser::{Node, Resource, Value};
 use fhir_validator::Diagnostic;
 
 use crate::Rule;
+
+/// A repeating element is given only when its array holds at least one non-null item.
+fn is_given(node: Option<&Node>) -> bool {
+    match node.map(|n| &n.value) {
+        None => false,
+        Some(Value::Array(items)) => items.iter().any(|n| !matches!(n.value, Value::Null)),
+        Some(_) => true,
+    }
+}
 
 fn has_element(resource: &Resource, registry: &Registry, name: &str) -> bool {
     let rt = resource.resource_type.as_ref();
@@ -90,7 +99,7 @@ impl Rule for MissingIdentifier {
     }
 
     fn check(&self, resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
-        if resource.fields.contains_key("identifier")
+        if is_given(resource.fields.get("identifier"))
             || !has_element(resource, registry, "identifier")
             || !bundle_needs_identity(resource)
         {
@@ -115,7 +124,7 @@ impl Rule for MissingMetaProfile {
     fn check(&self, resource: &Resource, _registry: &Registry) -> Vec<Diagnostic> {
         let declared = matches!(
             resource.fields.get("meta").map(|n| &n.value),
-            Some(Value::Object(meta)) if meta.contains_key("profile")
+            Some(Value::Object(meta)) if is_given(meta.get("profile"))
         );
         if declared {
             return vec![];
