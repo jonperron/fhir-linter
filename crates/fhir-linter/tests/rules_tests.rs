@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use fhir_definitions::Registry;
 use fhir_linter::{Config, RuleRegistry};
-use fhir_parser::parse_json;
+use fhir_parser::{parse_json, parse_xml};
 use fhir_validator::Severity;
 
 fn registry() -> Registry {
@@ -138,6 +138,66 @@ fn identifier_and_profile_findings_carry_the_meta_span() {
         let d = found.iter().find(|d| d.code.as_ref() == code).unwrap();
         assert_eq!(d.location, Some(meta_span), "{code}");
     }
+}
+
+fn fires_xml(xml: &str, rule: &str) -> bool {
+    RuleRegistry::default()
+        .run(&parse_xml(xml).unwrap(), &registry(), &Config::default())
+        .unwrap()
+        .iter()
+        .any(|d| d.rule.as_deref() == Some(rule))
+}
+
+#[test]
+fn markup_in_attributes_or_comments_is_not_content() {
+    for div in [
+        r#"<div xmlns=\"http://www.w3.org/1999/xhtml\"><p title=\"a>b\"></p></div>"#,
+        r#"<div xmlns=\"http://www.w3.org/1999/xhtml\"><!-- a > b --></div>"#,
+    ] {
+        assert!(fires(&patient_with_div(div), "narrative-absent"), "{div}");
+    }
+}
+
+// XML whitespace is space, tab, CR and LF only: a non-breaking space is text.
+#[test]
+fn cdata_space_image_and_malformed_markup_are_content() {
+    for div in [
+        r#"<div xmlns=\"http://www.w3.org/1999/xhtml\"><![CDATA[hi]]></div>"#,
+        r#"<div xmlns=\"http://www.w3.org/1999/xhtml\">&#160;</div>"#,
+        "<div xmlns=\\\"http://www.w3.org/1999/xhtml\\\">\u{a0}</div>",
+        r#"<div xmlns=\"http://www.w3.org/1999/xhtml\"><p><h:img xmlns:h=\"urn:h\"/></p></div>"#,
+        // Malformed XHTML is the validator's finding, not an empty narrative.
+        r#"<div xmlns=\"http://www.w3.org/1999/xhtml\"><p></div>"#,
+    ] {
+        assert!(!fires(&patient_with_div(div), "narrative-absent"), "{div}");
+    }
+}
+
+const XHTML: &str = r#"xmlns="http://www.w3.org/1999/xhtml""#;
+
+// The XML parser hands the div over as decoded text, not markup.
+#[test]
+fn xml_div_text_that_looks_like_markup_is_content() {
+    let xml = format!(
+        r#"<Patient xmlns="http://hl7.org/fhir"><text><status value="generated"/>
+        <div {XHTML}>&lt;br/&gt;</div></text></Patient>"#
+    );
+    assert!(!fires_xml(&xml, "narrative-absent"));
+}
+
+// In XML a primitive with an extension is an object holding `value`.
+#[test]
+fn xml_primitives_with_extensions_are_read() {
+    let ext = r#"<extension url="http://x"><valueString value="y"/></extension>"#;
+    let patient = format!(
+        r#"<Patient xmlns="http://hl7.org/fhir"><text><status value="empty">{ext}</status>
+        <div {XHTML}>hi</div></text></Patient>"#
+    );
+    assert!(fires_xml(&patient, "narrative-absent"));
+    let bundle = format!(
+        r#"<Bundle xmlns="http://hl7.org/fhir"><type value="document">{ext}</type></Bundle>"#
+    );
+    assert!(fires_xml(&bundle, "missing-identifier"));
 }
 
 #[test]
