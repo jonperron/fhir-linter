@@ -117,9 +117,13 @@ fn bundle_identifier_expected_only_for_document_message_collection() {
 
 #[test]
 fn empty_identifier_or_profile_array_counts_as_missing() {
-    let json = r#"{"resourceType":"Patient","identifier":[],"meta":{"profile":[]}}"#;
-    assert!(fires(json, "missing-identifier"));
-    assert!(fires(json, "missing-meta-profile"));
+    for json in [
+        r#"{"resourceType":"Patient","identifier":[],"meta":{"profile":[]}}"#,
+        r#"{"resourceType":"Patient","identifier":[null],"meta":{"profile":[null]}}"#,
+    ] {
+        assert!(fires(json, "missing-identifier"), "{json}");
+        assert!(fires(json, "missing-meta-profile"), "{json}");
+    }
 }
 
 #[test]

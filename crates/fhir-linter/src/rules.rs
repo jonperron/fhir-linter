@@ -22,6 +22,9 @@ fn has_element(resource: &Resource, registry: &Registry, name: &str) -> bool {
 
 /// narrative.html: the div SHALL have some non-whitespace content (text or an image), so
 /// it has content when, tags stripped, non-whitespace text or an `<img>` element remains.
+/// Entity and character references (`&#160;`) count as text.
+// shortcut: a tag ends at its first `>`, so a `>` inside an attribute value or comment leaves
+// text behind and silences the rule; use a real XHTML parser if that ever matters.
 fn div_has_content(div: &str) -> bool {
     let mut rest = div;
     while let Some(open) = rest.find('<') {
