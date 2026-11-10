@@ -26,7 +26,10 @@ project profile wins where they differ.
   and `git ls-remote` to see if the PR head moved since your caller gave
   it to you. Name your local branch after your worktree, never a fixed
   `rebase-<n>` that the next run will reuse. If you find another agent
-  working on the same PR, stop and report.
+  working on the same PR, stop and report. These checks do not make the
+  claim exclusive: the lease or a normal push is what stops two writers.
+  If your push is rejected because the PR head moved, stop and report.
+  Never rebase or merge over commits you did not write.
 
 ## Trust
 
@@ -77,7 +80,8 @@ it into a scratch branch, measure, and report the combined result. Do
 not push that merge.
 
 After a rebase or a merge of the base, run the behaviour baseline and
-re-measure every floor, even when there were no conflicts. Two PRs that
+re-measure every floor, even when there were no conflicts. Skip only for
+a PR that changes docs alone, or a rebase that left the tree unchanged. Two PRs that
 are each correct can break together once both are in the base.
 
 ## Commits and PRs
@@ -89,8 +93,10 @@ are each correct can break together once both are in the base.
   Never plain `--force`.
 - PR body: what, why, how it was tested, behaviour changes users will see,
   and the footer the profile names.
-- If the classifier refuses a force push, merge the base into the branch
-  and push normally. Do not look for a way around the refusal.
+- If the classifier refuses a force push, drop the rebased branch: start
+  a new local branch from `origin/<head>`, merge `origin/<base>` into it,
+  redo the checks, and push normally. Do not look for a way around the
+  refusal.
 
 ## After the push
 
@@ -100,16 +106,19 @@ phase, including fix pushes and rebases.
 1. CI: watch every check on the pushed head until all of them have
    finished. Poll in the background (see the profile's shell quirks). A
    merge state of UNKNOWN means GitHub is still computing it, so poll
-   again. Never report while a check is still running.
+   again. Never report while a check is still running. If a check is
+   still queued or running, or the merge state still UNKNOWN, after about
+   30 minutes, stop waiting and report which checks are stuck.
    - Red check caused by your change: fix it through the gate, push, and
      watch again.
    - Red check you cannot link to your diff (flaky test, runner or
      network failure): rerun it once. If it fails again, report it. Do
      not push guesses.
 2. Automated review: follow `.claude/agents/bot-review-responder.md`.
-   Wait for the bot within the budget, verify every comment yourself,
-   fix the real ones and reply to every one.
-3. Ask first. Stop and report to your caller instead of acting when:
+   Wait for the bot within the budget and verify every comment yourself.
+   Sort each finding through step 3 before you change anything. Fix the
+   real ones in one pass (step 4), then reply to every comment.
+3. Ask first. Do not fix; stop and report to your caller when:
    - a finding is CRITICAL, from the bot or from a reviewer subagent,
      even after you have confirmed it;
    - the review asks for a human (for example "needs a human reviewer");
@@ -121,7 +130,7 @@ phase, including fix pushes and rebases.
    Your caller asks the user. Do not decide for them.
 4. One round. Fixes for review comments get exactly one pass: change,
    gate, the routed reviewers once, fix what those reviewers found (or
-   ask, per step 3), gate, push, reply. Then stop: do not run the
+   ask, per step 3), gate, then push, then reply with the pushed SHA. Then stop: do not run the
    reviewers again, do not wait for a bot re-review, and do not start a
    second bot round. List anything still open in your report. The
    5-round quality loop is for the first implementation, not for review

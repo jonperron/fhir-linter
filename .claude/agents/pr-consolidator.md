@@ -26,6 +26,9 @@ read `.claude/factory/loop.md` and `.claude/factory/project.md`.
    source branch (run `.claude/agents/behaviour-differ.md`'s method
    yourself, or spawn `behaviour-differ` with the sources as extra refs).
    Output that a source branch added must still be in the combined result.
+   Check that each source branch's report lists a verdict from every
+   routed reviewer. For a branch without one, run those reviewers on that
+   branch's own diff before you bring it in.
 3. Bring in each source branch in order. Prefer a linear rebase of its
    commits (`git cherry-pick` or rebase) so each original commit survives;
    use a merge commit only if the history is too tangled. Resolve conflicts

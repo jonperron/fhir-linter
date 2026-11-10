@@ -28,8 +28,7 @@ behaviour from either side. First read `.claude/factory/loop.md` and
    quirks). Never touch the other worktree.
 3. Record the behaviour baseline on `origin/<base>` AND on the pre-rebase
    PR head `origin/<head>` (method from
-   `.claude/agents/behaviour-differ.md`). Skip it for docs-only or
-   config-only PRs.
+   `.claude/agents/behaviour-differ.md`). Skip it only for docs-only PRs.
 4. Rebase onto `origin/<base>`. For every conflict, read both sides and
    keep both behaviours. If the PR deleted a file the base changed, port
    the base's change to where that code now lives. Fold a port into the
@@ -46,6 +45,7 @@ behaviour from either side. First read `.claude/factory/loop.md` and
    rebase after #X" note from the PR body that is now done
    (`gh pr edit --body-file`).
 8. Follow `.claude/agents/bot-review-responder.md` for this PR: reply to
-   every comment that has no answer yet, and wait once for a new review.
+   every comment that has no answer yet. Its wait budget is the only
+   wait; do not start a second bot round after your fixes.
 9. Report per `loop.md`: list every conflict and how you resolved it, and
    where ported logic now lives.
