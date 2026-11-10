@@ -90,6 +90,14 @@ fn bundle_needs_identity(resource: &Resource) -> bool {
         )
 }
 
+/// Locate a resource-level finding at `meta`, the closest span when it is present.
+fn at_meta(resource: &Resource, diagnostic: Diagnostic) -> Diagnostic {
+    match resource.fields.get("meta") {
+        Some(meta) => diagnostic.with_location(meta.span),
+        None => diagnostic,
+    }
+}
+
 /// The resource type supports `identifier` but none is given.
 pub struct MissingIdentifier;
 
@@ -105,10 +113,13 @@ impl Rule for MissingIdentifier {
         {
             return vec![];
         }
-        vec![Diagnostic::warning(
-            "LINT_002",
-            "Resource has no identifier",
-            format!("{}.identifier", resource.resource_type),
+        vec![at_meta(
+            resource,
+            Diagnostic::warning(
+                "LINT_002",
+                "Resource has no identifier",
+                format!("{}.identifier", resource.resource_type),
+            ),
         )]
     }
 }
@@ -129,10 +140,13 @@ impl Rule for MissingMetaProfile {
         if declared {
             return vec![];
         }
-        vec![Diagnostic::warning(
-            "LINT_003",
-            "Resource does not declare meta.profile",
-            format!("{}.meta.profile", resource.resource_type),
+        vec![at_meta(
+            resource,
+            Diagnostic::warning(
+                "LINT_003",
+                "Resource does not declare meta.profile",
+                format!("{}.meta.profile", resource.resource_type),
+            ),
         )]
     }
 }

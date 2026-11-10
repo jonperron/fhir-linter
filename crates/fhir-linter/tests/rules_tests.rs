@@ -123,6 +123,20 @@ fn empty_identifier_or_profile_array_counts_as_missing() {
 }
 
 #[test]
+fn identifier_and_profile_findings_carry_the_meta_span() {
+    let json = r#"{"resourceType":"Patient","meta":{"versionId":"1"}}"#;
+    let resource = parse_json(json).unwrap();
+    let meta_span = resource.fields.get("meta").unwrap().span;
+    let found = RuleRegistry::default()
+        .run(&resource, &registry(), &Config::default())
+        .unwrap();
+    for code in ["LINT_002", "LINT_003"] {
+        let d = found.iter().find(|d| d.code.as_ref() == code).unwrap();
+        assert_eq!(d.location, Some(meta_span), "{code}");
+    }
+}
+
+#[test]
 fn resource_without_text_or_identifier_element_is_not_flagged() {
     let ids: Vec<_> = run(r#"{"resourceType":"Parameters"}"#, "")
         .unwrap()
