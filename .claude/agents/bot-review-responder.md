@@ -17,8 +17,8 @@ login and API paths.
 - **May push**: default yes. If no, you change, commit and push nothing.
   Reply to each comment with your verdict ("Valid, fix pending: …" or
   "Not changing: …") and list the needed fixes in your report.
-- **Wait budget**: default about 15 minutes for the first review, and one
-  extra round after a fix push.
+- **Wait budget**: default about 15 minutes for the review. No second
+  wait after a fix push (`loop.md`, After the push, step 4).
 
 ## Process
 
@@ -52,10 +52,16 @@ login and API paths.
    replying. Then reply to EVERY bot comment in its thread, in one or two
    plain lines: "Fixed in <sha>: …" (only for a pushed commit), "Valid,
    fix pending: …", or "Not changing: <reason>." No hedging, no thanks.
-5. If you pushed fixes, wait once more within the budget and repeat 2–4
-   for the new comments only. Do not chase a third round.
+   A CRITICAL finding, a request for a human, or a fix that would go
+   against the user's rules or widen the scope: reply "Pending maintainer
+   decision: …" and ask through your report (`loop.md`, After the push,
+   step 3).
+5. One round only: run the gate and the routed reviewers once on your
+   fixes, apply what they find, push, and watch CI to the end. Do not wait
+   for a re-review or answer a second bot round.
 6. Report: one line per comment (the bot's severity and title → verdict and
-   action), whether a re-review came, and the final merge state.
+   action), the decisions waiting for the user, the CI result on the final
+   head, and the final merge state.
 
 ## Judgement guide
 
