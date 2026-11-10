@@ -1139,7 +1139,15 @@ fn temporal_primitives_follow_the_r5_regexes() {
             false,
         ),
         ("Patient", "deceasedDateTime", "2020-02-30T10:00:00Z", false),
-        ("Patient", "deceasedDateTime", "2020-01-01Z", false),
+        // The R5 regex allows a zone on a year-month or full date (PLAN 11.2-A5).
+        ("Patient", "deceasedDateTime", "2020-01-01Z", true),
+        ("Patient", "deceasedDateTime", "2020-01Z", true),
+        ("Patient", "deceasedDateTime", "2020-01-01+02:00", true),
+        // Year-month with a `-05:00` offset, as the regex reads it.
+        ("Patient", "deceasedDateTime", "2020-01-05:00", true),
+        ("Patient", "deceasedDateTime", "2020Z", false),
+        ("Patient", "deceasedDateTime", "2020-01-01+", false),
+        ("Patient", "deceasedDateTime", "2020-01-01Zjunk", false),
         ("Patient", "deceasedDateTime", "2020-01-01T10:00:00+", false),
         ("Observation", "issued", "2020-01-01T10:00:00.5Z", true),
         ("Observation", "issued", "2020", false),
@@ -1166,6 +1174,35 @@ fn temporal_primitives_follow_the_r5_regexes() {
             vec!["TYPE_003".into()]
         };
         assert_eq!(found, expected, "{rt}.{field} = {value:?}");
+    }
+}
+
+#[test]
+fn code_follows_the_r5_regex() {
+    // R5 `code` regex: `[^\s]+( [^\s]+)*`.
+    let registry = load_registry();
+    let cases: &[(&str, bool)] = &[
+        ("text/plain; charset=utf-8", true),
+        ("final", true),
+        ("a  b", false),
+        (" a", false),
+        ("a ", false),
+        ("a\\tb", false),
+        ("", false),
+    ];
+    for (value, valid) in cases {
+        let found = type_codes_at(
+            &registry,
+            "Observation",
+            &format!(r#""valueAttachment":{{"contentType":"{value}"}}"#),
+            "Observation.valueAttachment.contentType",
+        );
+        let expected: Vec<String> = if *valid {
+            vec![]
+        } else {
+            vec!["TYPE_004".into()]
+        };
+        assert_eq!(found, expected, "contentType = {value:?}");
     }
 }
 
