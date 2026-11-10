@@ -97,6 +97,24 @@ fn status_empty_counts_as_absent() {
     assert!(fires(json, "narrative-absent"));
 }
 
+// Bundle.identifier comment: identity only matters for document, message and collection.
+#[test]
+fn bundle_identifier_expected_only_for_document_message_collection() {
+    let bundle = |kind: &str| format!(r#"{{"resourceType":"Bundle","type":"{kind}"}}"#);
+    for kind in ["document", "message", "collection"] {
+        assert!(fires(&bundle(kind), "missing-identifier"), "{kind}");
+    }
+    for kind in [
+        "searchset",
+        "history",
+        "batch",
+        "transaction",
+        "batch-response",
+    ] {
+        assert!(!fires(&bundle(kind), "missing-identifier"), "{kind}");
+    }
+}
+
 #[test]
 fn resource_without_text_or_identifier_element_is_not_flagged() {
     let ids: Vec<_> = run(r#"{"resourceType":"Parameters"}"#, "")

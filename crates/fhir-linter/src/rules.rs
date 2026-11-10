@@ -71,6 +71,16 @@ impl Rule for NarrativeAbsent {
     }
 }
 
+/// R5 `Bundle.identifier` comment: persistent identity only matters for Bundles of type
+/// document, message and collection. Always true for other resource types.
+fn bundle_needs_identity(resource: &Resource) -> bool {
+    resource.resource_type.as_ref() != "Bundle"
+        || matches!(
+            resource.fields.get("type").map(|n| &n.value),
+            Some(Value::Str(kind)) if matches!(kind.as_ref(), "document" | "message" | "collection")
+        )
+}
+
 /// The resource type supports `identifier` but none is given.
 pub struct MissingIdentifier;
 
@@ -82,6 +92,7 @@ impl Rule for MissingIdentifier {
     fn check(&self, resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
         if resource.fields.contains_key("identifier")
             || !has_element(resource, registry, "identifier")
+            || !bundle_needs_identity(resource)
         {
             return vec![];
         }
