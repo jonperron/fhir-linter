@@ -89,6 +89,14 @@ fn div_with_text_or_image_has_content() {
     }
 }
 
+// narrative-status `empty`: "No human-readable text provided in this case".
+#[test]
+fn status_empty_counts_as_absent() {
+    let json = r#"{"resourceType":"Patient","text":{"status":"empty",
+        "div":"<div xmlns=\"http://www.w3.org/1999/xhtml\">No narrative</div>"}}"#;
+    assert!(fires(json, "narrative-absent"));
+}
+
 #[test]
 fn resource_without_text_or_identifier_element_is_not_flagged() {
     let ids: Vec<_> = run(r#"{"resourceType":"Parameters"}"#, "")

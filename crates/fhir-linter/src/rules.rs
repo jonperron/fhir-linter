@@ -45,13 +45,18 @@ impl Rule for NarrativeAbsent {
         if !has_element(resource, registry, "text") {
             return vec![];
         }
-        let div_empty = match resource.fields.get("text").map(|n| &n.value) {
+        let narrative_empty = match resource.fields.get("text").map(|n| &n.value) {
             Some(Value::Object(text)) => {
-                !matches!(text.get("div").map(|n| &n.value), Some(Value::Str(s)) if div_has_content(s))
+                let string = |key: &str| match text.get(key).map(|n| &n.value) {
+                    Some(Value::Str(s)) => Some(s.as_ref()),
+                    _ => None,
+                };
+                // narrative-status `empty`: no human-readable text, whatever the div says.
+                string("status") == Some("empty") || !string("div").is_some_and(div_has_content)
             }
             _ => true,
         };
-        if !div_empty {
+        if !narrative_empty {
             return vec![];
         }
         let d = Diagnostic::warning(
