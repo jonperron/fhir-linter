@@ -1626,6 +1626,68 @@ fn empty_array_on_optional_element_produces_cardinality_003_warning() {
 }
 
 #[test]
+fn cardinality_003_location_is_the_array_span() {
+    let json = r#"{"resourceType":"Patient","identifier":[]}"#;
+    let resource = parse_json(json).unwrap();
+    let found = validate(&resource, &load_registry())
+        .into_iter()
+        .find(|d| d.code.as_ref() == "CARDINALITY_003")
+        .expect("CARDINALITY_003");
+    let location = found.location.expect("location");
+    assert_eq!(location.offset as usize, json.find("[]").unwrap());
+}
+
+#[test]
+fn empty_array_on_max_one_element_gets_structure_002_and_cardinality_003() {
+    let found = codes_for(r#"{"resourceType":"Patient","gender":[]}"#);
+    for code in ["STRUCTURE_002", "CARDINALITY_003"] {
+        assert!(
+            found.contains(&(code.into(), "Patient.gender".into())),
+            "{code}: {found:?}"
+        );
+    }
+}
+
+#[test]
+fn profile_requiring_optional_element_reports_base_003_and_profile_001() {
+    // `subject` is 0..1 on Observation but 1..1 in the vitalsigns profile.
+    let json = VITAL_SIGNS_HEART_RATE.replace(
+        r#""subject": {"reference": "Patient/example"},"#,
+        r#""subject": [],"#,
+    );
+    assert_ne!(json, VITAL_SIGNS_HEART_RATE);
+    let found = codes_for(&json);
+    for code in ["CARDINALITY_003", "CARDINALITY_001"] {
+        assert!(
+            found.contains(&(code.into(), "Observation.subject".into())),
+            "{code}: {found:?}"
+        );
+    }
+}
+
+#[test]
+fn partly_null_arrays_and_choice_variants_get_no_cardinality_003() {
+    for (json, path) in [
+        (
+            r#"{"resourceType":"Patient","name":[{"given":[null,"a"]}]}"#,
+            "Patient.name[0].given",
+        ),
+        (
+            r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"valueQuantity":[]}"#,
+            "Observation.valueQuantity",
+        ),
+    ] {
+        let found = codes_for(json);
+        assert!(
+            !found.iter().any(|(code, p)| {
+                code == "CARDINALITY_003" || (code.starts_with("CARDINALITY") && p == path)
+            }),
+            "{json}: {found:?}"
+        );
+    }
+}
+
+#[test]
 fn null_values_backed_by_primitive_extensions_are_not_empty() {
     for json in [
         r#"{"resourceType":"Patient","identifier":[{"value":"1"}],"name":[{"given":[null],"_given":[{"id":"a"}]}]}"#,
