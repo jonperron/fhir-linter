@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.1](https://github.com/jonperron/fihr-linter/compare/fhir-linter-v0.5.0...fhir-linter-v0.5.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* **linter:** close narrative, identifier and profile rule gaps ([83fb381](https://github.com/jonperron/fihr-linter/commit/83fb381c310e4653f7d94f21403d33549048c617))
+* **linter:** limit bundle missing-identifier to persistent types ([3992212](https://github.com/jonperron/fihr-linter/commit/3992212ad5dc6ba94adc4028339d54f95c3dacae))
+* **linter:** locate identifier and profile findings at meta ([bdf8094](https://github.com/jonperron/fihr-linter/commit/bdf8094537f91794ff4c7f99523e26bb1c1220ec))
+* **linter:** report narrative with status empty as absent ([3b8eac5](https://github.com/jonperron/fihr-linter/commit/3b8eac5bca0d959eea1deca52fe2e6f3e256b09e))
+* **linter:** scan narrative xhtml properly and read xml primitives ([5e80ae3](https://github.com/jonperron/fihr-linter/commit/5e80ae37c2cb743c3a86b92524dce7dd67839b63))
+* **linter:** treat a markup-only narrative div as empty ([a06b2bd](https://github.com/jonperron/fihr-linter/commit/a06b2bd887c5123961bbf5d0113929a837337026))
+* **linter:** treat empty identifier and profile arrays as missing ([fb208f5](https://github.com/jonperron/fihr-linter/commit/fb208f55c680637b69074c12c2dc405ba461656c))
+* **release:** publish npm to github packages and python to pypi ([c4fb6e6](https://github.com/jonperron/fihr-linter/commit/c4fb6e6afa3284b0780cd7a728ec16d3aff6443c))
+* **release:** publish npm to github packages and python to pypi ([5fd6151](https://github.com/jonperron/fihr-linter/commit/5fd615176ddffc634bbcf83b426d5e97f6e3ec94))
+
 ## [0.5.0](https://github.com/jonperron/fihr-linter/compare/fhir-linter-v0.4.1...fhir-linter-v0.5.0) (2026-11-09)
 
 
