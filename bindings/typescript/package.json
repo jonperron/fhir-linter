@@ -1,8 +1,16 @@
 {
-  "name": "fhir-linter",
+  "name": "@jonperron/fhir-linter",
   "version": "0.5.0",
   "description": "Node.js bindings for the FHIR R5 linter and validator",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jonperron/fihr-linter.git",
+    "directory": "bindings/typescript"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "type": "module",
   "main": "index.js",
   "types": "index.d.ts",

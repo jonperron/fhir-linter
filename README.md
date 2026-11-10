@@ -17,10 +17,13 @@ Built-in lint rules:
 
 ## Install
 
-Each GitHub release carries the Python wheels and sdist, and an npm
-tarball (`npm install ./fhir-linter-<version>.tgz`), for Linux x86_64,
-macOS arm64 and Windows x86_64. The `fhir-lint` CLI is not released yet.
-Nothing is published to PyPI, npm or crates.io yet. On Linux, the npm
+Each release is published to PyPI (`pip install fhir-linter`) and to
+GitHub Packages (`@jonperron/fhir-linter`), and its wheels, sdist and
+npm tarball are attached to the GitHub release, for Linux x86_64, macOS
+arm64 and Windows x86_64. Installing from GitHub Packages needs
+`@jonperron:registry=https://npm.pkg.github.com` in `.npmrc` and a token
+with `read:packages`. The `fhir-lint` CLI is not released yet, and
+nothing is published to crates.io or npmjs.org. On Linux, the npm
 addon needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12, RHEL 10); the
 wheels are manylinux2014 (glibc 2.17).
 
