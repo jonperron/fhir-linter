@@ -119,6 +119,7 @@ dependencies = [
  "indexmap",
  "pest",
  "pest_derive",
+ "quick-xml",
  "regex-lite",
  "thiserror",
 ]
