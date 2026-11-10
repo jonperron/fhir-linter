@@ -9,7 +9,7 @@ use crate::type_check::{check_type, is_valid_id};
 /// Validate the resource's elements at every depth, starting at the top level.
 ///
 /// Applies the structural (`STRUCTURE_001`, and `STRUCTURE_002` array shape when `json`),
-/// cardinality (`CARDINALITY_001/002`) and primitive type (`TYPE_*`) checks recursively
+/// cardinality (`CARDINALITY_001/002/003`) and primitive type (`TYPE_*`) checks recursively
 /// into backbone elements and complex types. Terminology, invariants, references and
 /// profile layers remain top-level only.
 ///
@@ -318,6 +318,9 @@ pub(crate) fn check_children_cardinality(
         let node = present(fields, elem, rest);
         // An absent optional element cannot fail; skip building its path.
         if node.is_none() && elem.min == 0 {
+            if let Some(empty) = fields.get(rest) {
+                push_empty_array(empty, &format!("{path}.{rest}"), diagnostics);
+            }
             continue;
         }
         check_cardinality(elem, node, &format!("{path}.{rest}"), diagnostics);
@@ -380,21 +383,45 @@ pub(crate) fn is_primitive(ty: &str) -> bool {
     ty.starts_with(|c: char| c.is_ascii_lowercase())
 }
 
+/// An array holding no value: empty or only nulls (R5 json.html: "Objects are never empty").
+fn is_empty_array(node: &Node) -> bool {
+    let Value::Array(items) = &node.value else {
+        return false;
+    };
+    items.iter().all(|item| matches!(item.value, Value::Null))
+}
+
+/// Warn (`CARDINALITY_003`) that an optional element holds an empty or all-null array.
+fn push_empty_array(node: &Node, path: &str, diagnostics: &mut Vec<Diagnostic>) {
+    diagnostics.push(
+        Diagnostic::warning(
+            "CARDINALITY_003",
+            format!("Element '{path}' is an array with no values and should be omitted"),
+            path.to_owned(),
+        )
+        .with_location(node.span),
+    );
+}
+
 /// The node that makes `elem` present: its value, or the `_name` primitive extension
 /// (which stands in for an absent value only on primitive types, named in lowercase).
+/// An empty or all-null value array is no value.
 fn present<'a>(
     fields: &'a IndexMap<Arc<str>, Node>,
     elem: &ElementDefinition,
     name: &str,
 ) -> Option<&'a Node> {
-    fields.get(name).or_else(|| {
-        // Only primitives take a `_name`; skip building the key for the rest.
-        let primitive = elem.types.first().is_some_and(|t| is_primitive(t));
-        primitive
-            .then(|| fields.get(format!("_{name}").as_str()))
-            .flatten()
-            .filter(|node| is_extension_shape(node))
-    })
+    fields
+        .get(name)
+        .filter(|node| !is_empty_array(node))
+        .or_else(|| {
+            // Only primitives take a `_name`; skip building the key for the rest.
+            let primitive = elem.types.first().is_some_and(|t| is_primitive(t));
+            primitive
+                .then(|| fields.get(format!("_{name}").as_str()))
+                .flatten()
+                .filter(|node| is_extension_shape(node))
+        })
 }
 
 /// A `_name` primitive extension is an object, or an array of objects and nulls

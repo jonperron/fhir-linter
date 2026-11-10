@@ -1526,3 +1526,80 @@ fn xml_single_repeating_element_is_not_a_shape_error() {
     );
     assert!(!codes.iter().any(|c| c == "STRUCTURE_002"), "{codes:?}");
 }
+
+// ── Empty arrays (11.2-A1) ────────────────────────────────────────────────────
+
+#[test]
+fn empty_or_null_array_on_required_element_produces_cardinality_001() {
+    for empty in ["[]", "[null]"] {
+        for (json, path) in [
+            (
+                format!(
+                    r#"{{"resourceType":"ValueSet","status":"draft","compose":{{"include":{empty}}}}}"#
+                ),
+                "ValueSet.compose.include",
+            ),
+            (
+                format!(r#"{{"resourceType":"Composition","author":{empty}}}"#),
+                "Composition.author",
+            ),
+        ] {
+            let found = codes_for(&json);
+            assert!(
+                found.contains(&("CARDINALITY_001".into(), path.into())),
+                "{json}: {found:?}"
+            );
+            assert!(
+                !found.contains(&("CARDINALITY_003".into(), path.into())),
+                "{json}: {found:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn empty_array_on_optional_element_produces_cardinality_003_warning() {
+    for (json, path) in [
+        (
+            r#"{"resourceType":"Patient","identifier":[]}"#,
+            "Patient.identifier",
+        ),
+        (
+            r#"{"resourceType":"Patient","identifier":[null]}"#,
+            "Patient.identifier",
+        ),
+        (
+            r#"{"resourceType":"Patient","name":[{"given":[null]}]}"#,
+            "Patient.name[0].given",
+        ),
+        (
+            r#"{"resourceType":"Patient","name":[{"given":[]}]}"#,
+            "Patient.name[0].given",
+        ),
+    ] {
+        let resource = parse_json(json).unwrap();
+        let found: Vec<_> = validate(&resource, &load_registry())
+            .into_iter()
+            .filter(|d| d.code.as_ref() == "CARDINALITY_003")
+            .collect();
+        assert_eq!(found.len(), 1, "{json}: {found:?}");
+        assert_eq!(found[0].severity, Severity::Warning);
+        assert_eq!(found[0].path, path);
+    }
+}
+
+#[test]
+fn null_values_backed_by_primitive_extensions_are_not_empty() {
+    for json in [
+        r#"{"resourceType":"Patient","identifier":[{"value":"1"}],"name":[{"given":[null],"_given":[{"id":"a"}]}]}"#,
+        r#"{"resourceType":"Observation","code":{"text":"x"},"status":[null],"_status":[{"id":"a"}]}"#,
+    ] {
+        let found = codes_for(json);
+        assert!(
+            !found
+                .iter()
+                .any(|(code, _)| code.starts_with("CARDINALITY")),
+            "{json}: {found:?}"
+        );
+    }
+}
