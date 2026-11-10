@@ -428,7 +428,20 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 - **WHEN** une contrainte n'a pas de champ `expression`
 - **THEN** aucun Diagnostic ne SHALL être émis pour cette contrainte
 
----
+#### Scenario: Invariants évalués avec navigation des éléments choix
+
+- **WHEN** une contrainte est évaluée
+- **THEN** elle SHALL l'être via `evaluate_parsed_with_choices` avec `Registry::is_choice_variant`, de sorte qu'un nom de base (`value`) trouve sa variante (`valueQuantity`)
+
+#### Scenario: fhs-2 et mrp-2 sans faux positif
+
+- **WHEN** une ressource valide renseigne l'élément choix visé par `fhs-2` ou `mrp-2` via une variante typée
+- **THEN** aucun Diagnostic `INVARIANT_fhs-2` ni `INVARIANT_mrp-2` ne SHALL être émis
+
+#### Scenario: obs-6 détecte dataAbsentReason avec valueQuantity
+
+- **WHEN** une Observation contient à la fois `dataAbsentReason` et `valueQuantity`
+- **THEN** un Diagnostic `INVARIANT_obs-6` SHALL être émis
 
 ### Requirement: Validation terminologique — binding required (TERMINOLOGY_001)
 
