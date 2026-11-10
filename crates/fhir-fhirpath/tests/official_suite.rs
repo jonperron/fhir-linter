@@ -13,9 +13,9 @@
 //! The test fails when the pass count drops below `MIN_PASSED`.
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use fhir_fhirpath::{Collection, Value, evaluate, resource_to_value};
+use fhir_fhirpath::{Collection, EvalError, Value, evaluate, resource_to_value};
 use fhir_parser::{parse_json, parse_xml};
 use quick_xml::Reader;
 use quick_xml::escape::resolve_predefined_entity;
@@ -23,7 +23,11 @@ use quick_xml::events::{BytesStart, Event};
 
 /// Regression floor (passed cases on the pinned fixtures); raise it as the
 /// evaluator improves.
-const MIN_PASSED: u32 = 758;
+const MIN_PASSED: u32 = 757;
+
+/// (run, skipped) case counts on the pinned fixtures, so loader drift or a
+/// broken skip filter cannot hide behind the floor.
+const EXPECTED_RUN_SKIPPED: (u32, u32) = (1226, 121);
 
 /// Modes that need infrastructure beyond FHIRPath and FHIR R5.
 const SKIPPED_MODES: [&str; 3] = ["cda", "tx", "custom"];
@@ -146,7 +150,7 @@ fn load_cases(xml: &str) -> Vec<Case> {
 /// Canonical `type:value` key for an expected output.
 fn expected_key(kind: &str, text: &str) -> String {
     match kind {
-        "boolean" | "integer" => format!("{kind}:{text}"),
+        "boolean" | "integer" | "long" => format!("{kind}:{text}"),
         "decimal" => format!("decimal:{}", text.parse::<f64>().expect("decimal output")),
         "date" | "dateTime" | "time" => format!("{kind}:{}", temporal_text(text)),
         "Quantity" => {
@@ -194,6 +198,10 @@ fn as_predicate(result: &Collection) -> Collection {
 
 /// Load an input resource as a FHIRPath context.
 fn load_input(file: &str) -> Result<Value, String> {
+    // Inputs are bare file names next to the suite; refuse anything else.
+    if Path::new(file).file_name() != Some(file.as_ref()) {
+        return Err(format!("{file}: not a bare file name"));
+    }
     let path = fixtures_dir().join("r5").join(file);
     let source = std::fs::read_to_string(&path).map_err(|e| format!("{file}: {e}"))?;
     let resource = if file.ends_with(".json") {
@@ -225,6 +233,12 @@ fn run_case(
         None => context,
     };
     let actual = match (evaluate(&case.expression, &context), case.invalid) {
+        // A missing function does not prove the expression invalid.
+        (Err(EvalError::UndefinedFunction(name)), true) => {
+            return Err(format!(
+                "expected an error, got unimplemented function {name}"
+            ));
+        }
         (Err(_), true) => return Ok(()),
         (Ok(value), true) => return Err(format!("expected an error, got {value:?}")),
         (Err(e), false) => return Err(format!("error: {e}")),
@@ -319,6 +333,16 @@ fn run_case_judges_invalid_predicate_and_unordered_cases() {
         ..case("1", &[])
     };
     assert!(!run(&invalid_but_ok));
+    let invalid_unimplemented = Case {
+        invalid: true,
+        ..case("1.noSuchFunction()", &[])
+    };
+    assert!(!run(&invalid_unimplemented));
+    let escaping_input = Case {
+        input_file: Some("../r5/patient-example.xml".to_owned()),
+        ..case("1", &[("integer", "1")])
+    };
+    assert!(!run(&escaping_input));
     let predicate = Case {
         predicate: true,
         ..case("{}", &[("boolean", "false")])
@@ -335,14 +359,18 @@ fn run_case_judges_invalid_predicate_and_unordered_cases() {
 
 #[test]
 fn official_fhirpath_suite_pass_rate() {
-    let Ok(xml) = std::fs::read_to_string(fixtures_dir().join("r5/fhirpath/tests-fhir-r5.xml"))
-    else {
-        assert!(
-            std::env::var_os("CI").is_none(),
-            "fixtures submodule missing in CI: run `git submodule update --init`"
-        );
-        eprintln!("fixtures submodule not checked out; skipping");
-        return;
+    let path = fixtures_dir().join("r5/fhirpath/tests-fhir-r5.xml");
+    let xml = match std::fs::read_to_string(&path) {
+        Ok(xml) => xml,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "fixtures submodule missing in CI: run `git submodule update --init`"
+            );
+            eprintln!("fixtures submodule not checked out; skipping");
+            return;
+        }
+        Err(e) => panic!("{}: {e}", path.display()),
     };
     let cases = load_cases(&xml);
     let mut inputs = HashMap::new();
@@ -378,9 +406,10 @@ fn official_fhirpath_suite_pass_rate() {
         f64::from(passed) * 100.0 / f64::from(run.max(1)),
         cases.len(),
     );
-    assert!(
-        run > 0,
-        "no suite cases ran: the floor would pass vacuously"
+    assert_eq!(
+        (run, skipped),
+        EXPECTED_RUN_SKIPPED,
+        "case counts drifted (fixture bump or loader change): update the floors"
     );
     assert!(
         passed >= MIN_PASSED,
