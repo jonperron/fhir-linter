@@ -1734,3 +1734,50 @@ fn null_values_backed_by_primitive_extensions_are_not_empty() {
         );
     }
 }
+
+// ── FHIRPath choice navigation (R5 §2.1.9.1.1: `value` finds `valueQuantity`) ─
+
+#[test]
+fn fhs_2_sees_age_given_as_a_choice_variant() {
+    let registry = load_registry();
+    let base = r#"{"resourceType":"FamilyMemberHistory","status":"completed",
+        "patient":{"reference":"Patient/1"},"relationship":{"text":"father"},
+        "estimatedAge":true"#;
+    let with_age = format!(r#"{base},"ageAge":{{"value":60}}}}"#);
+    assert_eq!(codes(&registry, &with_age, "INVARIANT_fhs-2"), 0);
+    assert_eq!(codes(&registry, &format!("{base}}}"), "INVARIANT_fhs-2"), 1);
+}
+
+#[test]
+fn mrp_2_sees_stratum_value_given_as_a_choice_variant() {
+    let registry = load_registry();
+    let report = |stratum: &str| {
+        format!(
+            r#"{{"resourceType":"MeasureReport","status":"complete","type":"summary",
+            "period":{{"start":"2020-01-01"}},
+            "group":[{{"stratifier":[{{"stratum":[{stratum}]}}]}}]}}"#
+        )
+    };
+    let value = r#""valueCodeableConcept":{"text":"a"}"#;
+    let component = r#""component":[{"code":{"text":"c"},"valueCodeableConcept":{"text":"v"}}]"#;
+    assert_eq!(
+        codes(
+            &registry,
+            &report(&format!("{{{value}}}")),
+            "INVARIANT_mrp-2"
+        ),
+        0
+    );
+    let both = format!("{{{value},{component}}}");
+    assert_eq!(codes(&registry, &report(&both), "INVARIANT_mrp-2"), 1);
+}
+
+#[test]
+fn obs_6_fires_on_data_absent_reason_with_a_value_variant() {
+    let registry = load_registry();
+    let base = r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},
+        "dataAbsentReason":{"text":"unknown"}"#;
+    let with_value = format!(r#"{base},"valueQuantity":{{"value":1}}}}"#);
+    assert_eq!(codes(&registry, &with_value, "INVARIANT_obs-6"), 1);
+    assert_eq!(codes(&registry, &format!("{base}}}"), "INVARIANT_obs-6"), 0);
+}

@@ -12,7 +12,7 @@ use super::helpers::{
 };
 use super::regex::{regex_matches, regex_matches_full, regex_replace_all};
 
-impl Evaluator {
+impl Evaluator<'_> {
     /// Handle string manipulation functions.
     /// Returns `None` if the function name is not in this category.
     pub(super) fn call_string_function(

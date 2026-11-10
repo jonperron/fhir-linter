@@ -5,7 +5,7 @@ use crate::value::{Collection, Value};
 use super::Evaluator;
 use super::helpers::{check_arity, single_integer};
 
-impl Evaluator {
+impl Evaluator<'_> {
     /// Handle mathematical functions.
     /// Returns `None` if the function name is not in this category.
     pub(super) fn call_math_function(

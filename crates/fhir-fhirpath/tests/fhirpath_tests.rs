@@ -2469,3 +2469,35 @@ fn is_operator_on_empty_is_empty() {
 fn is_operator_on_multiple_items_is_error() {
     assert!(evaluate("(1 | 2) is Integer", &make_patient()).is_err());
 }
+
+// R5 2.1.9.1.1: a choice element is named without its [x] suffix.
+#[test]
+fn choice_element_is_navigable_by_its_base_name() {
+    let mut fields: IndexMap<Arc<str>, Collection> = IndexMap::new();
+    fields.insert(
+        Arc::from("valueString"),
+        vec![Value::String(Arc::from("a"))],
+    );
+    fields.insert(Arc::from("valueSet"), vec![Value::String(Arc::from("vs"))]);
+    fields.insert(Arc::from("values"), vec![Value::String(Arc::from("s"))]);
+    fields.insert(
+        Arc::from("_valueString"),
+        vec![Value::String(Arc::from("e"))],
+    );
+    let expr = fhir_fhirpath::parse("value").unwrap();
+    let is_type = |base: &str, suffix: &str| base == "value" && suffix == "String";
+    let ctx = vec![Value::Object(Arc::new(fields.clone()))];
+    let found = fhir_fhirpath::evaluate_parsed_with_choices(&expr, &ctx, &is_type).unwrap();
+    assert_eq!(found, vec![Value::String(Arc::from("a"))]);
+    // Without type knowledge there is no choice navigation.
+    assert!(
+        fhir_fhirpath::evaluate_parsed(&expr, &ctx)
+            .unwrap()
+            .is_empty()
+    );
+    // An element literally named `value` wins over the variants.
+    fields.insert(Arc::from("value"), vec![Value::String(Arc::from("v"))]);
+    let ctx = vec![Value::Object(Arc::new(fields))];
+    let found = fhir_fhirpath::evaluate_parsed_with_choices(&expr, &ctx, &is_type).unwrap();
+    assert_eq!(found, vec![Value::String(Arc::from("v"))]);
+}

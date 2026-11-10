@@ -30,11 +30,30 @@ pub fn evaluate(expression: &str, context: &[Value]) -> Result<Collection, EvalE
 
 /// Evaluate an already parsed expression (see [`parse`]) against a context collection.
 ///
+/// Without type knowledge, choice elements (`value` for `valueQuantity`) are not
+/// navigable; use [`evaluate_parsed_with_choices`] for FHIR content.
+///
 /// # Errors
 ///
 /// Returns [`EvalError`] if evaluation fails.
 pub fn evaluate_parsed(expr: &Expr, context: &[Value]) -> Result<Collection, EvalError> {
-    eval::eval(expr, context)
+    eval::eval(expr, context, &|_, _| false)
+}
+
+/// Evaluate a parsed expression, navigating choice elements: when `value` is
+/// absent, the fields `value` + suffix are returned for every capitalised
+/// suffix for which `is_choice_variant("value", suffix)` is true (for example
+/// `Quantity` or `DateTime`).
+///
+/// # Errors
+///
+/// Returns [`EvalError`] if evaluation fails.
+pub fn evaluate_parsed_with_choices(
+    expr: &Expr,
+    context: &[Value],
+    is_choice_variant: &dyn Fn(&str, &str) -> bool,
+) -> Result<Collection, EvalError> {
+    eval::eval(expr, context, is_choice_variant)
 }
 
 /// Parse a FHIRPath expression into an AST without evaluating it.

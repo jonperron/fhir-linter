@@ -7,8 +7,8 @@ use crate::value::{Collection, Value};
 use super::Evaluator;
 use super::helpers::{check_arity, check_arity_range, eval_string_arg};
 
-impl Evaluator {
-    /// Handle miscellaneous functions (logic, system, FHIR-specific stubs).
+impl Evaluator<'_> {
+    /// Handle miscellaneous functions (logic, system, FHIR extension helpers).
     /// Returns `None` if the function name is not in this category.
     pub(super) fn call_misc_function(
         &self,

@@ -8,7 +8,7 @@ use super::helpers::{
     eval_type_name, is_type, single_integer, value_is_type,
 };
 
-impl Evaluator {
+impl Evaluator<'_> {
     /// Handle collection, existence, filtering, aggregation, and navigation functions.
     /// Returns `None` if the function name is not in this category.
     pub(super) fn call_collection_function(

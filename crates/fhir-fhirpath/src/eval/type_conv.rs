@@ -5,7 +5,7 @@ use crate::value::{Collection, Value};
 use super::Evaluator;
 use super::helpers::check_arity;
 
-impl Evaluator {
+impl Evaluator<'_> {
     /// Handle type conversion and type-checking functions.
     /// Returns `None` if the function name is not in this category.
     pub(super) fn call_type_function(
