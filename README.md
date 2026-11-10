@@ -11,9 +11,14 @@ Built-in lint rules:
 
 | Rule | Flags |
 |------|-------|
-| `narrative-absent` | Resource has no narrative text |
-| `missing-identifier` | Resource has no identifier |
-| `missing-meta-profile` | Resource has no `meta.profile` |
+| `narrative-absent` | Resource has no narrative text: `text` absent, `text.status` is `empty`, or the div holds only whitespace once tags are stripped and no `<img>` |
+| `missing-identifier` | Resource has no identifier (empty arrays count as none); a Bundle only when its type is `document`, `message` or `collection` |
+| `missing-meta-profile` | Resource has no `meta.profile` (empty arrays count as none) |
+
+`narrative-absent` is a deliberate superset of the validator's `dom-6`
+invariant: a resource without `text` gets both `INVARIANT_dom-6` from
+`validate` and `LINT_001` from `lint`, and `LINT_001` also fires on empty
+narrative that `dom-6` accepts.
 
 ## Install
 
