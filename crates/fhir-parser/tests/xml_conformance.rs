@@ -98,6 +98,65 @@ fn xhtml_div_is_kept_as_its_raw_source() {
     }
 }
 
+const XHTML_DIV: &str = "<div xmlns=\"http://www.w3.org/1999/xhtml\">x</div>";
+
+#[test]
+fn elements_outside_the_fhir_namespace_are_rejected() {
+    let cases = [
+        "<Patient xmlns=\"urn:not-fhir\"/>".to_owned(),
+        "<Patient><active value=\"true\"/></Patient>".to_owned(),
+        format!("<Patient {FHIR_NS}><x:active xmlns:x=\"urn:other\" value=\"true\"/></Patient>"),
+        format!("<Patient {FHIR_NS}><name><family xmlns=\"\" value=\"S\"/></name></Patient>"),
+    ];
+    for source in cases {
+        assert!(xml_error(&source).contains("namespace"), "{source}");
+    }
+}
+
+#[test]
+fn narrative_div_outside_the_xhtml_namespace_is_rejected() {
+    let cases = [
+        "<div>x</div>",
+        "<div xmlns=\"urn:other\">x</div>",
+        "<div xmlns=\"http://www.w3.org/1999/xhtml\"><p xmlns=\"urn:other\">x</p></div>",
+    ];
+    for div in cases {
+        let source =
+            format!("<Patient {FHIR_NS}><text><status value=\"generated\"/>{div}</text></Patient>");
+        assert!(xml_error(&source).contains("namespace"), "{div}");
+    }
+}
+
+#[test]
+fn prefixed_attributes_and_the_schema_instance_namespace_are_rejected() {
+    let cases = [
+        format!(
+            "<Patient {FHIR_NS} xmlns:fhir=\"http://hl7.org/fhir\"><gender fhir:value=\"male\"/></Patient>"
+        ),
+        format!("<Patient {FHIR_NS} xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/>"),
+        format!(
+            "<Patient {FHIR_NS}><name xmlns:s=\"http://www.w3.org/2001/XMLSchema-instance\"><family value=\"S\"/></name></Patient>"
+        ),
+    ];
+    for source in cases {
+        assert!(xml_error(&source).contains("namespace"), "{source}");
+    }
+}
+
+#[test]
+fn prefixed_fhir_and_xhtml_elements_are_accepted() {
+    let source = concat!(
+        "<f:Patient xmlns:f=\"http://hl7.org/fhir\"><f:text><f:status value=\"generated\"/>",
+        "<h:div xmlns:h=\"http://www.w3.org/1999/xhtml\"><h:p xml:lang=\"en\">x</h:p></h:div>",
+        "</f:text><f:active value=\"true\"/></f:Patient>",
+    );
+    assert!(parse_xml(source).is_ok());
+    let source = format!(
+        "<Patient {FHIR_NS}><text><status value=\"generated\"/>{XHTML_DIV}</text></Patient>"
+    );
+    assert!(parse_xml(&source).is_ok());
+}
+
 #[test]
 fn utf8_encoding_declaration_is_accepted_in_any_case() {
     for encoding in ["UTF-8", "utf-8"] {

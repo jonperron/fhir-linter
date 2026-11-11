@@ -1,15 +1,24 @@
 use std::sync::Arc;
 
 use indexmap::IndexMap;
+use quick_xml::XmlVersion;
 use quick_xml::escape::resolve_predefined_entity;
-use quick_xml::events::{BytesRef, Event};
-use quick_xml::{Reader, XmlVersion};
+use quick_xml::events::{BytesRef, BytesStart, Event};
+use quick_xml::name::{NamespaceResolver, ResolveResult};
+use quick_xml::reader::{NsReader, Reader};
 
 use crate::line_index::LineIndex;
 use crate::types::{Node, ParseError, Resource, Span, Value};
 
 /// Maximum element nesting accepted (guards against stack overflow).
 const MAX_DEPTH: usize = 128;
+
+/// xml.html: "FHIR elements are always in the namespace http://hl7.org/fhir".
+const FHIR_NS: &[u8] = b"http://hl7.org/fhir";
+/// xml.html: the narrative div is "in the xhtml namespace".
+const XHTML_NS: &[u8] = b"http://www.w3.org/1999/xhtml";
+/// xml.html: content SHALL NOT "even contain the schema instance namespace".
+const XSI_NS: &[u8] = b"http://www.w3.org/2001/XMLSchema-instance";
 
 /// Parse a FHIR XML resource from a source string.
 ///
@@ -80,7 +89,7 @@ fn reject_controls(id: Option<&str>, fields: &IndexMap<Arc<str>, Node>) -> Resul
 
 fn parse_document(source: &str) -> Result<Resource, ParseError> {
     let line_index = LineIndex::new(source);
-    let mut reader = Reader::from_str(source);
+    let mut reader = NsReader::from_str(source);
     reader.config_mut().trim_text(false);
 
     loop {
@@ -91,7 +100,8 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
         {
             Event::Start(ref e) => {
                 let resource_type = local_name_arc(e.local_name().as_ref(), &line_index, pos)?;
-                reject_root_attrs(e, &line_index, pos)?;
+                check_element(reader.resolver(), e, FHIR_NS, &line_index, pos)?;
+                reject_root_attrs(reader.resolver(), e, &line_index, pos)?;
                 let mut fields = parse_children(&mut reader, source, &line_index, 1)?;
 
                 let id = match fields.shift_remove("id") {
@@ -121,7 +131,8 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
             Event::Empty(ref e) => {
                 // Self-closing root element - unusual but handle gracefully.
                 let resource_type = local_name_arc(e.local_name().as_ref(), &line_index, pos)?;
-                reject_root_attrs(e, &line_index, pos)?;
+                check_element(reader.resolver(), e, FHIR_NS, &line_index, pos)?;
+                reject_root_attrs(reader.resolver(), e, &line_index, pos)?;
                 let resource = Resource {
                     resource_type,
                     id: None,
@@ -169,7 +180,7 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
 /// Parse child elements until the matching `End` event, grouping repeated
 /// siblings with the same name into arrays. An unexpected `Eof` is an error.
 fn parse_children(
-    reader: &mut Reader<&[u8]>,
+    reader: &mut NsReader<&[u8]>,
     source: &str,
     line_index: &LineIndex,
     depth: usize,
@@ -195,10 +206,12 @@ fn parse_children(
                 let name = local_name_arc(e.local_name().as_ref(), line_index, pos)?;
                 let span = span_at(line_index, pos);
                 let node = if name.as_ref() == "div" {
+                    check_element(reader.resolver(), e, XHTML_NS, line_index, pos)?;
                     skip_xhtml(reader, line_index, pos)?;
                     raw_div(reader, source, line_index, pos)?
                 } else {
-                    let attrs = collect_attrs(e, line_index, pos)?;
+                    check_element(reader.resolver(), e, FHIR_NS, line_index, pos)?;
+                    let attrs = collect_attrs(reader.resolver(), e, line_index, pos)?;
                     let children = parse_children(reader, source, line_index, depth + 1)?;
                     if let Some(key) = attrs.keys().find(|k| children.contains_key(*k)) {
                         let message =
@@ -212,9 +225,11 @@ fn parse_children(
             Event::Empty(ref e) => {
                 let name = local_name_arc(e.local_name().as_ref(), line_index, pos)?;
                 let node = if name.as_ref() == "div" {
+                    check_element(reader.resolver(), e, XHTML_NS, line_index, pos)?;
                     raw_div(reader, source, line_index, pos)?
                 } else {
-                    let attrs = collect_attrs(e, line_index, pos)?;
+                    check_element(reader.resolver(), e, FHIR_NS, line_index, pos)?;
+                    let attrs = collect_attrs(reader.resolver(), e, line_index, pos)?;
                     build_complex_node(attrs, IndexMap::new(), span_at(line_index, pos))
                 };
                 groups.entry(name).or_default().push(node);
@@ -311,7 +326,7 @@ fn collapse_groups(groups: IndexMap<Arc<str>, Vec<Node>>) -> IndexMap<Arc<str>, 
 /// The XHTML narrative `<div>` from `start` up to the reader's position (just past its
 /// end tag) as the raw source string, which is what the JSON form carries (narrative.html).
 fn raw_div(
-    reader: &Reader<&[u8]>,
+    reader: &NsReader<&[u8]>,
     source: &str,
     line_index: &LineIndex,
     start: u32,
@@ -333,7 +348,7 @@ fn raw_div(
 /// Read past the content of an XHTML `<div>` (already past the opening tag) to its end
 /// tag, rejecting malformed text and unknown entity references on the way.
 fn skip_xhtml(
-    reader: &mut Reader<&[u8]>,
+    reader: &mut NsReader<&[u8]>,
     line_index: &LineIndex,
     start_pos: u32,
 ) -> Result<(), ParseError> {
@@ -345,14 +360,17 @@ fn skip_xhtml(
             .read_event()
             .map_err(|e| xml_error(line_index, pos, e))?
         {
-            Event::Start(_) => depth += 1,
+            Event::Start(ref e) => {
+                check_element(reader.resolver(), e, XHTML_NS, line_index, pos)?;
+                depth += 1;
+            }
             Event::End(_) => {
                 depth -= 1;
                 if depth == 0 {
                     break;
                 }
             }
-            Event::Empty(_) => {}
+            Event::Empty(ref e) => check_element(reader.resolver(), e, XHTML_NS, line_index, pos)?,
             Event::Text(ref t) => {
                 t.decode().map_err(|e| {
                     error_at(line_index, pos, format!("invalid text in XHTML div: {e}"))
@@ -382,7 +400,7 @@ fn skip_xhtml(
 
 /// Consume remaining events after the root element and return an error if any
 /// non-whitespace content (element or non-empty text) is found before `Eof`.
-fn expect_eof(reader: &mut Reader<&[u8]>, line_index: &LineIndex) -> Result<(), ParseError> {
+fn expect_eof(reader: &mut NsReader<&[u8]>, line_index: &LineIndex) -> Result<(), ParseError> {
     loop {
         let pos = reader.buffer_position() as u32;
         match reader
@@ -462,7 +480,8 @@ fn local_name_arc(bytes: &[u8], line_index: &LineIndex, pos: u32) -> Result<Arc<
 /// skipped; all data-carrying attributes (including `value` and `url`) are
 /// captured as `Value::Str` nodes at the element's span.
 fn collect_attrs(
-    e: &quick_xml::events::BytesStart<'_>,
+    resolver: &NamespaceResolver,
+    e: &BytesStart<'_>,
     line_index: &LineIndex,
     pos: u32,
 ) -> Result<IndexMap<Arc<str>, Node>, ParseError> {
@@ -485,6 +504,15 @@ fn collect_attrs(
             continue;
         }
 
+        // xml.html names no namespaced attribute on FHIR elements (`fhir:value` included).
+        if !matches!(
+            resolver.resolve_attribute(attr.key).0,
+            ResolveResult::Unbound
+        ) {
+            let key = String::from_utf8_lossy(raw_key);
+            let message = format!("attribute '{key}' must not be in a namespace");
+            return Err(error_at(line_index, pos, message));
+        }
         let local = local_name_arc(attr.key.local_name().as_ref(), line_index, pos)?;
         let val = attr
             .normalized_value(XmlVersion::Implicit1_0)
@@ -512,11 +540,12 @@ fn collect_attrs(
 /// xml.html: `id` is an attribute on elements "but not on resources"; a resource root
 /// carries namespace declarations only.
 fn reject_root_attrs(
-    e: &quick_xml::events::BytesStart<'_>,
+    resolver: &NamespaceResolver,
+    e: &BytesStart<'_>,
     line_index: &LineIndex,
     pos: u32,
 ) -> Result<(), ParseError> {
-    let attrs = collect_attrs(e, line_index, pos)?;
+    let attrs = collect_attrs(resolver, e, line_index, pos)?;
     if attrs.is_empty() {
         return Ok(());
     }
@@ -526,6 +555,37 @@ fn reject_root_attrs(
         names.join(", ")
     );
     Err(error_at(line_index, pos, message))
+}
+
+/// Reject an element outside the `expected` namespace, or one that declares the schema
+/// instance namespace.
+fn check_element(
+    resolver: &NamespaceResolver,
+    e: &BytesStart<'_>,
+    expected: &[u8],
+    line_index: &LineIndex,
+    pos: u32,
+) -> Result<(), ParseError> {
+    let in_expected = matches!(
+        resolver.resolve_element(e.name()).0,
+        ResolveResult::Bound(ns) if ns.as_ref() == expected
+    );
+    if !in_expected {
+        let name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+        let expected = String::from_utf8_lossy(expected);
+        let message = format!("element '{name}' must be in the namespace {expected}");
+        return Err(error_at(line_index, pos, message));
+    }
+    // Malformed attributes are reported by `collect_attrs` or quick-xml itself.
+    let declares_xsi = e.attributes().flatten().any(|attr| {
+        let key = attr.key.as_ref();
+        (key == b"xmlns" || key.starts_with(b"xmlns:")) && attr.value.as_ref() == XSI_NS
+    });
+    if declares_xsi {
+        let message = "the XML schema instance namespace is not allowed in FHIR XML";
+        return Err(error_at(line_index, pos, message));
+    }
+    Ok(())
 }
 
 fn span_at(line_index: &LineIndex, pos: u32) -> Span {
