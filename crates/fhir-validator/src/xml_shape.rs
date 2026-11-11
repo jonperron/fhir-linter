@@ -44,7 +44,19 @@ pub(crate) fn to_json_shape(
             .iter()
             .map(|(offset, name)| (*offset, name.as_ref()))
             .collect(),
-        diagnostics: Vec::new(),
+        // xml.html 2.1.6.3.4: content SHALL NOT "even contain the schema instance namespace".
+        diagnostics: resource
+            .schema_instance
+            .iter()
+            .map(|span| {
+                Diagnostic::error(
+                    "STRUCTURE_003",
+                    "The XML schema instance namespace is not allowed in FHIR resources",
+                    name.to_owned(),
+                )
+                .with_location(*span)
+            })
+            .collect(),
     };
     // The parser rejects attributes on the root, so its fields have no parent offset.
     let fields = shaper.fields(&resource.fields, sd, name, name, None);
@@ -54,6 +66,7 @@ pub(crate) fn to_json_shape(
         id: resource.id.clone(),
         from_xml: false,
         trimmed_attributes: Vec::new(),
+        schema_instance: Vec::new(),
     };
     (reshaped, shaper.diagnostics)
 }

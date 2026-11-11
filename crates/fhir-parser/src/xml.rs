@@ -19,6 +19,23 @@ const MAX_DEPTH: usize = 128;
 const MAX_DECLARATIONS_PER_ELEMENT: usize = 8;
 
 /// xml.html: "There SHALL be no DTD references in FHIR resources", wherever they appear.
+/// What the reader records for the validator while parsing.
+#[derive(Default)]
+struct Notes {
+    /// Trimmed attribute values, as (element offset, attribute name).
+    trimmed: Vec<(u32, Arc<str>)>,
+    /// Elements that declare or use the schema instance namespace.
+    schema_instance: Vec<Span>,
+}
+
+impl Notes {
+    fn schema_instance_if(&mut self, uses_xsi: bool, line_index: &LineIndex, pos: u32) {
+        if uses_xsi {
+            self.schema_instance.push(span_at(line_index, pos));
+        }
+    }
+}
+
 const DTD_NOT_ALLOWED: &str = "a DTD is not allowed in FHIR XML";
 
 /// Parse a FHIR XML resource from a source string.
@@ -127,10 +144,14 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
         {
             Event::Start(ref e) => {
                 let resource_type = local_name_arc(e.local_name().as_ref(), &line_index, pos)?;
-                check_element(reader.resolver(), e, FHIR_NS, &line_index, pos)?;
+                let mut notes = Notes::default();
+                notes.schema_instance_if(
+                    check_element(reader.resolver(), e, FHIR_NS, &line_index, pos)?,
+                    &line_index,
+                    pos,
+                );
                 reject_root_attrs(reader.resolver(), e, &line_index, pos)?;
-                let mut trimmed = Vec::new();
-                let mut fields = parse_children(&mut reader, source, &line_index, 1, &mut trimmed)?;
+                let mut fields = parse_children(&mut reader, source, &line_index, 1, &mut notes)?;
 
                 let id = match fields.shift_remove("id") {
                     None => None,
@@ -152,7 +173,8 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
                     id,
                     from_xml: true,
                     fields,
-                    trimmed_attributes: trimmed,
+                    trimmed_attributes: notes.trimmed,
+                    schema_instance: notes.schema_instance,
                 };
                 expect_eof(&mut reader, &line_index)?;
                 return Ok(resource);
@@ -160,7 +182,12 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
             Event::Empty(ref e) => {
                 // Self-closing root element - unusual but handle gracefully.
                 let resource_type = local_name_arc(e.local_name().as_ref(), &line_index, pos)?;
-                check_element(reader.resolver(), e, FHIR_NS, &line_index, pos)?;
+                let mut notes = Notes::default();
+                notes.schema_instance_if(
+                    check_element(reader.resolver(), e, FHIR_NS, &line_index, pos)?,
+                    &line_index,
+                    pos,
+                );
                 reject_root_attrs(reader.resolver(), e, &line_index, pos)?;
                 let resource = Resource {
                     resource_type,
@@ -168,6 +195,7 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
                     from_xml: true,
                     fields: IndexMap::new(),
                     trimmed_attributes: Vec::new(),
+                    schema_instance: notes.schema_instance,
                 };
                 expect_eof(&mut reader, &line_index)?;
                 return Ok(resource);
@@ -210,7 +238,7 @@ fn parse_children(
     source: &str,
     line_index: &LineIndex,
     depth: usize,
-    trimmed: &mut Vec<(u32, Arc<str>)>,
+    notes: &mut Notes,
 ) -> Result<IndexMap<Arc<str>, Node>, ParseError> {
     if depth > MAX_DEPTH {
         let (line, col) = line_index.location(reader.buffer_position() as u32);
@@ -233,13 +261,16 @@ fn parse_children(
                 let name = local_name_arc(e.local_name().as_ref(), line_index, pos)?;
                 let span = span_at(line_index, pos);
                 let node = if name.as_ref() == "div" {
-                    check_element(reader.resolver(), e, XHTML_NS, line_index, pos)?;
-                    skip_xhtml(reader, line_index, pos)?;
+                    let xsi = check_element(reader.resolver(), e, XHTML_NS, line_index, pos)?;
+                    notes.schema_instance_if(xsi, line_index, pos);
+                    skip_xhtml(reader, line_index, pos, notes)?;
                     raw_div(reader, source, line_index, pos)?
                 } else {
-                    check_element(reader.resolver(), e, FHIR_NS, line_index, pos)?;
-                    let attrs = collect_attrs(reader.resolver(), e, line_index, pos, trimmed)?;
-                    let children = parse_children(reader, source, line_index, depth + 1, trimmed)?;
+                    let xsi = check_element(reader.resolver(), e, FHIR_NS, line_index, pos)?;
+                    notes.schema_instance_if(xsi, line_index, pos);
+                    let attrs =
+                        collect_attrs(reader.resolver(), e, line_index, pos, &mut notes.trimmed)?;
+                    let children = parse_children(reader, source, line_index, depth + 1, notes)?;
                     if let Some(key) = attrs.keys().find(|k| children.contains_key(*k)) {
                         let message =
                             format!("'{key}' is given both as an attribute and as a child element");
@@ -252,11 +283,14 @@ fn parse_children(
             Event::Empty(ref e) => {
                 let name = local_name_arc(e.local_name().as_ref(), line_index, pos)?;
                 let node = if name.as_ref() == "div" {
-                    check_element(reader.resolver(), e, XHTML_NS, line_index, pos)?;
+                    let xsi = check_element(reader.resolver(), e, XHTML_NS, line_index, pos)?;
+                    notes.schema_instance_if(xsi, line_index, pos);
                     raw_div(reader, source, line_index, pos)?
                 } else {
-                    check_element(reader.resolver(), e, FHIR_NS, line_index, pos)?;
-                    let attrs = collect_attrs(reader.resolver(), e, line_index, pos, trimmed)?;
+                    let xsi = check_element(reader.resolver(), e, FHIR_NS, line_index, pos)?;
+                    notes.schema_instance_if(xsi, line_index, pos);
+                    let attrs =
+                        collect_attrs(reader.resolver(), e, line_index, pos, &mut notes.trimmed)?;
                     build_complex_node(attrs, IndexMap::new(), span_at(line_index, pos))
                 };
                 groups.entry(name).or_default().push(node);
@@ -381,6 +415,7 @@ fn skip_xhtml(
     reader: &mut NsReader<&[u8]>,
     line_index: &LineIndex,
     start_pos: u32,
+    notes: &mut Notes,
 ) -> Result<(), ParseError> {
     let mut depth: usize = 1;
 
@@ -391,7 +426,8 @@ fn skip_xhtml(
             .map_err(|e| xml_error(line_index, pos, e))?
         {
             Event::Start(ref e) => {
-                check_element(reader.resolver(), e, XHTML_NS, line_index, pos)?;
+                let xsi = check_element(reader.resolver(), e, XHTML_NS, line_index, pos)?;
+                notes.schema_instance_if(xsi, line_index, pos);
                 depth += 1;
                 if depth > MAX_DEPTH {
                     return Err(error_at(line_index, pos, "maximum nesting depth exceeded"));
@@ -403,7 +439,10 @@ fn skip_xhtml(
                     break;
                 }
             }
-            Event::Empty(ref e) => check_element(reader.resolver(), e, XHTML_NS, line_index, pos)?,
+            Event::Empty(ref e) => {
+                let xsi = check_element(reader.resolver(), e, XHTML_NS, line_index, pos)?;
+                notes.schema_instance_if(xsi, line_index, pos);
+            }
             Event::Text(ref t) => {
                 t.decode().map_err(|e| {
                     error_at(line_index, pos, format!("invalid text in XHTML div: {e}"))

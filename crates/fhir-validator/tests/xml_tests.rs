@@ -108,3 +108,19 @@ fn attribute_whitespace_is_trimmed_with_a_warning() {
         ],
     );
 }
+
+#[test]
+fn schema_instance_namespace_is_a_structure_003_error() {
+    let source = concat!(
+        "<Patient xmlns=\"http://hl7.org/fhir\" ",
+        "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ",
+        "xsi:schemaLocation=\"http://hl7.org/fhir patient.xsd\"><active value=\"true\"/></Patient>",
+    );
+    let resource = parse_xml(source).expect("parses");
+    let found: Vec<String> = validate(&resource, registry())
+        .iter()
+        .filter(|d| !d.code.starts_with("INVARIANT_"))
+        .map(|d| format!("{:?} {} {}", d.severity, d.code, d.path))
+        .collect();
+    assert_eq!(found, ["Error STRUCTURE_003 Patient"]);
+}

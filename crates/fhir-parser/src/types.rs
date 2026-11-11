@@ -57,6 +57,9 @@ pub struct Resource {
     /// trailing whitespace), as the owning element's byte offset and the attribute name.
     /// Empty for JSON.
     pub trimmed_attributes: Vec<(u32, Arc<str>)>,
+    /// XML elements that declare or use the schema instance namespace, which xml.html
+    /// 2.1.6.3.4 forbids; the validator reports each one. Empty for JSON.
+    pub schema_instance: Vec<Span>,
 }
 
 /// Errors produced by the parser.

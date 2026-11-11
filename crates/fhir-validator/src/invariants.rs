@@ -125,6 +125,7 @@ mod tests {
             from_xml: false,
             fields: IndexMap::new(),
             trimmed_attributes: Vec::new(),
+            schema_instance: Vec::new(),
         }
     }
 

@@ -77,13 +77,15 @@ pub(crate) fn collect_attrs(
         }
 
         // xml.html names no namespaced attribute on FHIR elements (`fhir:value` included).
-        if !matches!(
-            resolver.resolve_attribute(attr.key).0,
-            ResolveResult::Unbound
-        ) {
-            let key = String::from_utf8_lossy(raw_key);
-            let message = format!("attribute '{key}' must not be in a namespace");
-            return Err(error_at(line_index, pos, message));
+        // Schema instance attributes are recorded by `check_element` and carry no data.
+        match resolver.resolve_attribute(attr.key).0 {
+            ResolveResult::Unbound => {}
+            ResolveResult::Bound(ns) if ns.as_ref() == XSI_NS => continue,
+            _ => {
+                let key = String::from_utf8_lossy(raw_key);
+                let message = format!("attribute '{key}' must not be in a namespace");
+                return Err(error_at(line_index, pos, message));
+            }
         }
         let local = local_name_arc(attr.key.local_name().as_ref(), line_index, pos)?;
         let val = attr
@@ -136,15 +138,16 @@ pub(crate) fn reject_root_attrs(
     Err(error_at(line_index, pos, message))
 }
 
-/// Reject an element outside the `expected` namespace, or one that declares the schema
-/// instance namespace.
+/// Reject an element outside the `expected` namespace or with a malformed attribute.
+/// Returns whether the element declares or uses the schema instance namespace, which
+/// xml.html 2.1.6.3.4 forbids; the validator reports it, so the document still parses.
 pub(crate) fn check_element(
     resolver: &NamespaceResolver,
     e: &BytesStart<'_>,
     expected: &[u8],
     line_index: &LineIndex,
     pos: u32,
-) -> Result<(), ParseError> {
+) -> Result<bool, ParseError> {
     let in_expected = matches!(
         resolver.resolve_element(e.name()).0,
         ResolveResult::Bound(ns) if ns.as_ref() == expected
@@ -156,6 +159,7 @@ pub(crate) fn check_element(
         return Err(error_at(line_index, pos, message));
     }
     // Every element passes here, XHTML ones included, so malformed attributes stop here too.
+    let mut uses_xsi = false;
     for attr in e.attributes() {
         let attr =
             attr.map_err(|err| error_at(line_index, pos, format!("malformed attribute: {err}")))?;
@@ -165,12 +169,13 @@ pub(crate) fn check_element(
             && attr
                 .normalized_value(XmlVersion::Implicit1_0)
                 .is_ok_and(|v| v.as_bytes() == XSI_NS);
-        if declares_xsi {
-            let message = "the XML schema instance namespace is not allowed in FHIR XML";
-            return Err(error_at(line_index, pos, message));
-        }
+        let in_xsi = matches!(
+            resolver.resolve_attribute(attr.key).0,
+            ResolveResult::Bound(ns) if ns.as_ref() == XSI_NS
+        );
+        uses_xsi |= declares_xsi || in_xsi;
     }
-    Ok(())
+    Ok(uses_xsi)
 }
 
 pub(crate) fn span_at(line_index: &LineIndex, pos: u32) -> Span {

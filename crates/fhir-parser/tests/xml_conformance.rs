@@ -152,20 +152,45 @@ fn narrative_div_outside_the_xhtml_namespace_is_rejected() {
 }
 
 #[test]
-fn prefixed_attributes_and_the_schema_instance_namespace_are_rejected() {
+fn prefixed_attributes_are_rejected() {
+    let source = format!(
+        "<Patient {FHIR_NS} xmlns:fhir=\"{}\"><gender fhir:value=\"male\"/></Patient>",
+        "http://hl7.org/fhir"
+    );
+    assert!(xml_error(&source).contains("namespace"));
+}
+
+const XSI: &str = "http://www.w3.org/2001/XMLSchema-instance";
+
+// xml.html 2.1.6.3.4 forbids the schema instance namespace, but the document still parses:
+// the parser records each element that declares or uses it, and the validator reports it.
+#[test]
+fn schema_instance_namespace_is_recorded_not_rejected() {
     let cases = [
-        format!(
-            "<Patient {FHIR_NS} xmlns:fhir=\"{}\"><gender fhir:value=\"male\"/></Patient>",
-            "http://hl7.org/fhir"
+        (format!("<Patient {FHIR_NS} xmlns:xsi=\"{XSI}\"/>"), 1),
+        (
+            format!(
+                "<Patient {FHIR_NS} xmlns:xsi=\"{XSI}\" xsi:schemaLocation=\"{}\"><active value=\"true\"/></Patient>",
+                "http://hl7.org/fhir patient.xsd"
+            ),
+            1,
         ),
-        format!("<Patient {FHIR_NS} xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/>"),
-        format!(
-            "<Patient {FHIR_NS}><name xmlns:s=\"{}\"><family value=\"S\"/></name></Patient>",
-            "http://www.w3.org/2001/XMLSchema-instance"
+        (
+            format!(
+                "<Patient {FHIR_NS}><name xmlns:s=\"{XSI}\"><family value=\"S\"/></name></Patient>"
+            ),
+            1,
+        ),
+        (
+            format!(
+                "<Patient {FHIR_NS} xmlns:xsi=\"{XSI}\"><active xsi:type=\"x\" value=\"true\"/></Patient>"
+            ),
+            2,
         ),
     ];
-    for source in cases {
-        assert!(xml_error(&source).contains("namespace"), "{source}");
+    for (source, count) in cases {
+        let resource = parse_xml(&source).unwrap_or_else(|e| panic!("{source}: {e}"));
+        assert_eq!(resource.schema_instance.len(), count, "{source}");
     }
 }
 
@@ -206,10 +231,10 @@ fn many_namespace_declarations_on_one_element_are_rejected() {
 }
 
 #[test]
-fn schema_instance_namespace_written_with_a_character_reference_is_rejected() {
+fn schema_instance_namespace_written_with_a_character_reference_is_recorded() {
     let source =
         format!("<Patient {FHIR_NS} xmlns:s=\"http://www.w3.org/2001/XMLSchema&#45;instance\"/>");
-    assert!(xml_error(&source).contains("namespace"));
+    assert_eq!(parse_xml(&source).expect("parses").schema_instance.len(), 1);
 }
 
 #[test]
