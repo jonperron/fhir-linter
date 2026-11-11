@@ -22,8 +22,10 @@ use quick_xml::escape::resolve_predefined_entity;
 use quick_xml::events::{BytesStart, Event};
 
 /// Regression floor (passed cases on the pinned fixtures); raise it as the
-/// evaluator improves.
-const MIN_PASSED: u32 = 757;
+/// evaluator improves. Lowered from 757 when the fake stubs (htmlChecks,
+/// precision, now, today) and the `is` operator's empty-input `false` stopped
+/// passing cases for the wrong reason; this suite runs without choice navigation.
+const MIN_PASSED: u32 = 749;
 
 /// (run, skipped) case counts on the pinned fixtures, so loader drift or a
 /// broken skip filter cannot hide behind the floor.
