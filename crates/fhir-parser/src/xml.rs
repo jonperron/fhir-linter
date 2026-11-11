@@ -49,8 +49,8 @@ pub fn parse_xml(source: &str) -> Result<Resource, ParseError> {
         });
     }
     let resource = parse_document(source)?;
-    // shortcut: references such as `&#1;` are only caught in captured values, not in
-    // XHTML or root attributes; check them in the reader if those need it.
+    // shortcut: references such as `&#1;` are only caught in captured values and the div,
+    // not in root attributes; check them in the reader if those need it.
     if declared_version(source) != XmlVersion::Explicit1_1 {
         reject_controls(resource.id.as_deref(), &resource.fields)?;
     }
@@ -75,17 +75,37 @@ fn reject_controls(id: Option<&str>, fields: &IndexMap<Arc<str>, Node>) -> Resul
     if id.is_some_and(|s| s.chars().any(crate::is_disallowed_control)) {
         return Err(error(1, 1));
     }
-    fn walk(node: &Node) -> Option<Span> {
+    fn walk(key: &str, node: &Node) -> Option<Span> {
         match &node.value {
             Value::Str(s) if s.chars().any(crate::is_disallowed_control) => Some(node.span),
-            Value::Object(map) => map.values().find_map(walk),
-            Value::Array(items) => items.iter().find_map(walk),
+            // The div is raw markup, so its character references are still encoded.
+            Value::Str(s) if key == "div" && div_has_control_reference(s) => Some(node.span),
+            Value::Object(map) => map.iter().find_map(|(k, v)| walk(k, v)),
+            Value::Array(items) => items.iter().find_map(|item| walk(key, item)),
             _ => None,
         }
     }
-    match fields.values().find_map(walk) {
+    match fields.iter().find_map(|(k, v)| walk(k, v)) {
         Some(span) => Err(error(span.line, span.col)),
         None => Ok(()),
+    }
+}
+
+/// A character reference in the div markup that resolves to a disallowed control.
+fn div_has_control_reference(div: &str) -> bool {
+    let mut reader = Reader::from_str(div);
+    loop {
+        match reader.read_event() {
+            Ok(Event::GeneralRef(r)) => {
+                if let Ok(Some(c)) = r.resolve_char_ref() {
+                    if crate::is_disallowed_control(c) {
+                        return true;
+                    }
+                }
+            }
+            Ok(Event::Eof) | Err(_) => return false,
+            Ok(_) => {}
+        }
     }
 }
 
