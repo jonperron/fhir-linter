@@ -136,6 +136,14 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
                     col: 1,
                 });
             }
+            // xml.html: "There SHALL be no DTD references in FHIR resources".
+            Event::DocType(_) => {
+                return Err(error_at(
+                    &line_index,
+                    pos,
+                    "a DTD is not allowed in FHIR XML",
+                ));
+            }
             // Skip XML declaration, processing instructions, comments.
             _ => {}
         }
@@ -486,6 +494,15 @@ fn span_at(line_index: &LineIndex, pos: u32) -> Span {
         line,
         col,
         offset: pos,
+    }
+}
+
+fn error_at(line_index: &LineIndex, pos: u32, message: impl Into<String>) -> ParseError {
+    let (line, col) = line_index.location(pos);
+    ParseError::XmlError {
+        message: message.into(),
+        line,
+        col,
     }
 }
 
