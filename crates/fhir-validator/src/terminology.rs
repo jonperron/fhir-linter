@@ -49,7 +49,7 @@ pub fn validate(
             let codings = codings(item, fhir_type, &item_path);
             if let Some(bad) = out_of_set(item, fhir_type, &codings, vs, required, registry) {
                 let message =
-                    format!("Code {bad} at '{item_path}' is not in {strength} ValueSet '{vs}'");
+                    format!("{bad} at '{item_path}' is not in {strength} ValueSet '{vs}'");
                 diagnostics
                     .push(report("TERMINOLOGY_001", message, item_path).with_location(item.span));
             }
@@ -85,7 +85,7 @@ fn out_of_set(
         (registry.value_set_contains(vs, system, code) == Some(false)).then(|| code.to_owned())
     };
     match (fhir_type, &item.value) {
-        ("code", Value::Str(code)) => provably_out(None, code),
+        ("code", Value::Str(code)) => provably_out(None, code).map(|c| format!("Code {c}")),
         ("Coding" | "CodeableConcept", Value::Object(_)) => {
             // One matching coding is enough; every coding must be provably out to fail.
             let outs: Vec<_> = codings
@@ -100,11 +100,12 @@ fn out_of_set(
                 // terminologies.html 4.1.4.2.1: text is no substitute for the required code.
                 // Extensible bindings (4.1.4.2.2) accept text alone when no code fits.
                 let text_only = required && fhir_type == "CodeableConcept";
-                return text_only.then(|| "none (no Coding has a code)".to_owned());
+                return text_only.then(|| "CodeableConcept with no coded Coding".to_owned());
             }
-            outs.iter()
-                .all(Option::is_some)
-                .then(|| outs.into_iter().flatten().collect::<Vec<_>>().join(", "))
+            outs.iter().all(Option::is_some).then(|| {
+                let codes: Vec<_> = outs.into_iter().flatten().collect();
+                format!("Code {}", codes.join(", "))
+            })
         }
         _ => None,
     }

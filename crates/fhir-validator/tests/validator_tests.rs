@@ -255,6 +255,16 @@ fn code_outside_extensible_binding_produces_terminology_001_warning() {
     // Extensible bindings allow text alone when no code fits.
     let text = r#"{"resourceType":"FamilyMemberHistory","sex":{"text":"x"}}"#;
     assert!(severities(&registry, text, "TERMINOLOGY_001").is_empty());
+    // A Coding without system is not a member there either, and the missing system warns.
+    let bare = r#"{"resourceType":"FamilyMemberHistory","sex":{"coding":[{"code":"female"}]}}"#;
+    assert_eq!(severities(&registry, bare, "TERMINOLOGY_001"), warning);
+    assert_eq!(
+        severities(&registry, bare, "TERMINOLOGY_002"),
+        vec![(
+            Severity::Warning,
+            "FamilyMemberHistory.sex.coding[0]".to_owned()
+        )],
+    );
 }
 
 #[test]
@@ -273,6 +283,8 @@ fn single_xml_coding_is_read_by_terminology_checks() {
     };
     assert_eq!(terminology(&status("active")), 0);
     assert_eq!(terminology(&status("bogus")), 1);
+    let text_only = r#"<DeviceUsage xmlns="http://hl7.org/fhir"><usageStatus><text value="x"/></usageStatus></DeviceUsage>"#;
+    assert_eq!(terminology(text_only), 1);
 }
 
 #[test]
@@ -360,6 +372,7 @@ fn reference_type_disagreeing_with_fhir_url_produces_reference_003() {
         ),
         // Not FHIR URLs: the rule does not apply.
         ("Organization?identifier=1", "Patient"),
+        ("http://example.org/my_fhir/Organization/2", "Patient"),
         ("urn:uuid:9d5e4b5a-7f2b-4c1e-9a3c-0b6c8f5d2e11", "Patient"),
     ] {
         let json = org(reference, kind);
@@ -400,6 +413,11 @@ fn malformed_relative_reference_produces_reference_004_warning() {
         "Practitioner/1",
         "Practitioner/a-1.b/_history/2",
         "Practitioner?name=x",
+        // Not relative references: the rule does not apply.
+        "#",
+        "#p1",
+        "http://example.org/fhir/Practitioner/a b",
+        "urn:uuid:9d5e4b5a-7f2b-4c1e-9a3c-0b6c8f5d2e11",
     ] {
         assert!(
             severities(&registry, &gp(good), "REFERENCE_004").is_empty(),
