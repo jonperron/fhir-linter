@@ -275,6 +275,38 @@ fn single_xml_coding_is_read_by_terminology_checks() {
     assert_eq!(terminology(&status("bogus")), 1);
 }
 
+#[test]
+fn coding_without_system_is_not_a_member_and_warns() {
+    let registry = load_registry();
+    let status = |codings: &str| {
+        format!(r#"{{"resourceType":"DeviceUsage","usageStatus":{{"coding":[{codings}]}}}}"#)
+    };
+    let bare = status(r#"{"code":"active"}"#);
+    assert_eq!(
+        severities(&registry, &bare, "TERMINOLOGY_001"),
+        vec![(Severity::Error, "DeviceUsage.usageStatus".to_owned())],
+    );
+    assert_eq!(
+        severities(&registry, &bare, "TERMINOLOGY_002"),
+        vec![(
+            Severity::Warning,
+            "DeviceUsage.usageStatus.coding[0]".to_owned()
+        )],
+    );
+    // A second, valid Coding makes the concept a member; the bare one still warns.
+    let mixed = status(
+        r#"{"code":"active"},{"system":"http://hl7.org/fhir/deviceusage-status","code":"active"}"#,
+    );
+    assert!(severities(&registry, &mixed, "TERMINOLOGY_001").is_empty());
+    assert_eq!(
+        severities(&registry, &mixed, "TERMINOLOGY_002"),
+        vec![(
+            Severity::Warning,
+            "DeviceUsage.usageStatus.coding[0]".to_owned()
+        )],
+    );
+}
+
 // ── Reference validation ──────────────────────────────────────────────────────
 
 #[test]

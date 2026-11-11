@@ -8,7 +8,8 @@ use crate::diagnostic::Diagnostic;
 /// Emits `TERMINOLOGY_001` when a `code`, `Coding` or `CodeableConcept` is
 /// provably outside the bound ValueSet: an error for `required`, a warning for
 /// `extensible`. Membership that cannot be decided from the loaded definitions
-/// (filters, external code systems) is not reported.
+/// (filters, external code systems) is not reported. A bound Coding with a
+/// code but no system also gets a `TERMINOLOGY_002` warning.
 pub fn validate(
     resource: &Resource,
     sd: &StructureDefinition,
@@ -45,22 +46,37 @@ pub fn validate(
         };
 
         for (item, item_path) in entries(node, &path) {
-            if let Some(bad) = out_of_set(&item.value, fhir_type, vs, required, registry) {
+            let codings = codings(item, fhir_type, &item_path);
+            if let Some(bad) = out_of_set(item, fhir_type, &codings, vs, required, registry) {
                 let message =
                     format!("Code {bad} at '{item_path}' is not in {strength} ValueSet '{vs}'");
                 diagnostics
                     .push(report("TERMINOLOGY_001", message, item_path).with_location(item.span));
             }
+            for (coding_node, coding_path) in codings {
+                if let Some((None, code)) = coding(&coding_node.value) {
+                    let message = format!(
+                        "Coding '{code}' at '{coding_path}' has no system, \
+                         so it cannot be a member of ValueSet '{vs}'"
+                    );
+                    diagnostics.push(
+                        Diagnostic::warning("TERMINOLOGY_002", message, coding_path)
+                            .with_location(coding_node.span),
+                    );
+                }
+            }
         }
     }
 }
 
-/// Return a description of the offending code when `value` is provably not in `vs`.
+/// Return a description of the offending code when `item` is provably not in `vs`.
 ///
+/// A Coding without a system is never a member: its code has no defined meaning.
 /// Under a `required` binding a CodeableConcept with no coded Coding is also out.
 fn out_of_set(
-    value: &Value,
+    item: &Node,
     fhir_type: &str,
+    codings: &[(&Node, String)],
     vs: &str,
     required: bool,
     registry: &Registry,
@@ -68,30 +84,41 @@ fn out_of_set(
     let provably_out = |system: Option<&str>, code: &str| {
         (registry.value_set_contains(vs, system, code) == Some(false)).then(|| code.to_owned())
     };
-    match (fhir_type, value) {
+    match (fhir_type, &item.value) {
         ("code", Value::Str(code)) => provably_out(None, code),
-        ("Coding", Value::Object(_)) => coding(value).and_then(|(s, c)| provably_out(s, c)),
-        ("CodeableConcept", Value::Object(fields)) => {
-            let codings = fields
-                .get("coding")
-                .map(|n| entries(n, ""))
-                .unwrap_or_default();
+        ("Coding" | "CodeableConcept", Value::Object(_)) => {
             // One matching coding is enough; every coding must be provably out to fail.
             let outs: Vec<_> = codings
                 .iter()
                 .filter_map(|(n, _)| coding(&n.value))
-                .map(|(s, c)| provably_out(s, c))
+                .map(|(system, code)| match system {
+                    None => Some(code.to_owned()),
+                    Some(_) => provably_out(system, code),
+                })
                 .collect();
             if outs.is_empty() {
                 // terminologies.html 4.1.4.2.1: text is no substitute for the required code.
                 // Extensible bindings (4.1.4.2.2) accept text alone when no code fits.
-                return required.then(|| "none (no Coding has a code)".to_owned());
+                let text_only = required && fhir_type == "CodeableConcept";
+                return text_only.then(|| "none (no Coding has a code)".to_owned());
             }
             outs.iter()
                 .all(Option::is_some)
                 .then(|| outs.into_iter().flatten().collect::<Vec<_>>().join(", "))
         }
         _ => None,
+    }
+}
+
+/// The Codings of a `Coding` or `CodeableConcept` item, with their paths.
+fn codings<'a>(item: &'a Node, fhir_type: &str, item_path: &str) -> Vec<(&'a Node, String)> {
+    match (fhir_type, &item.value) {
+        ("Coding", Value::Object(_)) => vec![(item, item_path.to_owned())],
+        ("CodeableConcept", Value::Object(fields)) => fields
+            .get("coding")
+            .map(|n| entries(n, &format!("{item_path}.coding")))
+            .unwrap_or_default(),
+        _ => Vec::new(),
     }
 }
 
