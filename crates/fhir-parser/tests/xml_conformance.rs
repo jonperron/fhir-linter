@@ -48,6 +48,19 @@ fn whitespace_comments_and_processing_instructions_between_elements_are_ignored(
 }
 
 #[test]
+fn root_attributes_other_than_namespace_declarations_are_rejected() {
+    for attrs in ["id=\"p\"", "foo=\"bar\""] {
+        let open = format!("<Patient {FHIR_NS} {attrs}");
+        for source in [
+            format!("{open}/>"),
+            format!("{open}><active value=\"true\"/></Patient>"),
+        ] {
+            assert!(xml_error(&source).contains("root"), "{source}");
+        }
+    }
+}
+
+#[test]
 fn utf8_encoding_declaration_is_accepted_in_any_case() {
     for encoding in ["UTF-8", "utf-8"] {
         let source = format!("<?xml version=\"1.0\" encoding=\"{encoding}\"?><Patient {FHIR_NS}/>");

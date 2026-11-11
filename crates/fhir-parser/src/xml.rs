@@ -91,6 +91,7 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
         {
             Event::Start(ref e) => {
                 let resource_type = local_name_arc(e.local_name().as_ref(), &line_index, pos)?;
+                reject_root_attrs(e, &line_index, pos)?;
                 let mut fields = parse_children(&mut reader, &line_index, 1)?;
 
                 let id = match fields.shift_remove("id") {
@@ -120,6 +121,7 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
             Event::Empty(ref e) => {
                 // Self-closing root element - unusual but handle gracefully.
                 let resource_type = local_name_arc(e.local_name().as_ref(), &line_index, pos)?;
+                reject_root_attrs(e, &line_index, pos)?;
                 let resource = Resource {
                     resource_type,
                     id: None,
@@ -504,6 +506,25 @@ fn collect_attrs(
     }
 
     Ok(attrs)
+}
+
+/// xml.html: `id` is an attribute on elements "but not on resources"; a resource root
+/// carries namespace declarations only.
+fn reject_root_attrs(
+    e: &quick_xml::events::BytesStart<'_>,
+    line_index: &LineIndex,
+    pos: u32,
+) -> Result<(), ParseError> {
+    let attrs = collect_attrs(e, line_index, pos)?;
+    if attrs.is_empty() {
+        return Ok(());
+    }
+    let names: Vec<&str> = attrs.keys().map(AsRef::as_ref).collect();
+    let message = format!(
+        "attributes are not allowed on the resource root element: {}",
+        names.join(", ")
+    );
+    Err(error_at(line_index, pos, message))
 }
 
 fn span_at(line_index: &LineIndex, pos: u32) -> Span {
