@@ -104,7 +104,6 @@ mod tests {
             Arc::from(resource_type),
             Arc::from("resource"),
             false,
-            None,
             vec![ElementDefinition {
                 path: Arc::from(resource_type),
                 min: 0,

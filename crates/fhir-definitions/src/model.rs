@@ -13,7 +13,6 @@ pub struct StructureDefinition {
     pub name: Arc<str>,
     pub kind: Arc<str>,
     pub is_abstract: bool,
-    pub base_definition: Option<Arc<str>>,
     pub snapshot: Vec<ElementDefinition>,
     /// Position in `snapshot` of the first element with each path.
     path_index: HashMap<Arc<str>, usize>,
@@ -25,7 +24,6 @@ impl StructureDefinition {
         name: Arc<str>,
         kind: Arc<str>,
         is_abstract: bool,
-        base_definition: Option<Arc<str>>,
         snapshot: Vec<ElementDefinition>,
     ) -> Self {
         let mut path_index = HashMap::with_capacity(snapshot.len());
@@ -38,7 +36,6 @@ impl StructureDefinition {
             name,
             kind,
             is_abstract,
-            base_definition,
             snapshot,
             path_index,
         }
@@ -148,6 +145,8 @@ pub struct ValueSet {
 #[derive(Debug, Clone, Default)]
 pub struct Include {
     pub system: Option<Arc<str>>,
+    /// CodeSystem version the include is pinned to (`include.version`), if any.
+    pub version: Option<Arc<str>>,
     /// Explicitly enumerated codes; empty means "the whole system" (unless `has_filter`).
     pub codes: Vec<Arc<str>>,
     /// True when a `filter` restricts the system; membership is then not decidable.
@@ -161,7 +160,11 @@ pub struct Include {
 pub struct CodeSystem {
     pub url: Arc<str>,
     pub name: Arc<str>,
+    /// Business version (`CodeSystem.version`), if any.
+    pub version: Option<Arc<str>>,
     pub codes: HashSet<Arc<str>>,
+    /// Codes of concepts flagged notSelectable (R5 concept property); a subset of `codes`.
+    pub not_selectable: HashSet<Arc<str>>,
     /// False when the system is a fragment/not-present, so absence of a code proves nothing.
     pub complete: bool,
 }
@@ -197,7 +200,6 @@ mod tests {
             Arc::from("Obs"),
             Arc::from("resource"),
             false,
-            None,
             paths.iter().map(|&(p, min)| elem(p, min)).collect(),
         )
     }

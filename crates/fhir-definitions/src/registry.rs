@@ -37,6 +37,7 @@ impl Registry {
             "profiles-resources.json",
             "profiles-types.json",
             "profiles-others.json",
+            "valuesets.json",
         ] {
             let path = dir.join(file);
             loader::load_bundle(
@@ -46,14 +47,6 @@ impl Registry {
                 &mut code_systems,
             )?;
         }
-
-        let valuesets_path = dir.join("valuesets.json");
-        loader::load_bundle(
-            &valuesets_path,
-            &mut structure_definitions,
-            &mut value_sets,
-            &mut code_systems,
-        )?;
 
         let choice_suffixes = index_choice_suffixes(&structure_definitions);
         Ok(Self {
@@ -174,17 +167,28 @@ impl Registry {
         if system.is_some_and(|s| s != inc_system) {
             return Some(false);
         }
-        if !inc.codes.is_empty() {
-            return Some(inc.codes.iter().any(|c| c.as_ref() == code));
-        }
-        let cs = self.code_systems.get(inc_system)?;
-        if cs.codes.contains(code) {
-            Some(true)
-        } else if cs.complete {
-            Some(false)
+        // An include pinned to another CodeSystem version ("*" means any) cannot use the
+        // loaded one: treated as if the CodeSystem were not loaded.
+        let cs = self.code_systems.get(inc_system).filter(|cs| {
+            inc.version
+                .as_deref()
+                .is_none_or(|v| v == "*" || cs.version.as_deref() == Some(v))
+        });
+        let found = if inc.codes.is_empty() {
+            let cs = cs?;
+            if !cs.codes.contains(code) {
+                return cs.complete.then_some(false);
+            }
+            true
         } else {
-            None
+            inc.codes.iter().any(|c| c.as_ref() == code)
+        };
+        // R5 forbids selecting notSelectable codes only in expansions; from a compose
+        // membership is undecidable.
+        if found && cs.is_some_and(|cs| cs.not_selectable.contains(code)) {
+            return None;
         }
+        Some(found)
     }
 
     /// Total number of indexed `StructureDefinition` entries.
@@ -348,18 +352,6 @@ mod tests {
     }
 
     #[test]
-    fn structure_definition_has_base_definition() {
-        let registry = &*REGISTRY;
-        let sd = registry
-            .structure_definition("http://hl7.org/fhir/StructureDefinition/Patient")
-            .unwrap();
-        assert_eq!(
-            sd.base_definition.as_deref(),
-            Some("http://hl7.org/fhir/StructureDefinition/DomainResource")
-        );
-    }
-
-    #[test]
     fn registry_value_set_count_is_positive() {
         let registry = &*REGISTRY;
         assert!(
@@ -456,5 +448,122 @@ mod tests {
     #[test]
     fn shared_from_nonexistent_dir_returns_error() {
         assert!(Registry::shared("/nonexistent/path/that/does/not/exist").is_err());
+    }
+
+    #[test]
+    fn value_set_contains_applies_include_version_and_exclude() {
+        let dir =
+            std::env::temp_dir().join(format!("fhir_def_synthetic_compose_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        for file in [
+            "profiles-resources.json",
+            "profiles-types.json",
+            "profiles-others.json",
+        ] {
+            fs::write(dir.join(file), r#"{"entry": []}"#).unwrap();
+        }
+        let vs = |name: &str, version: &str, extra: &str| {
+            format!(
+                r#"{{"resource": {{"resourceType": "ValueSet", "url": "http://x/vs/{name}",
+                "name": "{name}", "compose": {{"include": [
+                    {{"system": "http://x/cs", "version": "{version}"{extra}}}]}}}}}}"#
+            )
+        };
+        let bundle = format!(
+            r#"{{"entry": [{}, {}, {}, {}, {}, {{"resource": {{"resourceType": "CodeSystem",
+            "url": "http://x/cs", "name": "CS", "version": "2", "content": "complete",
+            "concept": [{{"code": "a"}}]}}}}]}}"#,
+            vs("same", "2", ""),
+            vs("any", "*", ""),
+            vs("other", "1", ""),
+            // Enumerated codes decide alone, whatever the CodeSystem version.
+            vs("other-listed", "1", r#", "concept": [{"code": "a"}]"#),
+            // A decidable include plus a sibling compose.exclude (extra closes the include).
+            vs(
+                "excluded",
+                "2",
+                r#"}], "exclude": [{"system": "http://x/cs", "concept": [{"code": "a"}]"#,
+            ),
+        );
+        fs::write(dir.join("valuesets.json"), bundle).unwrap();
+        let registry = Registry::from_definitions_dir(&dir);
+        fs::remove_dir_all(&dir).unwrap();
+        let registry = registry.unwrap();
+        for (vs, in_code, out_code) in [
+            ("same", Some(true), Some(false)),
+            ("any", Some(true), Some(false)),
+            ("other", None, None),
+            ("other-listed", Some(true), Some(false)),
+            ("excluded", None, Some(false)),
+        ] {
+            let url = format!("http://x/vs/{vs}");
+            assert_eq!(
+                registry.value_set_contains(&url, None, "a"),
+                in_code,
+                "{vs} a"
+            );
+            assert_eq!(
+                registry.value_set_contains(&url, None, "b"),
+                out_code,
+                "{vs} b"
+            );
+        }
+    }
+
+    #[test]
+    fn value_set_contains_decides_membership_from_the_bundled_definitions() {
+        const VS: &str = "http://hl7.org/fhir/ValueSet/";
+        let gender = Some("http://hl7.org/fhir/administrative-gender");
+        // (ValueSet, system, code, expected)
+        let cases: &[(&str, Option<&str>, &str, Option<bool>)] = &[
+            // Whole complete CodeSystem: in, out, other system.
+            ("administrative-gender", gender, "male", Some(true)),
+            ("administrative-gender", None, "male", Some(true)),
+            ("administrative-gender", gender, "bogus", Some(false)),
+            (
+                "administrative-gender",
+                Some("http://example.org/cs"),
+                "male",
+                Some(false),
+            ),
+            // Enumerated concepts.
+            ("security-label-data-examples", None, "N", Some(true)),
+            ("security-label-data-examples", None, "V", Some(false)),
+            // include.filter is never evaluated.
+            ("example-filter", None, "anything", None),
+            // include.valueSet: decided by the imported ValueSet (fhir-types).
+            ("elementdefinition-types", None, "Patient", Some(true)),
+            ("elementdefinition-types", None, "NotAType", Some(false)),
+            // compose.exclude (with a filtered include): undecidable.
+            ("encounter-participant-type", None, "ADM", None),
+            // CodeSystem with content `example`: present codes only.
+            (
+                "biologicallyderived-product-property-type-codes",
+                None,
+                "collectiontype",
+                Some(true),
+            ),
+            (
+                "biologicallyderived-product-property-type-codes",
+                None,
+                "bogus",
+                None,
+            ),
+            // notSelectable concept (item-type#question): undecidable.
+            ("item-type", None, "question", None),
+            ("item-type", None, "group", Some(true)),
+            // include.version 20210721 pins a CodeSystem version other than the loaded 5.0.0.
+            ("example-metadata", None, "A", None),
+            ("example-metadata", None, "Z", None),
+            // Unknown ValueSet.
+            ("no-such-value-set", None, "male", None),
+        ];
+        for &(vs, system, code, expected) in cases {
+            assert_eq!(
+                REGISTRY.value_set_contains(&format!("{VS}{vs}"), system, code),
+                expected,
+                "{vs} {system:?} {code}",
+            );
+        }
     }
 }
