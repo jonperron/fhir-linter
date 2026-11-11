@@ -324,6 +324,53 @@ fn reference_to_known_type_and_absolute_url_pass() {
 }
 
 #[test]
+fn reference_type_disagreeing_with_fhir_url_produces_reference_003() {
+    // references.html 2.1.3.0.1: type and a FHIR URL reference SHALL be consistent.
+    let registry = load_registry();
+    let org = |reference: &str, kind: &str| {
+        format!(
+            r#"{{"resourceType":"Patient","managingOrganization":{{"reference":"{reference}","type":"{kind}"}}}}"#
+        )
+    };
+    let error = vec![(
+        Severity::Error,
+        "Patient.managingOrganization.reference".to_owned(),
+    )];
+    for (reference, kind) in [
+        ("Organization/2", "Patient"),
+        ("http://example.org/fhir/Organization/2", "Patient"),
+        (
+            "Organization/2/_history/1",
+            "http://hl7.org/fhir/StructureDefinition/Patient",
+        ),
+    ] {
+        let json = org(reference, kind);
+        assert_eq!(
+            severities(&registry, &json, "REFERENCE_003"),
+            error,
+            "{reference} {kind}"
+        );
+    }
+    for (reference, kind) in [
+        ("Organization/2", "Organization"),
+        ("https://example.org/fhir/Organization/2", "Organization"),
+        (
+            "Organization/2",
+            "http://hl7.org/fhir/StructureDefinition/Organization",
+        ),
+        // Not FHIR URLs: the rule does not apply.
+        ("Organization?identifier=1", "Patient"),
+        ("urn:uuid:9d5e4b5a-7f2b-4c1e-9a3c-0b6c8f5d2e11", "Patient"),
+    ] {
+        let json = org(reference, kind);
+        assert!(
+            severities(&registry, &json, "REFERENCE_003").is_empty(),
+            "{reference} {kind}"
+        );
+    }
+}
+
+#[test]
 fn unresolved_contained_reference_produces_reference_002() {
     let registry = load_registry();
     let json = r##"{"resourceType":"Patient","managingOrganization":{"reference":"#org"}}"##;
