@@ -1355,7 +1355,19 @@ fn temporal_primitives_follow_the_r5_regexes() {
             false,
         ),
         ("Patient", "deceasedDateTime", "2020-02-30T10:00:00Z", false),
-        ("Patient", "deceasedDateTime", "2020-01-01Z", false),
+        // The R5 regex allows a zone on a year-month or full date (PLAN 11.2-A5).
+        ("Patient", "deceasedDateTime", "2020-01-01Z", true),
+        ("Patient", "deceasedDateTime", "2020-01Z", true),
+        ("Patient", "deceasedDateTime", "2020-01-01+02:00", true),
+        // Year-month with a `-05:00` offset, as the regex reads it.
+        ("Patient", "deceasedDateTime", "2020-01-05:00", true),
+        ("Patient", "deceasedDateTime", "2020Z", false),
+        ("Patient", "deceasedDateTime", "2020-01-01+", false),
+        ("Patient", "deceasedDateTime", "2020-01-01Zjunk", false),
+        // A multi-byte char across the year-month / full-date boundary: rejected, no panic.
+        ("Patient", "deceasedDateTime", "2020-0\u{e9}Z", false),
+        ("Patient", "deceasedDateTime", "2020-01-0\u{e9}Z", false),
+        ("Patient", "deceasedDateTime", "2020-01\u{e9}Z", false),
         ("Patient", "deceasedDateTime", "2020-01-01T10:00:00+", false),
         ("Observation", "issued", "2020-01-01T10:00:00.5Z", true),
         ("Observation", "issued", "2020", false),
@@ -1382,6 +1394,35 @@ fn temporal_primitives_follow_the_r5_regexes() {
             vec!["TYPE_003".into()]
         };
         assert_eq!(found, expected, "{rt}.{field} = {value:?}");
+    }
+}
+
+#[test]
+fn code_follows_the_r5_regex() {
+    // R5 `code` regex: `[^\s]+( [^\s]+)*`.
+    let registry = load_registry();
+    let cases: &[(&str, bool)] = &[
+        ("text/plain; charset=utf-8", true),
+        ("final", true),
+        ("a  b", false),
+        (" a", false),
+        ("a ", false),
+        ("a\\tb", false),
+        ("", false),
+    ];
+    for (value, valid) in cases {
+        let found = type_codes_at(
+            &registry,
+            "Observation",
+            &format!(r#""valueAttachment":{{"contentType":"{value}"}}"#),
+            "Observation.valueAttachment.contentType",
+        );
+        let expected: Vec<String> = if *valid {
+            vec![]
+        } else {
+            vec!["TYPE_004".into()]
+        };
+        assert_eq!(found, expected, "contentType = {value:?}");
     }
 }
 
@@ -1741,4 +1782,156 @@ fn xml_single_repeating_element_is_not_a_shape_error() {
         r#"<Patient xmlns="http://hl7.org/fhir"><name><given value="A"/></name><gender value="male"/></Patient>"#,
     );
     assert!(!codes.iter().any(|c| c == "STRUCTURE_002"), "{codes:?}");
+}
+
+// ── Empty arrays (11.2-A1) ────────────────────────────────────────────────────
+
+#[test]
+fn empty_or_null_array_on_required_element_produces_cardinality_001() {
+    for empty in ["[]", "[null]"] {
+        for (json, path) in [
+            (
+                format!(
+                    concat!(
+                        r#"{{"resourceType":"ValueSet","status":"draft","#,
+                        r#""compose":{{"include":{empty}}}}}"#,
+                    ),
+                    empty = empty,
+                ),
+                "ValueSet.compose.include",
+            ),
+            (
+                format!(r#"{{"resourceType":"Composition","author":{empty}}}"#),
+                "Composition.author",
+            ),
+        ] {
+            let found = codes_for(&json);
+            assert!(
+                found.contains(&("CARDINALITY_001".into(), path.into())),
+                "{json}: {found:?}"
+            );
+            assert!(
+                !found.contains(&("CARDINALITY_003".into(), path.into())),
+                "{json}: {found:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn empty_array_on_optional_element_produces_cardinality_003_warning() {
+    for (json, path) in [
+        (
+            r#"{"resourceType":"Patient","identifier":[]}"#,
+            "Patient.identifier",
+        ),
+        (
+            r#"{"resourceType":"Patient","identifier":[null]}"#,
+            "Patient.identifier",
+        ),
+        (
+            r#"{"resourceType":"Patient","name":[{"given":[null]}]}"#,
+            "Patient.name[0].given",
+        ),
+        (
+            r#"{"resourceType":"Patient","name":[{"given":[]}]}"#,
+            "Patient.name[0].given",
+        ),
+    ] {
+        let resource = parse_json(json).unwrap();
+        let found: Vec<_> = validate(&resource, &load_registry())
+            .into_iter()
+            .filter(|d| d.code.as_ref() == "CARDINALITY_003")
+            .collect();
+        assert_eq!(found.len(), 1, "{json}: {found:?}");
+        assert_eq!(found[0].severity, Severity::Warning);
+        assert_eq!(found[0].path, path);
+    }
+}
+
+#[test]
+fn cardinality_003_location_is_the_array_span() {
+    let json = r#"{"resourceType":"Patient","identifier":[]}"#;
+    let resource = parse_json(json).unwrap();
+    let found = validate(&resource, &load_registry())
+        .into_iter()
+        .find(|d| d.code.as_ref() == "CARDINALITY_003")
+        .expect("CARDINALITY_003");
+    let location = found.location.expect("location");
+    assert_eq!(location.offset as usize, json.find("[]").unwrap());
+}
+
+#[test]
+fn empty_array_on_max_one_element_gets_structure_002_and_cardinality_003() {
+    let found = codes_for(r#"{"resourceType":"Patient","gender":[]}"#);
+    for code in ["STRUCTURE_002", "CARDINALITY_003"] {
+        assert!(
+            found.contains(&(code.into(), "Patient.gender".into())),
+            "{code}: {found:?}"
+        );
+    }
+}
+
+#[test]
+fn profile_requiring_optional_element_reports_base_003_and_profile_001() {
+    // `subject` is 0..1 on Observation but 1..1 in the vitalsigns profile.
+    let json = VITAL_SIGNS_HEART_RATE.replace(
+        r#""subject": {"reference": "Patient/example"},"#,
+        r#""subject": [],"#,
+    );
+    assert_ne!(json, VITAL_SIGNS_HEART_RATE);
+    let found = codes_for(&json);
+    for code in ["CARDINALITY_003", "CARDINALITY_001"] {
+        assert!(
+            found.contains(&(code.into(), "Observation.subject".into())),
+            "{code}: {found:?}"
+        );
+    }
+}
+
+#[test]
+fn partly_null_arrays_and_choice_variants_get_no_cardinality_003() {
+    for (json, path) in [
+        (
+            r#"{"resourceType":"Patient","name":[{"given":[null,"a"]}]}"#,
+            "Patient.name[0].given",
+        ),
+        (
+            concat!(
+                r#"{"resourceType":"Observation","status":"final","#,
+                r#""code":{"text":"x"},"valueQuantity":[]}"#,
+            ),
+            "Observation.valueQuantity",
+        ),
+    ] {
+        let found = codes_for(json);
+        assert!(
+            !found.iter().any(|(code, p)| {
+                code == "CARDINALITY_003" || (code.starts_with("CARDINALITY") && p == path)
+            }),
+            "{json}: {found:?}"
+        );
+    }
+}
+
+#[test]
+fn null_values_backed_by_primitive_extensions_are_not_empty() {
+    for json in [
+        concat!(
+            r#"{"resourceType":"Patient","identifier":[{"value":"1"}],"#,
+            r#""name":[{"given":[null],"_given":[{"id":"a"}]}]}"#,
+        ),
+        concat!(
+            r#"{"resourceType":"Observation","code":{"text":"x"},"#,
+            r#""status":[null],"_status":[{"id":"a"}]}"#,
+        ),
+    ] {
+        let found = codes_for(json);
+        assert!(
+            !found
+                .iter()
+                .any(|(code, _)| code.starts_with("CARDINALITY")),
+            "{json}: {found:?}"
+        );
+    }
 }

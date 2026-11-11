@@ -63,9 +63,9 @@ pub(crate) fn check_type(
                 && (s == "0" || !s.trim_start_matches(['+', '-']).starts_with('0'))
         }),
         "code" => match value {
-            Value::Str(s) if s.chars().any(char::is_whitespace) => Some((
+            Value::Str(s) if !is_valid_code(s) => Some((
                 "TYPE_004",
-                format!("Code at '{path}' must not contain whitespace: '{s}'"),
+                format!("Code at '{path}' must be words separated by single spaces: '{s}'"),
             )),
             Value::Str(_) => None,
             _ => Some(expected("code string")),
@@ -97,11 +97,22 @@ fn is_valid_date(s: &str) -> bool {
     parse_date(s).is_some_and(|(_, rest)| rest.is_empty())
 }
 
-/// FHIR dateTime: a date, or a full date with a time and a mandatory zone (as `instant`).
-/// The R5 regex also matches a zone on a date-only value; the spec prose ties the zone
-/// to the time, so it is rejected (as before this check was tightened).
+/// FHIR code: R5 regex `[^\s]+( [^\s]+)*`.
+fn is_valid_code(s: &str) -> bool {
+    s.split(' ')
+        .all(|word| !word.is_empty() && !word.contains(char::is_whitespace))
+}
+
+/// FHIR dateTime: a date, a full date with a time and a mandatory zone (as `instant`), or,
+/// as the R5 regex allows, a year-month or full date followed by a zone (`2020-01-01Z`).
+/// The zone must be complete: the regex's bare `+`/`-` is rejected, as for `instant`.
 fn is_valid_datetime(s: &str) -> bool {
-    is_valid_date(s) || is_valid_instant(s)
+    is_valid_date(s)
+        || is_valid_instant(s)
+        // `YYYY-MM` or `YYYY-MM-DD` then a zone; the regex takes no zone on a bare year.
+        || [7, 10].into_iter().any(|len| {
+            s.get(..len).is_some_and(is_valid_date) && s.get(len..).is_some_and(is_valid_zone)
+        })
 }
 
 /// FHIR instant: `YYYY-MM-DDThh:mm:ss(.sss)?(Z|(+|-)hh:mm)`.
@@ -270,10 +281,21 @@ mod tests {
     }
 
     #[test]
-    fn code_with_whitespace_produces_type_004() {
-        let d = check(Value::Str(Arc::from("fin al")), "code");
-        assert_eq!(d.len(), 1);
-        assert_eq!(d[0].code.as_ref(), "TYPE_004");
+    fn code_follows_the_r5_regex() {
+        for (code, valid) in [
+            ("text/plain; charset=utf-8", true),
+            ("a b c", true),
+            ("a  b", false),
+            (" a", false),
+            ("a ", false),
+            ("a\tb", false),
+            ("a\nb", false),
+            ("a\u{a0}b", false),
+            ("", false),
+        ] {
+            let d = check(Value::Str(Arc::from(code)), "code");
+            assert_eq!(d.is_empty(), valid, "{code:?}: {d:?}");
+        }
     }
 
     #[test]
@@ -349,5 +371,21 @@ mod tests {
         assert!(!is_valid_time("24:00:00"));
         assert!(is_valid_datetime("2024-01-01T12:30:59Z"));
         assert!(!is_valid_datetime("2024-01-01T+1:30:59Z"));
+        for valid in [
+            "2020-01Z",
+            "2020-01-01Z",
+            "2020-01-01+02:00",
+            "2020-01-05:00",
+        ] {
+            assert!(is_valid_datetime(valid), "{valid}");
+        }
+        for invalid in [
+            "2020Z",
+            "2020-01-01+",
+            "2020-01-01Zjunk",
+            "2020-01-01T10:00:00",
+        ] {
+            assert!(!is_valid_datetime(invalid), "{invalid}");
+        }
     }
 }

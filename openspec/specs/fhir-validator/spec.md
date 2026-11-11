@@ -142,7 +142,7 @@ Pour une ressource issue du JSON (`Resource.from_xml` faux), le système SHALL �
 
 ### Requirement: Validation de cardinalité — élément requis absent (CARDINALITY_001)
 
-Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severity `Error` pour chaque élément déclaré avec `min > 0` dans le snapshot et absent de la ressource. Un élément requis de type primitif (nom de type commençant par une minuscule) présent uniquement sous la forme `_nom` (extension de primitif) SHALL être considéré présent seulement si la valeur de `_nom` est un objet, ou un tableau d'objets et de `null` contenant au moins un objet (un scalaire tel que `"_status": 5`, `[]` ou `[null]` ne compte pas et produit `CARDINALITY_001`) ; pour un type complexe, `_nom` ne SHALL PAS compter comme présence. Lorsque la valeur est absente et que `_nom` est un tableau plus long que le maximum fini, un `CARDINALITY_002` SHALL être émis (path et position de `_nom`). Un nom d'élément contenant `.`, `[` ou `]` (y compris préfixé par `_`) SHALL produire `STRUCTURE_001`. Un choix `[x]` SHALL être vérifié selon le seul type désigné par son suffixe ; sa cardinalité porte sur l'ensemble de ses variantes (champs `base` + type autorisé capitalisé, `_variante` comptant seulement pour un type primitif et sous la même forme objet que `_nom`), à toute profondeur : aucune variante et `min > 0` produit `CARDINALITY_001` au chemin du choix (ex. `Immunization.occurrence[x]`), plus d'une variante produit `CARDINALITY_002` à la seconde variante. Un `integer64` SHALL être une chaîne conforme à `[0]|[-+]?[1-9][0-9]*` et représentable sur 64 bits signés (`TYPE_003` sinon, `TYPE_001` si non chaîne).
+Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severity `Error` pour chaque élément déclaré avec `min > 0` dans le snapshot et absent de la ressource. Une valeur JSON qui est un tableau vide (`[]`) ou un tableau ne contenant que des `null` SHALL compter comme absente, à toute profondeur (parcours unique, réutilisé par la couche de cardinalité de profil) : `"compose": {"include": []}` ou `"include": [null]` dans un ValueSet, ou `"author": []` dans une Composition, produit `CARDINALITY_001`. Un élément requis de type primitif (nom de type commençant par une minuscule) dont la valeur est absente (ou un tableau vide ou de seuls `null`) SHALL être considéré présent via `_nom` (extension de primitif) seulement si la valeur de `_nom` est un objet, ou un tableau d'objets et de `null` contenant au moins un objet ; de même qu'une valeur `[]` ou `[null]`, un `_nom` scalaire tel que `"_status": 5`, `[]` ou `[null]` ne compte pas et produit `CARDINALITY_001` ; ainsi `"status": [null], "_status": [{"id": "a"}]` reste présent. Pour un type complexe, `_nom` ne SHALL PAS compter comme présence. Lorsque la valeur est absente et que `_nom` est un tableau plus long que le maximum fini, un `CARDINALITY_002` SHALL être émis (path et position de `_nom`). Un nom d'élément contenant `.`, `[` ou `]` (y compris préfixé par `_`) SHALL produire `STRUCTURE_001`. Un choix `[x]` SHALL être vérifié selon le seul type désigné par son suffixe ; sa cardinalité porte sur l'ensemble de ses variantes (champs `base` + type autorisé capitalisé, `_variante` comptant seulement pour un type primitif et sous la même forme objet que `_nom`), à toute profondeur : aucune variante et `min > 0` produit `CARDINALITY_001` au chemin du choix (ex. `Immunization.occurrence[x]`), plus d'une variante produit `CARDINALITY_002` à la seconde variante. La règle du tableau vide ne s'applique pas aux variantes `[x]` (de `max="1"`, un tableau y produit déjà `STRUCTURE_002`). Un `integer64` SHALL être une chaîne conforme à `[0]|[-+]?[1-9][0-9]*` et représentable sur 64 bits signés (`TYPE_003` sinon, `TYPE_001` si non chaîne).
 
 #### Scenario: Élément requis absent
 
@@ -193,6 +193,16 @@ Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_001` et severi
 
 - **WHEN** une Observation contient `"_status": 5`, `"_status": []` ou `"_status": [null]` sans `status`, ou une Immunization seulement `"_occurrenceString": 5`
 - **THEN** un Diagnostic `CARDINALITY_001` SHALL être émis pour `Observation.status` (resp. `Immunization.occurrence[x]`)
+
+#### Scenario: Élément requis en tableau vide ou de null
+
+- **WHEN** un ValueSet contient `"compose": {"include": []}` ou `"compose": {"include": [null]}`, ou une Composition `"author": []`
+- **THEN** un Diagnostic `CARDINALITY_001` SHALL être émis pour `ValueSet.compose.include` (resp. `Composition.author`)
+
+#### Scenario: Valeur de null compensée par _nom
+
+- **WHEN** une Observation contient `"status": [null], "_status": [{"id": "a"}]`
+- **THEN** aucun Diagnostic `CARDINALITY_001` ni `CARDINALITY_003` ne SHALL être émis pour `Observation.status`
 
 ### Requirement: Validation de cardinalité — dépassement du maximum (CARDINALITY_002)
 
@@ -270,7 +280,7 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_002` et severity `Err
 Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Error` lorsqu'une valeur de type `date`, `dateTime`, `instant` ou `time` ne respecte pas le format attendu, conforme aux expressions régulières R5 :
 
 - `date` : `YYYY(-MM(-DD)?)?`, année de `0001` à `9999`, jour valide pour le mois (années bissextiles comprises) ;
-- `dateTime` : une `date`, ou une date complète suivie de `Thh:mm:ss(.f{1,9})?` et d'un fuseau obligatoire `Z` ou `(+|-)hh:mm` (décalage au plus `14:00`) ; un fuseau sur une valeur réduite à la date SHALL être rejeté ;
+- `dateTime` : une `date`, ou une date complète suivie de `Thh:mm:ss(.f{1,9})?` et d'un fuseau obligatoire `Z` ou `(+|-)hh:mm` (décalage au plus `14:00`) ; conformément à la regex R5, un fuseau SHALL être accepté sur une valeur réduite à une année-mois ou à une date complète (`2020-01Z`, `2020-01-01+02:00`), mais SHALL être rejeté sur une année seule (`2020Z`) ; une heure sans fuseau SHALL être rejetée ;
 - `instant` : toujours la forme complète avec fuseau ;
 - `time` : `hh:mm:ss(.f{1,9})?` sans fuseau, heures `00`-`23`, minutes `00`-`59`, secondes `00`-`60`.
 
@@ -299,15 +309,30 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Err
 - **WHEN** un champ de type `dateTime` contient `"2020-01-01T10:00:00garbage"`
 - **THEN** un Diagnostic `TYPE_003` SHALL être émis
 
+#### Scenario: dateTime réduit à la date avec fuseau
+
+- **WHEN** un champ de type `dateTime` contient `"2020-01Z"`, `"2020-01-01Z"` ou `"2020-01-01+02:00"`
+- **THEN** aucun Diagnostic `TYPE_003` ne SHALL être émis
+
+#### Scenario: dateTime réduit à l'année avec fuseau
+
+- **WHEN** un champ de type `dateTime` contient `"2020Z"`
+- **THEN** un Diagnostic `TYPE_003` SHALL être émis
+
 ---
 
 ### Requirement: Validation de type — whitespace dans un code (TYPE_004)
 
-Le système SHALL émettre un `Diagnostic` avec code `TYPE_004` et severity `Error` lorsqu'un champ de type `code` contient des espaces ou caractères whitespace.
+Le système SHALL émettre un `Diagnostic` avec code `TYPE_004` et severity `Error` lorsqu'un champ de type `code` ne respecte pas la regex R5 `[^\s]+( [^\s]+)*` : des mots non vides séparés par un unique espace. Une chaîne vide, un espace en début ou en fin, deux espaces consécutifs, ou tout whitespace autre qu'un espace simple (tabulation, saut de ligne, espace insécable...) SHALL produire un `TYPE_004`.
 
-#### Scenario: Code avec espace
+#### Scenario: Code avec espaces simples entre mots
 
-- **WHEN** un champ de type `code` contient la chaîne `"invalid code"`
+- **WHEN** un champ de type `code` contient `"text/plain; charset=utf-8"` ou `"a b c"`
+- **THEN** aucun Diagnostic `TYPE_004` ne SHALL être émis
+
+#### Scenario: Code avec espace mal placé
+
+- **WHEN** un champ de type `code` contient `"a  b"` (deux espaces) ou `" a"` (espace initial)
 - **THEN** un Diagnostic `TYPE_004` SHALL être émis
 
 #### Scenario: Code sans whitespace
@@ -557,7 +582,7 @@ Le système SHALL appliquer les vérifications de type à chaque élément d'un 
 
 ### Requirement: Validation des éléments imbriqués
 
-Un seul parcours récursif SHALL appliquer ces vérifications, en partant du premier niveau de la ressource ; il s'exécute avant les couches terminologie, invariants, références et profil. À toute profondeur, un champ `_nom` SHALL être accepté seulement si `nom` résout un élément (ou une variante de choix) de type primitif, sinon `STRUCTURE_001` au chemin de `_nom` (ex. `Patient.name[0]._bogus`). Un `_nom` accepté SHALL être parcouru via la StructureDefinition du type complexe `Element` (contrôle de `id` et `extension`) ; un tableau SHALL être parcouru élément par élément (index dans le `path`, éléments `null` ignorés) ; une valeur non objet, ou un élément de tableau ni objet ni `null`, SHALL produire `TYPE_001` (ex. `"_birthDate": "x"` → `Patient._birthDate`, `"_given": [1]` → `Patient.name[0]._given[0]`). Le champ `_nom` lui-même n'est pas soumis à STRUCTURE_002 ; son contenu l'est pour une entrée JSON. Les champs `extension` et `modifierExtension` SHALL être traités comme tout autre élément de type `Extension`, à toute profondeur : résolus dans le snapshot (STRUCTURE_001 s'ils n'y figurent pas, ex. `Patient.name[0].modifierExtension`), puis parcourus via la StructureDefinition `Extension` (cardinalité de `url`, type de `value[x]`, extensions imbriquées). Un élément `[x]` SHALL être vérifié comme un tout, au premier niveau comme en profondeur : requis sans variante → `CARDINALITY_001` (au chemin `…[x]`), deux variantes → `CARDINALITY_002`, une variante présente soumise à `CARDINALITY_002` selon son `max`. Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001, et STRUCTURE_002 pour les entrées JSON), de cardinalité (CARDINALITY_001/002) et de type (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants, références et profil restent limitées au premier niveau ; les `contentReference` (ignorés sans erreur, jamais signalés STRUCTURE_001) et les ressources contenues ne sont pas parcourus. La règle `_nom` s'applique à toute profondeur : un enfant requis présent uniquement sous la forme `_nom` SHALL être considéré présent seulement si son type est primitif et si `_nom` est un objet ou un tableau d'objets et de `null` contenant au moins un objet, et un `_nom` en tableau au-delà du maximum fini SHALL produire `CARDINALITY_002`.
+Un seul parcours récursif SHALL appliquer ces vérifications, en partant du premier niveau de la ressource ; il s'exécute avant les couches terminologie, invariants, références et profil. À toute profondeur, un champ `_nom` SHALL être accepté seulement si `nom` résout un élément (ou une variante de choix) de type primitif, sinon `STRUCTURE_001` au chemin de `_nom` (ex. `Patient.name[0]._bogus`). Un `_nom` accepté SHALL être parcouru via la StructureDefinition du type complexe `Element` (contrôle de `id` et `extension`) ; un tableau SHALL être parcouru élément par élément (index dans le `path`, éléments `null` ignorés) ; une valeur non objet, ou un élément de tableau ni objet ni `null`, SHALL produire `TYPE_001` (ex. `"_birthDate": "x"` → `Patient._birthDate`, `"_given": [1]` → `Patient.name[0]._given[0]`). Le champ `_nom` lui-même n'est pas soumis à STRUCTURE_002 ; son contenu l'est pour une entrée JSON. Les champs `extension` et `modifierExtension` SHALL être traités comme tout autre élément de type `Extension`, à toute profondeur : résolus dans le snapshot (STRUCTURE_001 s'ils n'y figurent pas, ex. `Patient.name[0].modifierExtension`), puis parcourus via la StructureDefinition `Extension` (cardinalité de `url`, type de `value[x]`, extensions imbriquées). Un élément `[x]` SHALL être vérifié comme un tout, au premier niveau comme en profondeur : requis sans variante → `CARDINALITY_001` (au chemin `…[x]`), deux variantes → `CARDINALITY_002`, une variante présente soumise à `CARDINALITY_002` selon son `max`. Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001, et STRUCTURE_002 pour les entrées JSON), de cardinalité (CARDINALITY_001/002/003) et de type (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants, références et profil restent limitées au premier niveau ; les `contentReference` (ignorés sans erreur, jamais signalés STRUCTURE_001) et les ressources contenues ne sont pas parcourus. La règle `_nom` s'applique à toute profondeur : un enfant requis présent uniquement sous la forme `_nom` SHALL être considéré présent seulement si son type est primitif et si `_nom` est un objet ou un tableau d'objets et de `null` contenant au moins un objet, et un `_nom` en tableau au-delà du maximum fini SHALL produire `CARDINALITY_002`.
 
 #### Scenario: Choix [x] en tableau au-delà du maximum
 
@@ -703,4 +728,33 @@ Le système SHALL émettre un Diagnostic de sévérité warning `REFERENCE_004` 
 
 - **WHEN** `reference` vaut `Foo`
 - **THEN** seul `REFERENCE_001` SHALL être émis, sans `REFERENCE_004`
+
+### Requirement: Validation de cardinalité — tableau vide d'un élément optionnel (CARDINALITY_003)
+
+Pour un élément déclaré avec `min = 0` dont la valeur JSON est un tableau vide (`[]`) ou un tableau ne contenant que des `null`, le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_003` et severity `Warning`, à toute profondeur, avec `path` = chemin d'instance de l'élément, `location` = span du tableau, et message `Element '<path>' is an array with no values and should be omitted` (R5 json.html : les objets ne sont jamais vides, un tableau de seuls `null` SHOULD être omis). Lorsque le `_nom` d'un élément primitif est un objet ou un tableau contenant au moins un objet, l'élément SHALL être considéré présent et aucun `CARDINALITY_003` ne SHALL être émis. Les variantes `[x]` ne SHALL PAS être soumises à cette règle. Coexistence voulue : un élément de `max="1"` fourni sous la forme `[]` reçoit aussi `STRUCTURE_002` en plus de `CARDINALITY_001` ou `CARDINALITY_003` ; lorsqu'un profil rend requis (`min >= 1`) un élément optionnel de la base, un `[]` reçoit le `CARDINALITY_003` de la base et le `CARDINALITY_001` du profil (la déduplication code + `path` ne fusionne pas des codes différents).
+
+#### Scenario: Élément optionnel en tableau vide
+
+- **WHEN** un Patient JSON contient `"identifier": []`
+- **THEN** un Diagnostic `CARDINALITY_003` de severity `Warning` SHALL être émis avec `path` = `Patient.identifier`, `location` = span du tableau, et aucun `CARDINALITY_001`
+
+#### Scenario: Élément optionnel imbriqué en tableau de null
+
+- **WHEN** un Patient JSON contient `"name": [{"given": [null]}]`
+- **THEN** un Diagnostic `CARDINALITY_003` SHALL être émis avec `path` = `Patient.name[0].given`
+
+#### Scenario: Tableau de null compensé par _nom
+
+- **WHEN** un Patient JSON contient `"name": [{"given": [null], "_given": [{"id": "a"}]}]`
+- **THEN** aucun Diagnostic `CARDINALITY_003` ne SHALL être émis pour `Patient.name[0].given`
+
+#### Scenario: Tableau vide sur un élément max="1"
+
+- **WHEN** un Patient JSON contient `"gender": []`
+- **THEN** un Diagnostic `STRUCTURE_002` et un Diagnostic `CARDINALITY_003` SHALL être émis avec `path` = `Patient.gender`
+
+#### Scenario: Profil rendant requis un élément optionnel
+
+- **WHEN** un profil connu fixe `min = 1` sur un élément optionnel de la base, et la ressource fournit `[]` pour cet élément
+- **THEN** un `CARDINALITY_003` (base) et un `CARDINALITY_001` (profil) SHALL être émis pour le même `path`
 
