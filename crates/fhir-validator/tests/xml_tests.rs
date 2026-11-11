@@ -124,3 +124,19 @@ fn schema_instance_namespace_is_a_structure_003_error() {
         .collect();
     assert_eq!(found, ["Error STRUCTURE_003 Patient"]);
 }
+
+#[test]
+fn every_schema_instance_element_is_reported_at_its_location() {
+    let source = concat!(
+        "<Patient xmlns=\"http://hl7.org/fhir\" ",
+        "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n",
+        "<active xsi:type=\"x\" value=\"true\"/></Patient>",
+    );
+    let resource = parse_xml(source).expect("parses");
+    let lines: Vec<u32> = validate(&resource, registry())
+        .iter()
+        .filter(|d| d.code.as_ref() == "STRUCTURE_003")
+        .filter_map(|d| d.location.map(|span| span.line))
+        .collect();
+    assert_eq!(lines, [1, 2]);
+}

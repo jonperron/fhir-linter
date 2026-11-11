@@ -204,3 +204,38 @@ pub(crate) fn xml_error(line_index: &LineIndex, pos: u32, e: quick_xml::Error) -
         col,
     }
 }
+
+/// What the reader records for the validator while parsing.
+#[derive(Default)]
+pub(crate) struct Notes {
+    /// Trimmed attribute values, as (element offset, attribute name).
+    pub(crate) trimmed: Vec<(u32, Arc<str>)>,
+    /// Elements that declare or use the schema instance namespace.
+    pub(crate) schema_instance: Vec<Span>,
+}
+
+impl Notes {
+    pub(crate) fn schema_instance_if(&mut self, uses_xsi: bool, line_index: &LineIndex, pos: u32) {
+        if uses_xsi {
+            self.schema_instance.push(span_at(line_index, pos));
+        }
+    }
+}
+
+/// A character reference in the div markup that resolves to a disallowed control.
+pub(crate) fn div_has_control_reference(div: &str) -> bool {
+    let mut reader = quick_xml::Reader::from_str(div);
+    loop {
+        match reader.read_event() {
+            Ok(quick_xml::events::Event::GeneralRef(r)) => {
+                if let Ok(Some(c)) = r.resolve_char_ref() {
+                    if crate::is_disallowed_control(c) {
+                        return true;
+                    }
+                }
+            }
+            Ok(quick_xml::events::Event::Eof) | Err(_) => return false,
+            Ok(_) => {}
+        }
+    }
+}

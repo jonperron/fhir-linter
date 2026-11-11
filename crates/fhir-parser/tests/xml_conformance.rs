@@ -170,8 +170,8 @@ fn schema_instance_namespace_is_recorded_not_rejected() {
         (format!("<Patient {FHIR_NS} xmlns:xsi=\"{XSI}\"/>"), 1),
         (
             format!(
-                "<Patient {FHIR_NS} xmlns:xsi=\"{XSI}\" xsi:schemaLocation=\"{}\"><active value=\"true\"/></Patient>",
-                "http://hl7.org/fhir patient.xsd"
+                "<Patient {FHIR_NS} xmlns:xsi=\"{XSI}\" xsi:schemaLocation=\"{}\">{}</Patient>",
+                "http://hl7.org/fhir patient.xsd", "<active value=\"true\"/>"
             ),
             1,
         ),
@@ -183,7 +183,8 @@ fn schema_instance_namespace_is_recorded_not_rejected() {
         ),
         (
             format!(
-                "<Patient {FHIR_NS} xmlns:xsi=\"{XSI}\"><active xsi:type=\"x\" value=\"true\"/></Patient>"
+                "<Patient {FHIR_NS} xmlns:xsi=\"{XSI}\">{}</Patient>",
+                "<active xsi:type=\"x\" value=\"true\"/>"
             ),
             2,
         ),
@@ -251,4 +252,18 @@ fn attribute_values_are_trimmed_on_read() {
     let resource = parse_xml(&source).expect("parses");
     assert!(matches!(&resource.fields["active"].value, Value::Str(s) if s.as_ref() == "true"));
     assert_eq!(resource.trimmed_attributes.len(), 1);
+}
+
+#[test]
+fn documents_without_the_schema_instance_namespace_record_nothing() {
+    let source = format!(
+        "<Patient {FHIR_NS} xmlns:s=\"{}\"><active value=\"true\"/></Patient>",
+        "http://www.w3.org/2001/XMLSchema"
+    );
+    assert!(
+        parse_xml(&source)
+            .expect("parses")
+            .schema_instance
+            .is_empty()
+    );
 }

@@ -8,8 +8,8 @@ use quick_xml::reader::{NsReader, Reader};
 use crate::line_index::LineIndex;
 use crate::types::{Node, ParseError, Resource, Span, Value};
 use crate::xml_checks::{
-    FHIR_NS, XHTML_NS, check_element, collect_attrs, error_at, local_name_arc, reject_root_attrs,
-    resolve_reference, span_at, xml_error,
+    FHIR_NS, Notes, XHTML_NS, check_element, collect_attrs, div_has_control_reference, error_at,
+    local_name_arc, reject_root_attrs, resolve_reference, span_at, xml_error,
 };
 
 /// Maximum element nesting accepted (guards against stack overflow).
@@ -20,23 +20,6 @@ const MAX_DECLARATIONS_PER_ELEMENT: usize = 8;
 
 /// xml.html: "There SHALL be no DTD references in FHIR resources", wherever they appear.
 const DTD_NOT_ALLOWED: &str = "a DTD is not allowed in FHIR XML";
-
-/// What the reader records for the validator while parsing.
-#[derive(Default)]
-struct Notes {
-    /// Trimmed attribute values, as (element offset, attribute name).
-    trimmed: Vec<(u32, Arc<str>)>,
-    /// Elements that declare or use the schema instance namespace.
-    schema_instance: Vec<Span>,
-}
-
-impl Notes {
-    fn schema_instance_if(&mut self, uses_xsi: bool, line_index: &LineIndex, pos: u32) {
-        if uses_xsi {
-            self.schema_instance.push(span_at(line_index, pos));
-        }
-    }
-}
 
 /// Parse a FHIR XML resource from a source string.
 ///
@@ -105,24 +88,6 @@ fn reject_controls(id: Option<&str>, fields: &IndexMap<Arc<str>, Node>) -> Resul
     match fields.iter().find_map(|(k, v)| walk(k, v)) {
         Some(span) => Err(error(span.line, span.col)),
         None => Ok(()),
-    }
-}
-
-/// A character reference in the div markup that resolves to a disallowed control.
-fn div_has_control_reference(div: &str) -> bool {
-    let mut reader = Reader::from_str(div);
-    loop {
-        match reader.read_event() {
-            Ok(Event::GeneralRef(r)) => {
-                if let Ok(Some(c)) = r.resolve_char_ref() {
-                    if crate::is_disallowed_control(c) {
-                        return true;
-                    }
-                }
-            }
-            Ok(Event::Eof) | Err(_) => return false,
-            Ok(_) => {}
-        }
     }
 }
 
