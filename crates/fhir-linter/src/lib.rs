@@ -41,10 +41,6 @@ impl Default for RuleRegistry {
 }
 
 impl RuleRegistry {
-    pub fn register(&mut self, rule: Box<dyn Rule>) {
-        self.rules.push(rule);
-    }
-
     /// Run every enabled rule; severities are overridden per `config`.
     ///
     /// Returns an error naming the rule when `config` holds an unknown rule id
@@ -86,12 +82,11 @@ impl RuleRegistry {
     }
 }
 
+/// An IssueSeverity code, or `hint`: a config alias kept from earlier
+/// releases and output as `information`.
 fn parse_severity(s: &str) -> Option<Severity> {
-    Some(match s {
-        "error" => Severity::Error,
-        "warning" => Severity::Warning,
-        "information" => Severity::Information,
-        "hint" => Severity::Hint,
-        _ => return None,
-    })
+    match s {
+        "hint" => Some(Severity::Information),
+        _ => s.parse().ok(),
+    }
 }

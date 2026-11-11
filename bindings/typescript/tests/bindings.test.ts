@@ -49,6 +49,15 @@ enabled = false
     expect(byRule.get("narrative-absent")?.severity).toBe("error");
   });
 
+  it.each([
+    ["fatal", "fatal"],
+    ["hint", "information"],
+  ] as const)("outputs config severity %s as %s", async (configured, expected) => {
+    const config = `[rules.narrative-absent]\nseverity = "${configured}"`;
+    const byRule = new Map((await lint(BARE_PATIENT, config)).map((d) => [d.rule, d]));
+    expect(byRule.get("narrative-absent")?.severity).toBe(expected);
+  });
+
   it("rejects an unknown rule", async () => {
     await expect(lint(BARE_PATIENT, "[rules.bogus]\nenabled = false")).rejects.toThrow(
       /unknown lint rule/,

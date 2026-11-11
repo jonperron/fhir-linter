@@ -8,7 +8,8 @@ use serde::Deserialize;
 pub struct RuleConfig {
     /// `false` disables the rule. Defaults to enabled.
     pub enabled: Option<bool>,
-    /// Overrides the rule's default severity: `error`, `warning`, `information` or `hint`.
+    /// Overrides the rule's default severity: `fatal`, `error`, `warning` or
+    /// `information` (`hint` is accepted as an alias for `information`).
     pub severity: Option<String>,
 }
 

@@ -1,25 +1,40 @@
+use std::str::FromStr;
 use std::sync::Arc;
 
 use fhir_parser::Span;
 
-/// Diagnostic severity level.
+/// Diagnostic severity level: the FHIR R5 IssueSeverity codes, most severe
+/// first. `success` is not a diagnostic level and has no variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
+    Fatal,
     Error,
     Warning,
     Information,
-    Hint,
 }
 
 impl Severity {
-    /// Lowercase name, as exposed by the bindings: `error`, `warning`, `information`, `hint`.
+    /// Every variant, most severe first.
+    pub const ALL: [Self; 4] = [Self::Fatal, Self::Error, Self::Warning, Self::Information];
+
+    /// IssueSeverity code, as exposed by the bindings: `fatal`, `error`,
+    /// `warning`, `information`.
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Fatal => "fatal",
             Self::Error => "error",
             Self::Warning => "warning",
             Self::Information => "information",
-            Self::Hint => "hint",
         }
+    }
+}
+
+impl FromStr for Severity {
+    type Err = ();
+
+    /// Parses an IssueSeverity code exactly as `as_str` writes it.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::ALL.into_iter().find(|v| v.as_str() == s).ok_or(())
     }
 }
 
@@ -113,17 +128,32 @@ mod tests {
     }
 
     #[test]
-    fn severity_ordering_error_before_warning() {
+    fn severity_ordering_most_severe_first() {
+        assert!(Severity::Fatal < Severity::Error);
         assert!(Severity::Error < Severity::Warning);
         assert!(Severity::Warning < Severity::Information);
-        assert!(Severity::Information < Severity::Hint);
+        assert!(Severity::ALL.windows(2).all(|w| w[0] < w[1]));
     }
 
     #[test]
-    fn severity_as_str_is_lowercase_name() {
+    fn severity_as_str_is_issue_severity_code() {
+        assert_eq!(Severity::Fatal.as_str(), "fatal");
         assert_eq!(Severity::Error.as_str(), "error");
         assert_eq!(Severity::Warning.as_str(), "warning");
         assert_eq!(Severity::Information.as_str(), "information");
-        assert_eq!(Severity::Hint.as_str(), "hint");
+    }
+
+    #[test]
+    fn severity_from_str_round_trips_as_str() {
+        for s in Severity::ALL {
+            assert_eq!(s.as_str().parse::<Severity>(), Ok(s));
+        }
+    }
+
+    #[test]
+    fn severity_from_str_rejects_other_codes() {
+        for code in ["success", "hint", "Error", ""] {
+            assert!(code.parse::<Severity>().is_err(), "{code}");
+        }
     }
 }
