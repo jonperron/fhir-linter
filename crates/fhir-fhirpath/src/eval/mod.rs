@@ -16,11 +16,12 @@ mod math;
 mod misc;
 mod regex;
 mod string_fns;
+mod temporal;
 mod type_conv;
 
 use helpers::{
-    bool_col, contains_value, is_type, numeric_op, singleton, three_valued_and, three_valued_or,
-    value_is_type, values_equal, values_equivalent,
+    bool_col, collections_equal, collections_equivalent, contains_value, is_type, numeric_op,
+    singleton, three_valued_and, three_valued_or, value_is_type,
 };
 
 /// Evaluate a FHIRPath expression against a context value.
@@ -337,21 +338,27 @@ impl Evaluator<'_> {
     ) -> Result<Collection, EvalError> {
         let lc = self.eval(l, ctx)?;
         let rc = self.eval(r, ctx)?;
+        // N1 §6.1.3: `~` is never empty, even on empty operands.
+        match op {
+            CmpOp::Equiv => return Ok(bool_col(Some(collections_equivalent(&lc, &rc)))),
+            CmpOp::NotEquiv => return Ok(bool_col(Some(!collections_equivalent(&lc, &rc)))),
+            _ => {}
+        }
         if lc.is_empty() || rc.is_empty() {
             return Ok(vec![]);
         }
         let result = match op {
-            CmpOp::Eq => values_equal(&lc[0], &rc[0]),
-            CmpOp::Neq => values_equal(&lc[0], &rc[0]).map(|b| !b),
-            CmpOp::Equiv => Some(values_equivalent(&lc[0], &rc[0])),
-            CmpOp::NotEquiv => Some(!values_equivalent(&lc[0], &rc[0])),
+            CmpOp::Eq => collections_equal(&lc, &rc),
+            CmpOp::Neq => collections_equal(&lc, &rc).map(|b| !b),
             _ => {
                 let (Some(a), Some(b)) =
                     (singleton(&lc, "comparison")?, singleton(&rc, "comparison")?)
                 else {
                     return Ok(vec![]);
                 };
-                let ord = helpers::compare_values(a, b)?;
+                let Some(ord) = helpers::operator_order(a, b)? else {
+                    return Ok(vec![]);
+                };
                 let b = match op {
                     CmpOp::Lt => ord == std::cmp::Ordering::Less,
                     CmpOp::Lte => ord != std::cmp::Ordering::Greater,

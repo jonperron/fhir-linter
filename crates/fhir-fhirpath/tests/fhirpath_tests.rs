@@ -360,6 +360,80 @@ fn equivalent_strings_case_insensitive() {
     assert!(eval_bool("'Hello' ~ 'hello'"));
 }
 
+/// N1 §6.1: `=` compares collections item by item, in order, and complex
+/// values property by property; date/times compare per precision and zone.
+#[test]
+fn equality_semantics() {
+    let t = || vec![Value::Bool(true)];
+    let f = || vec![Value::Bool(false)];
+    let cases: Vec<(&str, Collection)> = vec![
+        ("(1 | 2) = (1 | 2)", t()),
+        ("(1 | 2) = (2 | 1)", f()),
+        ("(1 | 1) = (1 | 2 | {})", f()),
+        ("name = name", t()),
+        ("telecom = name", f()),
+        // N1 says false; empty until F10 types XML primitives with extensions.
+        ("name.first() = 'Peter'", vec![]),
+        ("@2012-04-15T15:30:31 = @2012-04-15T15:30:31.0", t()),
+        ("@2012-01 = @2012", vec![]),
+        ("@2012-01-01 = @2012-02", f()),
+        ("@2015-02-04T10:00:00 = @2015-02-04T10:00", vec![]),
+        (
+            "@2012-04-15T15:00:00+02:00 = @2012-04-15T16:00:00+03:00",
+            t(),
+        ),
+        ("@2012-04-15T15:00:00Z != @2012-04-15T10:00:00", vec![]),
+        (
+            "@2017-11-05T01:30:00.0-04:00 = @2017-11-05T00:30:00.0-05:00",
+            t(),
+        ),
+        (
+            "@2017-11-05T01:30:00.0-04:00 < @2017-11-05T01:15:00.0-05:00",
+            t(),
+        ),
+        ("@2012-12-31T23:30:00-01:00 = @2013-01-01T00:30:00Z", t()),
+        ("@2012 < @2012-01", vec![]),
+        ("@2011 < @2012-01", t()),
+        ("@T10:00 < @T10:00:01", vec![]),
+        ("@T09:59 < @T10:00:01", t()),
+    ];
+    for (expr, expected) in cases {
+        assert_eq!(eval(expr), expected, "{expr}");
+    }
+}
+
+/// N1 §6.1.3: `~` never gives empty, ignores order, case and whitespace,
+/// rounds decimals to the least precise operand, and skips `id` on objects.
+#[test]
+fn equivalence_semantics() {
+    for (expr, expected) in [
+        ("{} ~ {}", true),
+        ("1 ~ {}", false),
+        ("{} !~ 1", true),
+        ("(1 | 2 | 3) ~ (3 | 2 | 1)", true),
+        ("(1 | 2) ~ (1 | 2 | 3)", false),
+        ("'a  B\tc' ~ ' A b c'", true),
+        ("1.2 / 1.8 ~ 0.67", true),
+        ("0.5 ~ 0.6", false),
+        ("name ~ name", true),
+        ("name ~ telecom", false),
+        ("@2012 ~ @2012-01", false),
+        ("@2012-04-15T15:30:31 ~ @2012-04-15T15:30:31.0", true),
+    ] {
+        assert_eq!(eval(expr), vec![Value::Bool(expected)], "{expr}");
+    }
+    let object = |id: &str| {
+        let mut fields: IndexMap<Arc<str>, Collection> = IndexMap::new();
+        fields.insert(Arc::from("id"), vec![Value::String(Arc::from(id))]);
+        fields.insert(Arc::from("text"), vec![Value::String(Arc::from("X"))]);
+        Value::Object(Arc::new(fields))
+    };
+    let ctx = vec![object("a"), object("b")];
+    let both = |expr: &str| evaluate(expr, &ctx).unwrap();
+    assert_eq!(both("first() ~ last()"), vec![Value::Bool(true)]);
+    assert_eq!(both("first() = last()"), vec![Value::Bool(false)]);
+}
+
 // ── String functions ─────────────────────────────────────────────────────────
 
 #[test]
