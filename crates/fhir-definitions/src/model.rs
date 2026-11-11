@@ -82,6 +82,8 @@ pub struct ElementDefinition {
     pub binding: Option<Binding>,
     /// `sliceName` when this element is a slice of a repeating element, not the element itself.
     pub slice_name: Option<Arc<str>>,
+    /// `representation` holds `xmlAttr`: the XML form is an attribute, not a child element.
+    pub xml_attr: bool,
 }
 
 /// A FHIRPath constraint expression on an element.
@@ -182,6 +184,7 @@ mod tests {
             constraints: vec![],
             binding: None,
             slice_name: None,
+            xml_attr: false,
         }
     }
 

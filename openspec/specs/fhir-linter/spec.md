@@ -27,7 +27,7 @@ Chaque règle SHALL émettre un Diagnostic de sévérité `Warning` par défaut.
 
 Un `text.div` SHALL être considéré sans contenu (narrative.html, txt-2) lorsqu'il ne contient ni texte non blanc ni élément `<img>`. Les blancs SHALL être les seuls blancs XML (espace, tabulation, CR, LF) : U+00A0 est du texte.
 
-En entrée JSON, le div SHALL être analysé comme XHTML :
+En entrée JSON comme en entrée XML (où le parseur fournit le balisage brut du div), le div SHALL être analysé comme XHTML :
 
 - les commentaires et les valeurs d'attribut SHALL NOT compter comme contenu ;
 - le texte d'une section CDATA SHALL compter ;
@@ -35,8 +35,6 @@ En entrée JSON, le div SHALL être analysé comme XHTML :
 - une référence d'entité nommée SHALL compter comme texte ;
 - un élément `<img>` SHALL compter quel que soit son préfixe ou sa profondeur ;
 - un XHTML mal formé SHALL compter comme contenu (le défaut relève du validateur).
-
-En entrée XML, le parseur fournit le div sous forme de texte décodé : seul le texte non blanc SHALL compter. Un div XML ne contenant qu'une image est donc signalé (limite connue).
 
 En entrée XML, `text.status`, `text.div` et `Bundle.type` SHALL être lus aussi depuis un primitif portant une extension, que le parseur stocke comme objet avec `value`. En entrée JSON, un objet à leur place SHALL être ignoré (l'extension JSON est dans `_name`).
 
@@ -84,7 +82,7 @@ Un `Bundle` sans `type`, ou d'un autre type que `document`, `message` ou `collec
 #### Scenario: Div XML réduit à une image
 
 - **WHEN** une ressource XML a un div ne contenant qu'un élément `<img>`
-- **THEN** `narrative-absent` SHALL émettre LINT_001 (limite connue)
+- **THEN** `narrative-absent` SHALL ne rien émettre (l'image compte comme contenu)
 
 #### Scenario: Primitif XML avec extension
 

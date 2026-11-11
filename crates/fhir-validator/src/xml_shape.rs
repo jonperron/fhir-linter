@@ -5,12 +5,23 @@
 //! and moves the non-value part into `_name`, so the checks see one shape for both formats.
 //! Text that does not fit its type is left as a string so `TYPE_001` still reports it.
 //! Arrays stay as the XML parser grouped them (repeated siblings only).
+//!
+//! The reshape also checks the XML form of each element: elements whose `representation`
+//! is `xmlAttr` (a primitive's `value`, `Element.id`, `Extension.url`) must be attributes,
+//! every other element a child element. The parser gives an attribute its element's span
+//! and a child element its own, which is how the two are told apart.
+//!
+//! The parser trims attribute values (xml.html: readers SHOULD trim); each trimmed value of
+//! a known element gets a `TYPE_007` Warning here, where its instance path is known
+//! (user decision 11.7: trim and warn rather than report the whitespace as an error).
 
 use fhir_definitions::{Registry, StructureDefinition};
 use fhir_parser::{Node, Resource, Value};
 use indexmap::IndexMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
+use crate::diagnostic::Diagnostic;
 use crate::nested::{complex_type, is_primitive, resolve};
 
 // shortcut: contentReference and contained resources are not reshaped, matching nested::walk,
@@ -18,147 +29,286 @@ use crate::nested::{complex_type, is_primitive, resolve};
 
 type Fields = IndexMap<Arc<str>, Node>;
 
+/// The JSON-shaped resource and the XML representation findings.
 pub(crate) fn to_json_shape(
     resource: &Resource,
     sd: &StructureDefinition,
     registry: &Registry,
-) -> Resource {
+) -> (Resource, Vec<Diagnostic>) {
     let name = resource.resource_type.as_ref();
-    Resource {
-        fields: reshape_fields(&resource.fields, sd, name, registry),
+    let mut shaper = Shaper {
+        registry,
+        // A set: hostile input can pad every attribute, so no linear scan per lookup.
+        trimmed: resource
+            .trimmed_attributes
+            .iter()
+            .map(|(offset, name)| (*offset, name.as_ref()))
+            .collect(),
+        // xml.html 2.1.6.3.4: content SHALL NOT "even contain the schema instance namespace".
+        diagnostics: resource
+            .schema_instance
+            .iter()
+            .map(|span| {
+                Diagnostic::error(
+                    "STRUCTURE_003",
+                    "The XML schema instance namespace is not allowed in FHIR resources",
+                    name.to_owned(),
+                )
+                .with_location(*span)
+            })
+            .collect(),
+    };
+    // The parser rejects attributes on the root, so its fields have no parent offset.
+    let fields = shaper.fields(&resource.fields, sd, name, name, None);
+    let reshaped = Resource {
+        fields,
         resource_type: Arc::clone(&resource.resource_type),
         id: resource.id.clone(),
         from_xml: false,
-    }
-}
-
-fn reshape_fields(
-    fields: &Fields,
-    sd: &StructureDefinition,
-    def_path: &str,
-    registry: &Registry,
-) -> Fields {
-    let prefix = format!("{def_path}.");
-    let mut out = Fields::with_capacity(fields.len());
-    for (name, node) in fields {
-        let Some((elem, Some(ty))) = resolve(sd, &format!("{prefix}{name}"), name) else {
-            out.insert(Arc::clone(name), node.clone());
-            continue;
-        };
-        if is_primitive(&ty) {
-            let items = match &node.value {
-                Value::Array(items) => items.as_slice(),
-                _ => std::slice::from_ref(node),
-            };
-            let (values, extensions): (Vec<Node>, Vec<Node>) = items
-                .iter()
-                .map(|item| split_primitive(item, &ty, registry))
-                .unzip();
-            let wrap = |nodes: Vec<Node>| match &node.value {
-                Value::Array(_) => Node {
-                    value: Value::Array(nodes),
-                    span: node.span,
-                },
-                _ => nodes.into_iter().next().unwrap_or_else(|| node.clone()),
-            };
-            if values.iter().any(|n| !matches!(n.value, Value::Null)) {
-                out.insert(Arc::clone(name), wrap(values));
-            }
-            if extensions.iter().any(|n| !matches!(n.value, Value::Null)) {
-                out.insert(Arc::from(format!("_{name}")), wrap(extensions));
-            }
-            continue;
-        }
-        let (type_sd, type_path) = if ty.as_ref() == "BackboneElement" || ty.as_ref() == "Element" {
-            (Some(sd), elem.path.to_string())
-        } else {
-            let type_sd = complex_type(&ty, registry);
-            (
-                type_sd,
-                type_sd.map(|t| t.name.to_string()).unwrap_or_default(),
-            )
-        };
-        let reshaped = match type_sd {
-            Some(type_sd) => reshape_complex(node, type_sd, &type_path, registry),
-            None => node.clone(),
-        };
-        out.insert(Arc::clone(name), reshaped);
-    }
-    out
-}
-
-fn reshape_complex(
-    node: &Node,
-    sd: &StructureDefinition,
-    def_path: &str,
-    registry: &Registry,
-) -> Node {
-    let value = match &node.value {
-        Value::Array(items) => Value::Array(
-            items
-                .iter()
-                .map(|item| reshape_complex(item, sd, def_path, registry))
-                .collect(),
-        ),
-        Value::Object(fields) => Value::Object(reshape_fields(fields, sd, def_path, registry)),
-        other => other.clone(),
+        trimmed_attributes: Vec::new(),
+        schema_instance: Vec::new(),
     };
-    Node {
-        value,
-        span: node.span,
-    }
+    (reshaped, shaper.diagnostics)
 }
 
-/// Split one XML primitive into its typed value and its `_name` part (`Null` when absent).
-/// The `_name` part is reshaped as an `Element`, so its extension values are typed too.
-/// An element with neither value nor `_name` part is kept as is, so the type check reports it.
-fn split_primitive(node: &Node, ty: &str, registry: &Registry) -> (Node, Node) {
-    let null = Node {
-        value: Value::Null,
-        span: node.span,
-    };
+struct Shaper<'a> {
+    registry: &'a Registry,
+    trimmed: HashSet<(u32, &'a str)>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+/// The items of a node: itself, or each element of an array with its indexed path.
+fn items<'n>(node: &'n Node, path: &str) -> Vec<(&'n Node, String)> {
     match &node.value {
-        Value::Str(text) => (
-            Node {
-                value: typed(text, ty),
-                span: node.span,
-            },
-            null,
-        ),
-        Value::Object(fields) => {
-            let rest: Fields = fields
-                .iter()
-                .filter(|(k, _)| k.as_ref() != "value")
-                .map(|(k, v)| (Arc::clone(k), v.clone()))
-                .collect();
-            let value = fields.get("value").map_or_else(
-                || null.clone(),
-                |v| match &v.value {
-                    Value::Str(text) => Node {
-                        value: typed(text, ty),
-                        span: v.span,
-                    },
-                    _ => v.clone(),
-                },
-            );
-            if rest.is_empty() && matches!(value.value, Value::Null) {
-                return (node.clone(), null);
-            }
-            let extension = if rest.is_empty() {
-                null
-            } else {
-                let rest = match complex_type("Element", registry) {
-                    Some(element_sd) => reshape_fields(&rest, element_sd, "Element", registry),
-                    None => rest,
-                };
-                Node {
-                    value: Value::Object(rest),
-                    span: node.span,
-                }
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| (item, format!("{path}[{i}]")))
+            .collect(),
+        _ => vec![(node, path.to_owned())],
+    }
+}
+
+impl Shaper<'_> {
+    /// Reshape the children of one element; `parent` is its offset, shared by its attributes.
+    fn fields(
+        &mut self,
+        fields: &Fields,
+        sd: &StructureDefinition,
+        def_path: &str,
+        path: &str,
+        parent: Option<u32>,
+    ) -> Fields {
+        let prefix = format!("{def_path}.");
+        let mut out = Fields::with_capacity(fields.len());
+        for (name, node) in fields {
+            let Some((elem, Some(ty))) = resolve(sd, &format!("{prefix}{name}"), name) else {
+                out.insert(Arc::clone(name), node.clone());
+                continue;
             };
-            (value, extension)
+            let child_path = format!("{path}.{name}");
+            for (item, item_path) in items(node, &child_path) {
+                self.check_form(item, name, elem.xml_attr, parent, &item_path);
+            }
+            if is_primitive(&ty) {
+                let extension_path = format!("{path}._{name}");
+                let (values, extensions): (Vec<Node>, Vec<Node>) = items(node, &child_path)
+                    .into_iter()
+                    .zip(items(node, &extension_path))
+                    .map(|((item, value_path), (_, ext_path))| {
+                        self.split_primitive(item, &ty, &value_path, &ext_path, parent)
+                    })
+                    .unzip();
+                let wrap = |nodes: Vec<Node>| match &node.value {
+                    Value::Array(_) => Node {
+                        value: Value::Array(nodes),
+                        span: node.span,
+                    },
+                    _ => nodes.into_iter().next().unwrap_or_else(|| node.clone()),
+                };
+                if values.iter().any(|n| !matches!(n.value, Value::Null)) {
+                    out.insert(Arc::clone(name), wrap(values));
+                }
+                if extensions.iter().any(|n| !matches!(n.value, Value::Null)) {
+                    out.insert(Arc::from(format!("_{name}")), wrap(extensions));
+                }
+                continue;
+            }
+            let (type_sd, type_path) =
+                if ty.as_ref() == "BackboneElement" || ty.as_ref() == "Element" {
+                    (Some(sd), elem.path.to_string())
+                } else {
+                    let type_sd = complex_type(&ty, self.registry);
+                    (
+                        type_sd,
+                        type_sd.map(|t| t.name.to_string()).unwrap_or_default(),
+                    )
+                };
+            let reshaped = match type_sd {
+                Some(type_sd) => self.complex(node, type_sd, &type_path, &child_path),
+                None => node.clone(),
+            };
+            out.insert(Arc::clone(name), reshaped);
         }
-        _ => (node.clone(), null),
+        out
+    }
+
+    fn complex(
+        &mut self,
+        node: &Node,
+        sd: &StructureDefinition,
+        def_path: &str,
+        path: &str,
+    ) -> Node {
+        let value = match &node.value {
+            Value::Array(items) => Value::Array(
+                items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, item)| self.complex(item, sd, def_path, &format!("{path}[{i}]")))
+                    .collect(),
+            ),
+            Value::Object(fields) => {
+                Value::Object(self.fields(fields, sd, def_path, path, Some(node.span.offset)))
+            }
+            other => other.clone(),
+        };
+        Node {
+            value,
+            span: node.span,
+        }
+    }
+
+    /// `STRUCTURE_001` when an element is an attribute but must be a child element, or
+    /// the reverse (xml.html: `value`, `id` and `url` are attributes, other elements not).
+    fn check_form(
+        &mut self,
+        node: &Node,
+        name: &str,
+        xml_attr: bool,
+        parent: Option<u32>,
+        path: &str,
+    ) {
+        let is_attribute = parent == Some(node.span.offset);
+        if is_attribute != xml_attr {
+            self.unknown_form(node, path, xml_attr);
+        } else if is_attribute {
+            self.warn_if_trimmed(node, name, path);
+        }
+    }
+
+    /// `TYPE_007` Warning when the parser trimmed attribute `name` of the element at
+    /// `node`'s offset.
+    fn warn_if_trimmed(&mut self, node: &Node, name: &str, path: &str) {
+        if !self.trimmed.contains(&(node.span.offset, name)) {
+            return;
+        }
+        self.diagnostics.push(
+            Diagnostic::warning(
+                "TYPE_007",
+                format!("Leading or trailing whitespace trimmed from the XML value at '{path}'"),
+                path.to_owned(),
+            )
+            .with_location(node.span),
+        );
+    }
+
+    fn unknown_form(&mut self, node: &Node, path: &str, xml_attr: bool) {
+        let (expected, found) = if xml_attr {
+            ("an XML attribute", "a child element")
+        } else {
+            ("a child element", "an XML attribute")
+        };
+        self.diagnostics.push(
+            Diagnostic::error(
+                "STRUCTURE_001",
+                format!("Unknown element '{path}': it must be {expected}, not {found}"),
+                path.to_owned(),
+            )
+            .with_location(node.span),
+        );
+    }
+
+    /// Split one XML primitive into its typed value and its `_name` part (`Null` when
+    /// absent). The `_name` part is reshaped as an `Element`, so its extension values are
+    /// typed too. An element with neither value nor `_name` part is kept as is, so the type
+    /// check reports it.
+    fn split_primitive(
+        &mut self,
+        node: &Node,
+        ty: &str,
+        path: &str,
+        extension_path: &str,
+        parent: Option<u32>,
+    ) -> (Node, Node) {
+        let null = Node {
+            value: Value::Null,
+            span: node.span,
+        };
+        match &node.value {
+            Value::Str(text) => {
+                // A plain string is an element whose only attribute is `value`, or an
+                // attribute itself (`id`, `url`), which `check_form` already handled.
+                if parent != Some(node.span.offset) {
+                    self.warn_if_trimmed(node, "value", path);
+                }
+                (
+                    Node {
+                        value: typed(text, ty),
+                        span: node.span,
+                    },
+                    null,
+                )
+            }
+            Value::Object(fields) => {
+                let rest: Fields = fields
+                    .iter()
+                    .filter(|(k, _)| k.as_ref() != "value")
+                    .map(|(k, v)| (Arc::clone(k), v.clone()))
+                    .collect();
+                let value = match fields.get("value") {
+                    None => null.clone(),
+                    Some(v) => {
+                        // Every primitive's `value` is an attribute (`representation` xmlAttr).
+                        if v.span.offset != node.span.offset {
+                            self.unknown_form(v, &format!("{path}.value"), true);
+                        } else {
+                            self.warn_if_trimmed(v, "value", path);
+                        }
+                        match &v.value {
+                            Value::Str(text) => Node {
+                                value: typed(text, ty),
+                                span: v.span,
+                            },
+                            _ => v.clone(),
+                        }
+                    }
+                };
+                if rest.is_empty() && matches!(value.value, Value::Null) {
+                    return (node.clone(), null);
+                }
+                let extension = if rest.is_empty() {
+                    null
+                } else {
+                    let rest = match complex_type("Element", self.registry) {
+                        Some(element_sd) => self.fields(
+                            &rest,
+                            element_sd,
+                            "Element",
+                            extension_path,
+                            Some(node.span.offset),
+                        ),
+                        None => rest,
+                    };
+                    Node {
+                        value: Value::Object(rest),
+                        span: node.span,
+                    }
+                };
+                (value, extension)
+            }
+            _ => (node.clone(), null),
+        }
     }
 }
 

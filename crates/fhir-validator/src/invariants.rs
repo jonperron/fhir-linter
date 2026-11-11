@@ -112,6 +112,7 @@ mod tests {
                 constraints,
                 binding: None,
                 slice_name: None,
+                xml_attr: false,
             }],
         )
     }
@@ -122,6 +123,8 @@ mod tests {
             id: None,
             from_xml: false,
             fields: IndexMap::new(),
+            trimmed_attributes: Vec::new(),
+            schema_instance: Vec::new(),
         }
     }
 

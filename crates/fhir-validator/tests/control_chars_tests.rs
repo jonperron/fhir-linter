@@ -140,6 +140,14 @@ fn xml_1_0_control_character_is_not_well_formed() {
     }
     let ok = r#"<name><family value="a&#9;b&#10;c&#13;"/></name>"#;
     assert!(parse_xml(&patient_xml(decl_1_0, ok)).is_ok());
+    // The div is raw markup: its references are resolved for the check, not stored.
+    let div = |text: &str| {
+        format!(r#"<text><div xmlns="http://www.w3.org/1999/xhtml">{text}</div></text>"#)
+    };
+    assert!(parse_xml(&patient_xml(decl_1_0, &div("a&#9;b&#10;"))).is_ok());
+    assert!(parse_xml(&patient_xml(decl_1_0, &div("a&#x1;"))).is_err());
+    let decl_1_1 = r#"<?xml version="1.1" encoding="UTF-8"?>"#;
+    assert!(parse_xml(&patient_xml(decl_1_1, &div("a&#x1;"))).is_ok());
 }
 
 #[test]

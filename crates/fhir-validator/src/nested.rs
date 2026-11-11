@@ -499,6 +499,7 @@ mod tests {
             constraints: vec![],
             binding: None,
             slice_name: None,
+            xml_attr: false,
         }
     }
 

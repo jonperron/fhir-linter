@@ -19,7 +19,9 @@ use serde_json::Value;
 const MIN_JSON_PASS_RATE: f64 = 0.66;
 // 0.58 -> 0.56: primitive-good.xml and primitive-bad-empty.xml only passed through a false
 // TYPE_004 on the valid code "asd asd"; their real errors (decimal regex) are not caught yet.
-const MIN_XML_PASS_RATE: f64 = 0.56;
+// 0.56 -> 0.68 (main 64/108 -> 74/108): the XML conformance checks (namespaces, mixed text,
+// encoding, malformed XHTML attributes, schema instance namespace) catch 10 more cases.
+const MIN_XML_PASS_RATE: f64 = 0.68;
 
 fn fixtures_dir() -> PathBuf {
     std::env::var_os("FHIR_FIXTURES_DIR").map_or_else(
