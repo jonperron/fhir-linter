@@ -155,18 +155,20 @@ pub(crate) fn check_element(
         let message = format!("element '{name}' must be in the namespace {expected}");
         return Err(error_at(line_index, pos, message));
     }
-    // Malformed attributes are reported by `collect_attrs` or quick-xml itself.
-    // Compare the normalized value, so a character reference cannot hide the namespace.
-    let declares_xsi = e.attributes().flatten().any(|attr| {
+    // Every element passes here, XHTML ones included, so malformed attributes stop here too.
+    for attr in e.attributes() {
+        let attr =
+            attr.map_err(|err| error_at(line_index, pos, format!("malformed attribute: {err}")))?;
         let key = attr.key.as_ref();
-        (key == b"xmlns" || key.starts_with(b"xmlns:"))
+        // Compare the normalized value, so a character reference cannot hide the namespace.
+        let declares_xsi = (key == b"xmlns" || key.starts_with(b"xmlns:"))
             && attr
                 .normalized_value(XmlVersion::Implicit1_0)
-                .is_ok_and(|v| v.as_bytes() == XSI_NS)
-    });
-    if declares_xsi {
-        let message = "the XML schema instance namespace is not allowed in FHIR XML";
-        return Err(error_at(line_index, pos, message));
+                .is_ok_and(|v| v.as_bytes() == XSI_NS);
+        if declares_xsi {
+            let message = "the XML schema instance namespace is not allowed in FHIR XML";
+            return Err(error_at(line_index, pos, message));
+        }
     }
     Ok(())
 }

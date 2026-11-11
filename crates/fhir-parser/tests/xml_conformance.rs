@@ -18,6 +18,29 @@ fn dtd_is_rejected() {
 }
 
 #[test]
+fn dtd_inside_or_after_the_root_is_rejected() {
+    let cases = [
+        format!("<Patient {FHIR_NS}><!DOCTYPE x><active value=\"true\"/></Patient>"),
+        format!("<Patient {FHIR_NS}><active value=\"true\"/></Patient><!DOCTYPE x>"),
+        format!(
+            "<Patient {FHIR_NS}><text><status value=\"generated\"/>{}</text></Patient>",
+            "<div xmlns=\"http://www.w3.org/1999/xhtml\"><!DOCTYPE x>x</div>"
+        ),
+    ];
+    for source in cases {
+        assert!(parse_xml(&source).is_err(), "{source}");
+    }
+}
+
+#[test]
+fn malformed_attributes_inside_the_div_are_rejected() {
+    let div = "<div xmlns=\"http://www.w3.org/1999/xhtml\"><p class=\"a\" class=\"b\">x</p></div>";
+    let source =
+        format!("<Patient {FHIR_NS}><text><status value=\"generated\"/>{div}</text></Patient>");
+    assert!(parse_xml(&source).is_err());
+}
+
+#[test]
 fn non_utf8_encoding_declaration_is_rejected() {
     for encoding in ["UTF-16", "ISO-8859-1"] {
         let source = format!("<?xml version=\"1.0\" encoding=\"{encoding}\"?><Patient {FHIR_NS}/>");

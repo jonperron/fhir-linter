@@ -18,6 +18,9 @@ const MAX_DEPTH: usize = 128;
 /// Maximum `xmlns` declarations accepted on one element (bounds namespace lookups).
 const MAX_DECLARATIONS_PER_ELEMENT: usize = 8;
 
+/// xml.html: "There SHALL be no DTD references in FHIR resources", wherever they appear.
+const DTD_NOT_ALLOWED: &str = "a DTD is not allowed in FHIR XML";
+
 /// Parse a FHIR XML resource from a source string.
 ///
 /// Returns a [`Resource`] on success, or a [`ParseError`] if the source is
@@ -158,11 +161,7 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
             }
             // xml.html: "There SHALL be no DTD references in FHIR resources".
             Event::DocType(_) => {
-                return Err(error_at(
-                    &line_index,
-                    pos,
-                    "a DTD is not allowed in FHIR XML",
-                ));
+                return Err(error_at(&line_index, pos, DTD_NOT_ALLOWED));
             }
             // xml.html: resources "SHALL be exchanged using UTF-8 encoding".
             Event::Decl(ref decl) => {
@@ -257,6 +256,7 @@ fn parse_children(
                 let message = "text content is not allowed inside FHIR elements";
                 return Err(error_at(line_index, pos, message));
             }
+            Event::DocType(_) => return Err(error_at(line_index, pos, DTD_NOT_ALLOWED)),
             // Comments and PIs between elements are skipped.
             _ => {}
         }
@@ -394,6 +394,7 @@ fn skip_xhtml(
                 let message = "invalid entity reference in XHTML div";
                 return Err(error_at(line_index, pos, message));
             }
+            Event::DocType(_) => return Err(error_at(line_index, pos, DTD_NOT_ALLOWED)),
             Event::Eof => {
                 let (line, col) = line_index.location(start_pos);
                 return Err(ParseError::XmlError {
@@ -457,6 +458,7 @@ fn expect_eof(reader: &mut NsReader<&[u8]>, line_index: &LineIndex) -> Result<()
                     col,
                 });
             }
+            Event::DocType(_) => return Err(error_at(line_index, pos, DTD_NOT_ALLOWED)),
             // Comments, PIs, and the XML declaration are ignored.
             _ => {}
         }
