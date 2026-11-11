@@ -100,11 +100,11 @@ fn attribute_whitespace_is_trimmed_with_a_warning() {
     assert_eq!(
         found,
         [
-            "Warning TYPE_006 Patient.active",
-            "Warning TYPE_006 Patient.gender",
-            "Warning TYPE_006 Patient._gender.id",
-            "Warning TYPE_006 Patient.birthDate",
-            "Warning TYPE_006 Patient._birthDate.extension.url",
+            "Warning TYPE_007 Patient.active",
+            "Warning TYPE_007 Patient.gender",
+            "Warning TYPE_007 Patient._gender.id",
+            "Warning TYPE_007 Patient.birthDate",
+            "Warning TYPE_007 Patient._birthDate.extension.url",
         ],
     );
 }

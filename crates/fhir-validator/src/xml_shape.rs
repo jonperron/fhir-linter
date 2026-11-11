@@ -12,7 +12,7 @@
 //! and a child element its own, which is how the two are told apart.
 //!
 //! The parser trims attribute values (xml.html: readers SHOULD trim); each trimmed value of
-//! a known element gets a `TYPE_006` Warning here, where its instance path is known
+//! a known element gets a `TYPE_007` Warning here, where its instance path is known
 //! (user decision 11.7: trim and warn rather than report the whitespace as an error).
 
 use fhir_definitions::{Registry, StructureDefinition};
@@ -184,7 +184,7 @@ impl Shaper<'_> {
         }
     }
 
-    /// `TYPE_006` Warning when the parser trimmed attribute `name` of the element at
+    /// `TYPE_007` Warning when the parser trimmed attribute `name` of the element at
     /// `node`'s offset.
     fn warn_if_trimmed(&mut self, node: &Node, name: &str, path: &str) {
         if !self.trimmed.contains(&(node.span.offset, name)) {
@@ -192,7 +192,7 @@ impl Shaper<'_> {
         }
         self.diagnostics.push(
             Diagnostic::warning(
-                "TYPE_006",
+                "TYPE_007",
                 format!("Leading or trailing whitespace trimmed from the XML value at '{path}'"),
                 path.to_owned(),
             )
