@@ -144,7 +144,19 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
                     "a DTD is not allowed in FHIR XML",
                 ));
             }
-            // Skip XML declaration, processing instructions, comments.
+            // xml.html: resources "SHALL be exchanged using UTF-8 encoding".
+            Event::Decl(ref decl) => {
+                let utf8 = match decl.encoding() {
+                    None => true,
+                    Some(Ok(name)) => name.eq_ignore_ascii_case(b"UTF-8"),
+                    Some(Err(_)) => false,
+                };
+                if !utf8 {
+                    let message = "the XML declaration must declare UTF-8 encoding";
+                    return Err(error_at(&line_index, pos, message));
+                }
+            }
+            // Skip processing instructions and comments.
             _ => {}
         }
     }
