@@ -37,6 +37,7 @@ impl Registry {
             "profiles-resources.json",
             "profiles-types.json",
             "profiles-others.json",
+            "valuesets.json",
         ] {
             let path = dir.join(file);
             loader::load_bundle(
@@ -46,14 +47,6 @@ impl Registry {
                 &mut code_systems,
             )?;
         }
-
-        let valuesets_path = dir.join("valuesets.json");
-        loader::load_bundle(
-            &valuesets_path,
-            &mut structure_definitions,
-            &mut value_sets,
-            &mut code_systems,
-        )?;
 
         let choice_suffixes = index_choice_suffixes(&structure_definitions);
         Ok(Self {
