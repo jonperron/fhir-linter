@@ -39,7 +39,13 @@ pub fn load_bundle(
 
         match resource_type {
             "StructureDefinition" => {
-                if let Some(sd) = parse_structure_definition(resource) {
+                let sd = parse_structure_definition(resource).map_err(|message| {
+                    Error::MalformedBundle {
+                        file: file_name.clone(),
+                        message,
+                    }
+                })?;
+                if let Some(sd) = sd {
                     structure_definitions.insert(Arc::clone(&sd.url), sd);
                 }
             }
@@ -60,30 +66,56 @@ pub fn load_bundle(
     Ok(())
 }
 
-fn parse_structure_definition(resource: &Value) -> Option<StructureDefinition> {
-    let url: Arc<str> = resource["url"].as_str()?.into();
-    let name: Arc<str> = resource["name"].as_str()?.into();
-    let kind: Arc<str> = resource["kind"].as_str()?.into();
+/// `Ok(None)` skips a definition without url, name or kind; a snapshot element
+/// without `path` or `max` is an error, so no element is dropped silently.
+fn parse_structure_definition(
+    resource: &Value,
+) -> std::result::Result<Option<StructureDefinition>, String> {
+    let (Some(url), Some(name), Some(kind)) = (
+        resource["url"].as_str(),
+        resource["name"].as_str(),
+        resource["kind"].as_str(),
+    ) else {
+        return Ok(None);
+    };
     let is_abstract = resource["abstract"].as_bool().unwrap_or(false);
 
     let snapshot = resource["snapshot"]["element"]
         .as_array()
-        .map(|elems| elems.iter().filter_map(parse_element_definition).collect())
+        .map(|elems| {
+            elems
+                .iter()
+                .enumerate()
+                .map(|(index, elem)| parse_element_definition(elem, index))
+                .collect::<std::result::Result<Vec<_>, _>>()
+        })
+        .transpose()
+        .map_err(|message| format!("StructureDefinition {url}: {message}"))?
         .unwrap_or_default();
 
-    Some(StructureDefinition::new(
-        url,
-        name,
-        kind,
+    Ok(Some(StructureDefinition::new(
+        url.into(),
+        name.into(),
+        kind.into(),
         is_abstract,
         snapshot,
-    ))
+    )))
 }
 
-fn parse_element_definition(elem: &Value) -> Option<ElementDefinition> {
-    let path: Arc<str> = elem["path"].as_str()?.into();
+/// `index` is the element's position in the snapshot, used to name it when `path` is missing.
+fn parse_element_definition(
+    elem: &Value,
+    index: usize,
+) -> std::result::Result<ElementDefinition, String> {
+    let path: Arc<str> = elem["path"]
+        .as_str()
+        .ok_or_else(|| format!("snapshot element {index} has no 'path'"))?
+        .into();
     let min = u32::try_from(elem["min"].as_u64().unwrap_or(0)).unwrap_or(0);
-    let max: Arc<str> = elem["max"].as_str()?.into();
+    let max: Arc<str> = elem["max"]
+        .as_str()
+        .ok_or_else(|| format!("snapshot element {path} has no 'max'"))?
+        .into();
     let types = elem["type"]
         .as_array()
         .map(|type_list| {
@@ -102,7 +134,7 @@ fn parse_element_definition(elem: &Value) -> Option<ElementDefinition> {
     let binding = parse_binding(&elem["binding"]);
     let slice_name = elem["sliceName"].as_str().map(Arc::from);
 
-    Some(ElementDefinition {
+    Ok(ElementDefinition {
         path,
         min,
         max,
@@ -397,7 +429,7 @@ mod tests {
                 "code": "http://hl7.org/fhirpath/System.String"
             }]
         });
-        let parsed = parse_element_definition(&elem).expect("element should be parsed");
+        let parsed = parse_element_definition(&elem, 0).expect("element should be parsed");
         assert_eq!(parsed.types[0].as_ref(), "id");
     }
 
@@ -411,43 +443,46 @@ mod tests {
         ] {
             let elem =
                 serde_json::json!({"path": "Patient.id", "min": 0, "max": "1", "type": [ty]});
-            let parsed = parse_element_definition(&elem).expect("element should be parsed");
+            let parsed = parse_element_definition(&elem, 0).expect("element should be parsed");
             assert_eq!(parsed.types[0].as_ref(), code);
         }
     }
 
     #[test]
-    fn load_bundle_element_definition_without_path_is_skipped() {
-        let content = r#"{
-            "entry": [{
-                "resource": {
-                    "resourceType": "StructureDefinition",
-                    "url": "http://example.com/sd2",
-                    "name": "TestSD2",
-                    "kind": "resource",
-                    "snapshot": {
-                        "element": [
-                            {"min": 0, "max": "1"},
-                            {"path": "TestSD2.id", "min": 0, "max": "1"}
-                        ]
-                    }
-                }
-            }]
-        }"#;
-        let path = write_temp("fhir_def_test_sd_elem_no_path.json", content);
-        let mut sds = HashMap::new();
-        let mut vss = HashMap::new();
-        let mut css = HashMap::new();
-        load_bundle(&path, &mut sds, &mut vss, &mut css).unwrap();
-        let sd = sds
-            .get("http://example.com/sd2")
-            .expect("SD should be parsed");
-        assert_eq!(
-            sd.snapshot.len(),
-            1,
-            "element without path should be skipped"
-        );
-        assert_eq!(sd.snapshot[0].path.as_ref(), "TestSD2.id");
+    fn load_bundle_rejects_snapshot_element_without_path_or_max() {
+        for (name, element, expected) in [
+            (
+                "no_path",
+                r#"{"min": 0, "max": "1"}"#,
+                "element 1 has no 'path'",
+            ),
+            (
+                "no_max",
+                r#"{"path": "TestSD2.id", "min": 0}"#,
+                "TestSD2.id has no 'max'",
+            ),
+        ] {
+            let content = format!(
+                r#"{{"entry": [{{"resource": {{
+                    "resourceType": "StructureDefinition", "url": "http://example.com/sd2",
+                    "name": "TestSD2", "kind": "resource",
+                    "snapshot": {{"element": [{{"path": "TestSD2", "min": 0, "max": "*"}}, {element}]}}
+                }}}}]}}"#
+            );
+            let path = write_temp(&format!("fhir_def_test_sd_elem_{name}.json"), &content);
+            let mut sds = HashMap::new();
+            let mut vss = HashMap::new();
+            let mut css = HashMap::new();
+            let result = load_bundle(&path, &mut sds, &mut vss, &mut css);
+            let Err(crate::Error::MalformedBundle { message, .. }) = result else {
+                panic!("{name}: expected MalformedBundle, got {result:?}");
+            };
+            assert!(
+                message.contains("http://example.com/sd2"),
+                "{name}: {message}"
+            );
+            assert!(message.contains(expected), "{name}: {message}");
+        }
     }
 
     #[test]
