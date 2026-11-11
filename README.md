@@ -58,6 +58,8 @@ directory defaults to `definitions/r5` (or `$FHIR_DEFINITIONS_DIR`).
 Exit codes: `0` clean, `1` errors found (warnings too with `--strict`),
 `2` tool error (bad arguments, unreadable file, bad config or definitions).
 
+Full reference: [crates/fhir-cli/README.md](crates/fhir-cli/README.md).
+
 ## Layout
 
 | Crate | Job |
