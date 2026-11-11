@@ -182,6 +182,7 @@ fn parse_include(inc: &Value) -> Include {
     };
     Include {
         system: inc["system"].as_str().map(Arc::from),
+        version: inc["version"].as_str().map(Arc::from),
         codes: strings(&inc["concept"], "code"),
         has_filter: inc["filter"].as_array().is_some_and(|f| !f.is_empty()),
         value_sets: inc["valueSet"]
@@ -210,6 +211,7 @@ fn parse_code_system(resource: &Value) -> Option<CodeSystem> {
     Some(CodeSystem {
         url,
         name,
+        version: resource["version"].as_str().map(Arc::from),
         codes,
         not_selectable,
         complete,

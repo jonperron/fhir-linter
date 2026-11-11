@@ -167,7 +167,13 @@ impl Registry {
         if system.is_some_and(|s| s != inc_system) {
             return Some(false);
         }
-        let cs = self.code_systems.get(inc_system);
+        // An include pinned to another CodeSystem version ("*" means any) cannot use the
+        // loaded one: treated as if the CodeSystem were not loaded.
+        let cs = self.code_systems.get(inc_system).filter(|cs| {
+            inc.version
+                .as_deref()
+                .is_none_or(|v| v == "*" || cs.version.as_deref() == Some(v))
+        });
         let found = if inc.codes.is_empty() {
             let cs = cs?;
             if !cs.codes.contains(code) {
@@ -445,6 +451,56 @@ mod tests {
     }
 
     #[test]
+    fn include_version_selects_whether_the_loaded_code_system_applies() {
+        let dir =
+            std::env::temp_dir().join(format!("fhir_def_include_version_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        for file in [
+            "profiles-resources.json",
+            "profiles-types.json",
+            "profiles-others.json",
+        ] {
+            fs::write(dir.join(file), r#"{"entry": []}"#).unwrap();
+        }
+        let vs = |name: &str, version: &str| {
+            format!(
+                r#"{{"resource": {{"resourceType": "ValueSet", "url": "http://x/vs/{name}",
+                "name": "{name}", "compose": {{"include": [
+                    {{"system": "http://x/cs", "version": "{version}"}}]}}}}}}"#
+            )
+        };
+        let bundle = format!(
+            r#"{{"entry": [{}, {}, {}, {{"resource": {{"resourceType": "CodeSystem",
+            "url": "http://x/cs", "name": "CS", "version": "2", "content": "complete",
+            "concept": [{{"code": "a"}}]}}}}]}}"#,
+            vs("same", "2"),
+            vs("any", "*"),
+            vs("other", "1"),
+        );
+        fs::write(dir.join("valuesets.json"), bundle).unwrap();
+        let registry = Registry::from_definitions_dir(&dir);
+        fs::remove_dir_all(&dir).unwrap();
+        let registry = registry.unwrap();
+        for (vs, in_code, out_code) in [
+            ("same", Some(true), Some(false)),
+            ("any", Some(true), Some(false)),
+            ("other", None, None),
+        ] {
+            let url = format!("http://x/vs/{vs}");
+            assert_eq!(
+                registry.value_set_contains(&url, None, "a"),
+                in_code,
+                "{vs} a"
+            );
+            assert_eq!(
+                registry.value_set_contains(&url, None, "b"),
+                out_code,
+                "{vs} b"
+            );
+        }
+    }
+
+    #[test]
     fn value_set_contains_decides_membership_from_the_bundled_definitions() {
         const VS: &str = "http://hl7.org/fhir/ValueSet/";
         let gender = Some("http://hl7.org/fhir/administrative-gender");
@@ -486,6 +542,9 @@ mod tests {
             // notSelectable concept (item-type#question): undecidable.
             ("item-type", None, "question", None),
             ("item-type", None, "group", Some(true)),
+            // include.version 20210721 pins a CodeSystem version other than the loaded 5.0.0.
+            ("example-metadata", None, "A", None),
+            ("example-metadata", None, "Z", None),
             // Unknown ValueSet.
             ("no-such-value-set", None, "male", None),
         ];

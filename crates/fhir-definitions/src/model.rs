@@ -145,6 +145,8 @@ pub struct ValueSet {
 #[derive(Debug, Clone, Default)]
 pub struct Include {
     pub system: Option<Arc<str>>,
+    /// CodeSystem version the include is pinned to (`include.version`), if any.
+    pub version: Option<Arc<str>>,
     /// Explicitly enumerated codes; empty means "the whole system" (unless `has_filter`).
     pub codes: Vec<Arc<str>>,
     /// True when a `filter` restricts the system; membership is then not decidable.
@@ -158,6 +160,8 @@ pub struct Include {
 pub struct CodeSystem {
     pub url: Arc<str>,
     pub name: Arc<str>,
+    /// Business version (`CodeSystem.version`), if any.
+    pub version: Option<Arc<str>>,
     pub codes: HashSet<Arc<str>>,
     /// Codes of concepts flagged `notSelectable` (or `abstract`); a subset of `codes`.
     pub not_selectable: HashSet<Arc<str>>,
