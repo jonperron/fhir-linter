@@ -466,7 +466,8 @@ mod tests {
                 r#"{{"entry": [{{"resource": {{
                     "resourceType": "StructureDefinition", "url": "http://example.com/sd2",
                     "name": "TestSD2", "kind": "resource",
-                    "snapshot": {{"element": [{{"path": "TestSD2", "min": 0, "max": "*"}}, {element}]}}
+                    "snapshot": {{"element": [
+                        {{"path": "TestSD2", "min": 0, "max": "*"}}, {element}]}}
                 }}}}]}}"#
             );
             let path = write_temp(&format!("fhir_def_test_sd_elem_{name}.json"), &content);
