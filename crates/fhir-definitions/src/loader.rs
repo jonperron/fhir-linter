@@ -234,7 +234,8 @@ fn parse_code_system(resource: &Value) -> Option<CodeSystem> {
     let name: Arc<str> = resource["name"].as_str()?.into();
     let mut codes = HashSet::new();
     let mut not_selectable = HashSet::new();
-    collect_concepts(&resource["concept"], &mut codes, &mut not_selectable);
+    let flag = not_selectable_property_code(resource);
+    collect_concepts(&resource["concept"], flag, &mut codes, &mut not_selectable);
     // Only a complete, enumerated system can prove a code absent.
     // Case-insensitive systems are never proven absent: lookup is exact-match.
     let complete = resource["content"].as_str() == Some("complete")
@@ -250,29 +251,45 @@ fn parse_code_system(resource: &Value) -> Option<CodeSystem> {
     })
 }
 
+/// The local property code a CodeSystem declares for the R5 `notSelectable` URI,
+/// or `notSelectable` itself when no declared property carries that URI.
+fn not_selectable_property_code(resource: &Value) -> &str {
+    const URI: &str = "http://hl7.org/fhir/concept-properties#notSelectable";
+    resource["property"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find_map(|p| {
+            p["code"]
+                .as_str()
+                .filter(|_| p["uri"].as_str() == Some(URI))
+        })
+        .unwrap_or("notSelectable")
+}
+
 fn collect_concepts(
     concepts: &Value,
+    flag: &str,
     out: &mut HashSet<Arc<str>>,
     not_selectable: &mut HashSet<Arc<str>>,
 ) {
     for c in concepts.as_array().into_iter().flatten() {
         if let Some(code) = c["code"].as_str() {
             out.insert(Arc::from(code));
-            if is_not_selectable(c) {
+            if is_flagged(c, flag) {
                 not_selectable.insert(Arc::from(code));
             }
         }
-        collect_concepts(&c["concept"], out, not_selectable);
+        collect_concepts(&c["concept"], flag, out, not_selectable);
     }
 }
 
-/// A concept flagged `notSelectable` (or `abstract`) with `valueBoolean: true`.
-fn is_not_selectable(concept: &Value) -> bool {
+/// A concept whose property `flag` is `valueBoolean: true`.
+fn is_flagged(concept: &Value, flag: &str) -> bool {
     concept["property"].as_array().is_some_and(|props| {
-        props.iter().any(|p| {
-            matches!(p["code"].as_str(), Some("notSelectable" | "abstract"))
-                && p["valueBoolean"].as_bool() == Some(true)
-        })
+        props
+            .iter()
+            .any(|p| p["code"].as_str() == Some(flag) && p["valueBoolean"].as_bool() == Some(true))
     })
 }
 
@@ -514,7 +531,32 @@ mod tests {
         assert_eq!(cs.codes.len(), 4);
         let mut flagged: Vec<_> = cs.not_selectable.iter().map(AsRef::as_ref).collect();
         flagged.sort_unstable();
-        assert_eq!(flagged, ["a", "b"]);
+        // `abstract` is not an R5 concept property.
+        assert_eq!(flagged, ["a"]);
+    }
+
+    #[test]
+    fn code_system_finds_not_selectable_by_its_declared_property_uri() {
+        let cs = parse_code_system(&serde_json::json!({
+            "url": "http://example.com/cs", "name": "CS", "content": "complete",
+            "property": [{
+                "code": "ns", "type": "boolean",
+                "uri": "http://hl7.org/fhir/concept-properties#notSelectable"
+            }],
+            "concept": [
+                {"code": "a", "property": [{"code": "ns", "valueBoolean": true}],
+                 "concept": [
+                     {"code": "c", "property": [{"code": "ns", "valueBoolean": true}]},
+                     {"code": "d", "property": [{"code": "ns", "valueBoolean": false}]}
+                 ]},
+                {"code": "b", "property": [{"code": "notSelectable", "valueBoolean": true}]}
+            ]
+        }))
+        .expect("CodeSystem should be parsed");
+        let mut flagged: Vec<_> = cs.not_selectable.iter().map(AsRef::as_ref).collect();
+        flagged.sort_unstable();
+        // The local code `ns` carries the URI; the bare code is only a fallback.
+        assert_eq!(flagged, ["a", "c"]);
     }
 
     #[test]

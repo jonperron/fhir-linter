@@ -163,7 +163,7 @@ pub struct CodeSystem {
     /// Business version (`CodeSystem.version`), if any.
     pub version: Option<Arc<str>>,
     pub codes: HashSet<Arc<str>>,
-    /// Codes of concepts flagged `notSelectable` (or `abstract`); a subset of `codes`.
+    /// Codes of concepts flagged notSelectable (R5 concept property); a subset of `codes`.
     pub not_selectable: HashSet<Arc<str>>,
     /// False when the system is a fragment/not-present, so absence of a code proves nothing.
     pub complete: bool,
