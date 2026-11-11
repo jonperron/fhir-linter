@@ -17,7 +17,9 @@ use serde_json::Value;
 /// Regression floors (rates measured on the pinned fixtures, rounded down);
 /// raise them as validator coverage improves.
 const MIN_JSON_PASS_RATE: f64 = 0.66;
-const MIN_XML_PASS_RATE: f64 = 0.58;
+// 0.58 -> 0.56: primitive-good.xml and primitive-bad-empty.xml only passed through a false
+// TYPE_004 on the valid code "asd asd"; their real errors (decimal regex) are not caught yet.
+const MIN_XML_PASS_RATE: f64 = 0.56;
 
 fn fixtures_dir() -> PathBuf {
     std::env::var_os("FHIR_FIXTURES_DIR").map_or_else(
