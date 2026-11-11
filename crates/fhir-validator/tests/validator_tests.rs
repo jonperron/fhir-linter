@@ -1148,6 +1148,10 @@ fn temporal_primitives_follow_the_r5_regexes() {
         ("Patient", "deceasedDateTime", "2020Z", false),
         ("Patient", "deceasedDateTime", "2020-01-01+", false),
         ("Patient", "deceasedDateTime", "2020-01-01Zjunk", false),
+        // A multi-byte char across the year-month / full-date boundary: rejected, no panic.
+        ("Patient", "deceasedDateTime", "2020-0\u{e9}Z", false),
+        ("Patient", "deceasedDateTime", "2020-01-0\u{e9}Z", false),
+        ("Patient", "deceasedDateTime", "2020-01\u{e9}Z", false),
         ("Patient", "deceasedDateTime", "2020-01-01T10:00:00+", false),
         ("Observation", "issued", "2020-01-01T10:00:00.5Z", true),
         ("Observation", "issued", "2020", false),
@@ -1572,7 +1576,11 @@ fn empty_or_null_array_on_required_element_produces_cardinality_001() {
         for (json, path) in [
             (
                 format!(
-                    r#"{{"resourceType":"ValueSet","status":"draft","compose":{{"include":{empty}}}}}"#
+                    concat!(
+                        r#"{{"resourceType":"ValueSet","status":"draft","#,
+                        r#""compose":{{"include":{empty}}}}}"#,
+                    ),
+                    empty = empty,
                 ),
                 "ValueSet.compose.include",
             ),
@@ -1673,7 +1681,10 @@ fn partly_null_arrays_and_choice_variants_get_no_cardinality_003() {
             "Patient.name[0].given",
         ),
         (
-            r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},"valueQuantity":[]}"#,
+            concat!(
+                r#"{"resourceType":"Observation","status":"final","#,
+                r#""code":{"text":"x"},"valueQuantity":[]}"#,
+            ),
             "Observation.valueQuantity",
         ),
     ] {
@@ -1690,8 +1701,14 @@ fn partly_null_arrays_and_choice_variants_get_no_cardinality_003() {
 #[test]
 fn null_values_backed_by_primitive_extensions_are_not_empty() {
     for json in [
-        r#"{"resourceType":"Patient","identifier":[{"value":"1"}],"name":[{"given":[null],"_given":[{"id":"a"}]}]}"#,
-        r#"{"resourceType":"Observation","code":{"text":"x"},"status":[null],"_status":[{"id":"a"}]}"#,
+        concat!(
+            r#"{"resourceType":"Patient","identifier":[{"value":"1"}],"#,
+            r#""name":[{"given":[null],"_given":[{"id":"a"}]}]}"#,
+        ),
+        concat!(
+            r#"{"resourceType":"Observation","code":{"text":"x"},"#,
+            r#""status":[null],"_status":[{"id":"a"}]}"#,
+        ),
     ] {
         let found = codes_for(json);
         assert!(
