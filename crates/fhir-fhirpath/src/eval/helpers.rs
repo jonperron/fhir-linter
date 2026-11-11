@@ -381,6 +381,22 @@ pub(super) fn is_type(focus: &[Value], type_name: &str) -> Result<Collection, Ev
     }
 }
 
+/// Shared by the `as` operator and `as()` (N1 §6.3.2): the item when it has
+/// the type, else empty; more than one item is an error.
+pub(super) fn as_type(focus: &[Value], type_name: &str) -> Result<Collection, EvalError> {
+    match focus {
+        [] => Ok(vec![]),
+        [v] => Ok(value_is_type(v, type_name)
+            .then(|| v.clone())
+            .into_iter()
+            .collect()),
+        _ => Err(EvalError::Type(format!(
+            "as requires a single-item input, got {}",
+            focus.len()
+        ))),
+    }
+}
+
 // ── String helpers ────────────────────────────────────────────────────────────
 
 pub(super) fn string_or_empty(col: &[Value]) -> Arc<str> {

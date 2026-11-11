@@ -2611,6 +2611,18 @@ fn is_operator_on_multiple_items_is_error() {
     ));
 }
 
+// N1 §6.3.2: the `as` operator behaves like as(): several items are an error.
+#[test]
+fn as_operator_follows_as_function() {
+    assert!(matches!(
+        evaluate("(1 | 2) as Integer", &make_patient()),
+        Err(fhir_fhirpath::EvalError::Type(_))
+    ));
+    assert!(eval("{} as Integer").is_empty());
+    assert_eq!(eval("1 as Integer"), vec![Value::Integer(1)]);
+    assert!(eval("1 as String").is_empty());
+}
+
 // R5 2.1.9.1.1: a choice element is named without its [x] suffix.
 #[test]
 fn choice_element_is_navigable_by_its_base_name() {

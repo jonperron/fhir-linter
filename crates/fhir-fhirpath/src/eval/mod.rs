@@ -20,8 +20,8 @@ mod temporal;
 mod type_conv;
 
 use helpers::{
-    bool_col, collections_equal, collections_equivalent, contains_value, is_type, numeric_op,
-    singleton, three_valued_and, three_valued_implies, three_valued_or, value_is_type,
+    as_type, bool_col, collections_equal, collections_equivalent, contains_value, is_type,
+    numeric_op, singleton, three_valued_and, three_valued_implies, three_valued_or,
 };
 
 /// Evaluate a FHIRPath expression against a context value.
@@ -166,13 +166,7 @@ impl Evaluator<'_> {
 
             // ── Type operators ────────────────────────────────────────────
             Expr::Is(base, type_name) => is_type(&self.eval(base, ctx)?, type_name),
-            Expr::As(base, type_name) => {
-                let col = self.eval(base, ctx)?;
-                Ok(col
-                    .into_iter()
-                    .filter(|v| value_is_type(v, type_name))
-                    .collect())
-            }
+            Expr::As(base, type_name) => as_type(&self.eval(base, ctx)?, type_name),
 
             // ── Set operators ─────────────────────────────────────────────
             Expr::Union(l, r) => {

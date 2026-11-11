@@ -4,7 +4,7 @@ use crate::value::{Collection, Value};
 
 use super::Evaluator;
 use super::helpers::{
-    check_arity, check_arity_range, collect_descendants, compare_values, contains_value,
+    as_type, check_arity, check_arity_range, collect_descendants, compare_values, contains_value,
     criteria_bool, distinct, eval_type_name, is_type, single_integer, value_is_type,
 };
 
@@ -143,23 +143,9 @@ impl Evaluator<'_> {
                 check_arity(name, args, 1)?;
                 is_type(focus, &eval_type_name(&args[0])?)?
             }
-            // FHIRPath: as() takes a singleton; empty in, empty out; more is an error.
             "as" => {
                 check_arity(name, args, 1)?;
-                let type_name = eval_type_name(&args[0])?;
-                match focus {
-                    [] => vec![],
-                    [v] => value_is_type(v, &type_name)
-                        .then(|| v.clone())
-                        .into_iter()
-                        .collect(),
-                    _ => {
-                        return Err(EvalError::Type(format!(
-                            "{name}() requires a single-item input, got {}",
-                            focus.len()
-                        )));
-                    }
-                }
+                as_type(focus, &eval_type_name(&args[0])?)?
             }
 
             // ── Counting / indexing ───────────────────────────────────────
