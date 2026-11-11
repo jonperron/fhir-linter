@@ -371,6 +371,44 @@ fn reference_type_disagreeing_with_fhir_url_produces_reference_003() {
 }
 
 #[test]
+fn malformed_relative_reference_produces_reference_004_warning() {
+    // The R5 literal reference regex is not worded as a SHALL: a warning.
+    let registry = load_registry();
+    let gp = |reference: &str| {
+        format!(
+            r#"{{"resourceType":"Patient","generalPractitioner":[{{"reference":"{reference}"}}]}}"#
+        )
+    };
+    let warning = vec![(
+        Severity::Warning,
+        "Patient.generalPractitioner[0].reference".to_owned(),
+    )];
+    let long_id = format!("Practitioner/{}", "a".repeat(65));
+    for bad in [
+        "Practitioner",
+        "Practitioner/a b",
+        "Practitioner/1/_history",
+        &long_id,
+    ] {
+        assert_eq!(
+            severities(&registry, &gp(bad), "REFERENCE_004"),
+            warning,
+            "{bad}"
+        );
+    }
+    for good in [
+        "Practitioner/1",
+        "Practitioner/a-1.b/_history/2",
+        "Practitioner?name=x",
+    ] {
+        assert!(
+            severities(&registry, &gp(good), "REFERENCE_004").is_empty(),
+            "{good}"
+        );
+    }
+}
+
+#[test]
 fn unresolved_contained_reference_produces_reference_002() {
     let registry = load_registry();
     let json = r##"{"resourceType":"Patient","managingOrganization":{"reference":"#org"}}"##;

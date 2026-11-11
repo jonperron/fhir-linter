@@ -7,9 +7,10 @@ use crate::diagnostic::Diagnostic;
 ///
 /// Emits `REFERENCE_001` for a relative reference whose type is not a known
 /// resource type, and `REFERENCE_002` for a `#id` reference with no matching
-/// entry in `contained` or a bare `#` (only the root resource is validated). Absolute URLs and `urn:` references are not resolved.
+/// entry in `contained` or a bare `#` (only the root resource is validated).
+/// Absolute URLs and `urn:` references are not resolved.
 /// `REFERENCE_003` reports a `Reference.type` that disagrees with the type of a
-/// FHIR URL reference.
+/// FHIR URL reference, and `REFERENCE_004` (warning) a malformed relative reference.
 pub fn validate(
     resource: &Resource,
     sd: &StructureDefinition,
@@ -58,11 +59,34 @@ pub fn validate(
                      of reference '{reference}'"
                 );
                 diagnostics.push(
-                    Diagnostic::error("REFERENCE_003", message, ref_path).with_location(item.span),
+                    Diagnostic::error("REFERENCE_003", message, ref_path.clone())
+                        .with_location(item.span),
+                );
+            }
+            // The R5 literal reference regex is not worded as a SHALL: a warning.
+            if malformed_relative(reference, registry) {
+                let message = format!(
+                    "Relative reference '{reference}' does not match 'Type/id' or \
+                     'Type/id/_history/version'"
+                );
+                diagnostics.push(
+                    Diagnostic::warning("REFERENCE_004", message, ref_path)
+                        .with_location(item.span),
                 );
             }
         }
     }
+}
+
+/// A relative reference to a known type that fails the R5 literal reference regex.
+///
+/// Conditional references (`Type?query`) and unknown types (`REFERENCE_001`) are left out.
+fn malformed_relative(reference: &str, registry: &Registry) -> bool {
+    let relative = !reference.starts_with('#') && !reference.contains([':', '?']);
+    let type_name = reference.split('/').next().unwrap_or(reference);
+    relative
+        && is_resource_type(registry, type_name)
+        && fhir_url_type(reference, registry).is_none()
 }
 
 const CORE_SD: &str = "http://hl7.org/fhir/StructureDefinition/";
