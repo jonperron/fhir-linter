@@ -15,6 +15,10 @@ const MAX_DEPTH: usize = 128;
 pub fn parse_json(source: &str) -> Result<Resource, ParseError> {
     let line_index = LineIndex::new(source);
     let mut scanner = Scanner::new(source, &line_index);
+    // Accept a leading UTF-8 BOM, as the XML parser does; offsets still count its bytes.
+    if source.starts_with('\u{FEFF}') {
+        scanner.pos = '\u{FEFF}'.len_utf8();
+    }
 
     let root = scanner.scan_node()?;
 
@@ -747,6 +751,19 @@ mod depth_dup_tests {
             "]".repeat(100_000)
         );
         assert!(parse_json(&src).is_err());
+    }
+
+    #[test]
+    fn leading_utf8_bom_is_skipped_and_offsets_count_it() {
+        let src = "\u{FEFF}{\"resourceType\":\"Patient\",\"active\":true}";
+        let resource = parse_json(src).unwrap();
+        assert_eq!(&*resource.resource_type, "Patient");
+        let active = &resource.fields["active"];
+        // Spans stay byte offsets into the input as given, BOM included.
+        assert_eq!(active.span.offset as usize, src.find("true").unwrap());
+        // Only a leading BOM is skipped.
+        assert!(parse_json("{\"resourceType\":\"Patient\"}\u{FEFF}").is_err());
+        assert!(parse_json("\u{FEFF}\u{FEFF}{\"resourceType\":\"Patient\"}").is_err());
     }
 
     #[test]
