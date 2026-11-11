@@ -3,12 +3,25 @@ name: Release Please
 on:
   push:
     branches: [main]
+  # Manual retry, e.g. to publish an existing release to the registries.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag (fhir-linter-vX.Y.Z)
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+# A manual retry must not race the push run publishing the same release.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release-please:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -26,11 +39,64 @@ jobs:
 
   release-assets:
     needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    # release-please is skipped on a manual run; !cancelled() lets this job run anyway.
+    if: >-
+      !cancelled() && (github.event_name == 'workflow_dispatch'
+      || needs.release-please.outputs.release_created == 'true')
     permissions:
       contents: write
-      id-token: write
-      packages: write
     uses: ./.github/workflows/release-assets.yml
     with:
-      tag: ${{ needs.release-please.outputs.tag_name }}
+      tag: ${{ inputs.tag || needs.release-please.outputs.tag_name }}
+
+  publish-npm:
+    # release-please is listed for its tag output on push runs.
+    needs: [release-please, release-assets]
+    if: ${{ !cancelled() && needs.release-assets.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          registry-url: https://npm.pkg.github.com
+          scope: "@jonperron"
+
+      # Publish the exact tarball attached to the release.
+      - name: Publish to GitHub Packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || needs.release-please.outputs.tag_name }}
+        run: |
+          # A retry must not fail on a version already published.
+          if npm view "@jonperron/fhir-linter@${TAG#fhir-linter-v}" version >/dev/null 2>&1; then
+            echo "already published"; exit 0
+          fi
+          gh release download "$TAG" --pattern '*.tgz'
+          npm publish ./*.tgz
+
+  # Kept in this top-level workflow: PyPI trusted publishing does not support
+  # reusable workflows. The PyPI publisher must name release-please.yml.
+  publish-pypi:
+    needs: release-assets
+    if: ${{ !cancelled() && needs.release-assets.result == 'success' }}
+    runs-on: ubuntu-latest
+    # Must match the environment of the PyPI trusted publisher.
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      # The wheels and sdist the reusable workflow uploaded earlier in this run.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: asset-*
+          path: dist
+          merge-multiple: true
+
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          skip-existing: true
