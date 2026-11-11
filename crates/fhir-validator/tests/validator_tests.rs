@@ -237,6 +237,26 @@ fn text_only_codeable_concept_under_required_binding_produces_terminology_001() 
     assert!(severities(&registry, &json, "TERMINOLOGY_001").is_empty());
 }
 
+#[test]
+fn code_outside_extensible_binding_produces_terminology_001_warning() {
+    // FamilyMemberHistory.sex is bound extensibly to administrative-gender.
+    let registry = load_registry();
+    let sex = |code: &str| {
+        format!(
+            r#"{{"resourceType":"FamilyMemberHistory","sex":{{"coding":[{{"system":"http://hl7.org/fhir/administrative-gender","code":"{code}"}}]}}}}"#
+        )
+    };
+    let warning = vec![(Severity::Warning, "FamilyMemberHistory.sex".to_owned())];
+    assert_eq!(
+        severities(&registry, &sex("bogus"), "TERMINOLOGY_001"),
+        warning
+    );
+    assert!(severities(&registry, &sex("female"), "TERMINOLOGY_001").is_empty());
+    // Extensible bindings allow text alone when no code fits.
+    let text = r#"{"resourceType":"FamilyMemberHistory","sex":{"text":"x"}}"#;
+    assert!(severities(&registry, text, "TERMINOLOGY_001").is_empty());
+}
+
 // ── Reference validation ──────────────────────────────────────────────────────
 
 #[test]

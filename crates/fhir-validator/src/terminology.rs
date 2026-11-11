@@ -3,11 +3,12 @@ use fhir_parser::{Node, Resource, Value};
 
 use crate::diagnostic::Diagnostic;
 
-/// Validate `required` terminology bindings on top-level elements.
+/// Validate `required` and `extensible` terminology bindings on top-level elements.
 ///
 /// Emits `TERMINOLOGY_001` when a `code`, `Coding` or `CodeableConcept` is
-/// provably outside the bound ValueSet. Membership that cannot be decided from
-/// the loaded definitions (filters, external code systems) is not reported.
+/// provably outside the bound ValueSet: an error for `required`, a warning for
+/// `extensible`. Membership that cannot be decided from the loaded definitions
+/// (filters, external code systems) is not reported.
 pub fn validate(
     resource: &Resource,
     sd: &StructureDefinition,
@@ -24,8 +25,20 @@ pub fn validate(
         let Some(binding) = &elem.binding else {
             continue;
         };
-        let (true, Some(vs)) = (binding.strength.as_ref() == "required", &binding.value_set) else {
+        let Some(vs) = &binding.value_set else {
             continue;
+        };
+        let strength = binding.strength.as_ref();
+        let required = match strength {
+            "required" => true,
+            "extensible" => false,
+            _ => continue,
+        };
+        // The spec sets no validator severity for extensible bindings: report them as warnings.
+        let report = if required {
+            Diagnostic::error
+        } else {
+            Diagnostic::warning
         };
         let [fhir_type] = elem.types.as_slice() else {
             continue;
@@ -40,22 +53,26 @@ pub fn validate(
             _ => vec![(node, path.clone())],
         };
         for (item, item_path) in items {
-            if let Some(bad) = out_of_set(&item.value, fhir_type, vs, registry) {
-                diagnostics.push(
-                    Diagnostic::error(
-                        "TERMINOLOGY_001",
-                        format!("Code {bad} at '{item_path}' is not in required ValueSet '{vs}'"),
-                        item_path,
-                    )
-                    .with_location(item.span),
-                );
+            if let Some(bad) = out_of_set(&item.value, fhir_type, vs, required, registry) {
+                let message =
+                    format!("Code {bad} at '{item_path}' is not in {strength} ValueSet '{vs}'");
+                diagnostics
+                    .push(report("TERMINOLOGY_001", message, item_path).with_location(item.span));
             }
         }
     }
 }
 
 /// Return a description of the offending code when `value` is provably not in `vs`.
-fn out_of_set(value: &Value, fhir_type: &str, vs: &str, registry: &Registry) -> Option<String> {
+///
+/// Under a `required` binding a CodeableConcept with no coded Coding is also out.
+fn out_of_set(
+    value: &Value,
+    fhir_type: &str,
+    vs: &str,
+    required: bool,
+    registry: &Registry,
+) -> Option<String> {
     let provably_out = |system: Option<&str>, code: &str| {
         (registry.value_set_contains(vs, system, code) == Some(false)).then(|| code.to_owned())
     };
@@ -75,7 +92,8 @@ fn out_of_set(value: &Value, fhir_type: &str, vs: &str, registry: &Registry) -> 
                 .collect();
             if outs.is_empty() {
                 // terminologies.html 4.1.4.2.1: text is no substitute for the required code.
-                return Some("none (no Coding has a code)".to_owned());
+                // Extensible bindings (4.1.4.2.2) accept text alone when no code fits.
+                return required.then(|| "none (no Coding has a code)".to_owned());
             }
             outs.iter()
                 .all(Option::is_some)
