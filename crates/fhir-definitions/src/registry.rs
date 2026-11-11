@@ -451,9 +451,9 @@ mod tests {
     }
 
     #[test]
-    fn include_version_selects_whether_the_loaded_code_system_applies() {
+    fn value_set_contains_applies_include_version_and_exclude() {
         let dir =
-            std::env::temp_dir().join(format!("fhir_def_include_version_{}", std::process::id()));
+            std::env::temp_dir().join(format!("fhir_def_synthetic_compose_{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         for file in [
             "profiles-resources.json",
@@ -470,7 +470,7 @@ mod tests {
             )
         };
         let bundle = format!(
-            r#"{{"entry": [{}, {}, {}, {}, {{"resource": {{"resourceType": "CodeSystem",
+            r#"{{"entry": [{}, {}, {}, {}, {}, {{"resource": {{"resourceType": "CodeSystem",
             "url": "http://x/cs", "name": "CS", "version": "2", "content": "complete",
             "concept": [{{"code": "a"}}]}}}}]}}"#,
             vs("same", "2", ""),
@@ -478,6 +478,12 @@ mod tests {
             vs("other", "1", ""),
             // Enumerated codes decide alone, whatever the CodeSystem version.
             vs("other-listed", "1", r#", "concept": [{"code": "a"}]"#),
+            // A decidable include plus a sibling compose.exclude (extra closes the include).
+            vs(
+                "excluded",
+                "2",
+                r#"}], "exclude": [{"system": "http://x/cs", "concept": [{"code": "a"}]"#,
+            ),
         );
         fs::write(dir.join("valuesets.json"), bundle).unwrap();
         let registry = Registry::from_definitions_dir(&dir);
@@ -488,6 +494,7 @@ mod tests {
             ("any", Some(true), Some(false)),
             ("other", None, None),
             ("other-listed", Some(true), Some(false)),
+            ("excluded", None, Some(false)),
         ] {
             let url = format!("http://x/vs/{vs}");
             assert_eq!(
