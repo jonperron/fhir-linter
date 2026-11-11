@@ -28,7 +28,18 @@ const MAX_DEPTH: usize = 128;
 /// - XML 1.0 forbids controls below U+0020 other than tab, LF and CR, even as
 ///   character references (`&#1;`): not well-formed. XML 1.1 allows the references.
 pub fn parse_xml(source: &str) -> Result<Resource, ParseError> {
+    // A literal control is not well-formed in XML 1.0 nor (as a RestrictedChar) in 1.1.
+    if let Some(offset) = source.find(crate::is_disallowed_control) {
+        let (line, col) = LineIndex::new(source).location(offset as u32);
+        return Err(ParseError::XmlError {
+            message: "not well-formed: literal control character".into(),
+            line,
+            col,
+        });
+    }
     let resource = parse_document(source)?;
+    // shortcut: references such as `&#1;` are only caught in captured values, not in
+    // XHTML or root attributes; check them in the reader if those need it.
     if declared_version(source) != XmlVersion::Explicit1_1 {
         reject_controls(resource.id.as_deref(), &resource.fields)?;
     }

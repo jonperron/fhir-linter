@@ -62,6 +62,18 @@ fn official_control_char_fixtures_match_the_reference_validator() {
 }
 
 #[test]
+fn json_negative_zero_integer_is_type_001() {
+    // R5 integer regex `[0]|[-+]?[1-9][0-9]*` rejects `-0` (PLAN 11.6.4-P11).
+    let json = r#"{"resourceType":"Patient","multipleBirthInteger":-0}"#;
+    let codes: Vec<_> = validate(&parse_json(json).unwrap(), &load_registry())
+        .into_iter()
+        .filter(|d| d.path == "Patient.multipleBirthInteger")
+        .map(|d| d.code.to_string())
+        .collect();
+    assert_eq!(codes, ["TYPE_001"]);
+}
+
+#[test]
 fn json_tab_cr_lf_in_string_are_allowed() {
     let json = r#"{"resourceType":"Patient","name":[{"family":"a\tb\r\nc"}]}"#;
     assert!(type_006(json, &load_registry()).is_empty());
@@ -88,6 +100,24 @@ fn xml_1_0_control_character_is_not_well_formed() {
     }
     let ok = r#"<name><family value="a&#9;b&#10;c&#13;"/></name>"#;
     assert!(parse_xml(&patient_xml(decl_1_0, ok)).is_ok());
+}
+
+#[test]
+fn xml_literal_control_character_is_not_well_formed_anywhere() {
+    // A literal C0 control is illegal in XML 1.0 and, as a RestrictedChar, in XML 1.1.
+    for decl in ["", r#"<?xml version="1.1" encoding="UTF-8"?>"#] {
+        for body in [
+            "<name><family value=\"a\u{1}b\"/></name>",
+            "<!-- \u{1} --><active value=\"true\"/>",
+            "\u{1}<active value=\"true\"/>",
+        ] {
+            let err = parse_xml(&patient_xml(decl, body)).unwrap_err();
+            assert!(
+                err.to_string().contains("not well-formed"),
+                "{body:?}: {err}"
+            );
+        }
+    }
 }
 
 #[test]
