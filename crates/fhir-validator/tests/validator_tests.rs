@@ -748,16 +748,25 @@ fn dgr1_with_unimplemented_resolve_is_skipped_not_violated() {
 // `resolve()` on the right must not make it skipped.
 #[test]
 fn docref1_decided_by_left_side_is_checked_not_skipped() {
-    let json = r#"{"resourceType":"DocumentReference","status":"current",
-        "content":[{"attachment":{"url":"http://example.org/doc"}}],
-        "context":[{"reference":"Encounter/e1"}]}"#;
-    let resource = parse_json(json).unwrap();
-    let found: Vec<String> = validate(&resource, &load_registry())
-        .into_iter()
-        .filter(|d| d.message.contains("docRef-1"))
-        .map(|d| format!("{:?} {} {}", d.severity, d.code, d.path))
-        .collect();
+    let docref1 = |facility_type: &str| {
+        let json = format!(
+            r#"{{"resourceType":"DocumentReference","status":"current",{facility_type}
+            "content":[{{"attachment":{{"url":"http://example.org/doc"}}}}],
+            "context":[{{"reference":"Encounter/e1"}}]}}"#
+        );
+        let resource = parse_json(&json).unwrap();
+        validate(&resource, &load_registry())
+            .into_iter()
+            .filter(|d| d.message.contains("docRef-1"))
+            .map(|d| format!("{:?} {} {}", d.severity, d.code, d.path))
+            .collect::<Vec<_>>()
+    };
+    let found = docref1("");
     assert!(found.is_empty(), "{found:?}");
+    // With facilityType the right side must be evaluated: this proves the
+    // constraint is loaded and run, so the empty result above is a real pass.
+    let found = docref1(r#""facilityType":{"text":"x"},"#);
+    assert_eq!(found, ["Information INVARIANT_SKIPPED DocumentReference"]);
 }
 
 #[test]

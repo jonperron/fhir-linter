@@ -312,20 +312,22 @@ impl Evaluator<'_> {
         ctx: &[Value],
         op: CmpOp,
     ) -> Result<Collection, EvalError> {
-        let lc = self.eval(l, ctx)?;
-        let rc = self.eval(r, ctx)?;
-        // N1 §6.1.3: `~` is never empty, even on empty operands.
-        match op {
-            CmpOp::Equiv => return Ok(bool_col(Some(collections_equivalent(&lc, &rc)))),
-            CmpOp::NotEquiv => return Ok(bool_col(Some(!collections_equivalent(&lc, &rc)))),
-            _ => {}
-        }
-        if lc.is_empty() || rc.is_empty() {
-            return Ok(vec![]);
-        }
+        // A lone null placeholder is empty, as in singleton evaluation.
+        let without_lone_null = |col: Collection| match col.as_slice() {
+            [Value::Null] => vec![],
+            _ => col,
+        };
+        let lc = without_lone_null(self.eval(l, ctx)?);
+        let rc = without_lone_null(self.eval(r, ctx)?);
+        let either_empty = lc.is_empty() || rc.is_empty();
         let result = match op {
-            CmpOp::Eq => collections_equal(&lc, &rc),
-            CmpOp::Neq => collections_equal(&lc, &rc).map(|b| !b),
+            // N1 §6.1.3: `~` is never empty, even on empty operands.
+            CmpOp::Equiv => Some(collections_equivalent(&lc, &rc)),
+            CmpOp::NotEquiv => Some(!collections_equivalent(&lc, &rc)),
+            CmpOp::Eq if !either_empty => collections_equal(&lc, &rc),
+            CmpOp::Neq if !either_empty => collections_equal(&lc, &rc).map(|b| !b),
+            CmpOp::Eq | CmpOp::Neq => None,
+            // Ordering checks both operands are singletons before an empty side wins.
             _ => {
                 let (Some(a), Some(b)) =
                     (singleton(&lc, "comparison")?, singleton(&rc, "comparison")?)

@@ -442,6 +442,16 @@ fn equivalence_semantics() {
     let both = |expr: &str| evaluate(expr, &ctx).unwrap();
     assert_eq!(both("first() ~ last()"), vec![Value::Bool(true)]);
     assert_eq!(both("first() = last()"), vec![Value::Bool(false)]);
+    // A lone null placeholder is empty, as in singleton evaluation.
+    let null = [Value::Null];
+    assert_eq!(
+        evaluate("$this ~ {}", &null).unwrap(),
+        vec![Value::Bool(true)]
+    );
+    assert_eq!(
+        evaluate("$this !~ 1", &null).unwrap(),
+        vec![Value::Bool(true)]
+    );
 }
 
 // ── String functions ─────────────────────────────────────────────────────────
@@ -913,6 +923,8 @@ fn singleton_evaluation_errors() {
         "(1 | 2) + 1",
         "(1 | 2) < 3",
         "-(1 | 2)",
+        "{} < (1 | 2)",
+        "(1 | 2) >= {}",
     ] {
         let ctx = make_patient();
         assert!(
