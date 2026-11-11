@@ -755,9 +755,56 @@ fn type_error_length_on_integer() {
 }
 
 #[test]
-fn type_error_not_on_integer() {
-    let result = evaluate("42.not()", &[]);
+fn type_error_not_on_several_items() {
+    let result = evaluate("(1 | 2).not()", &[]);
     assert!(matches!(result, Err(fhir_fhirpath::EvalError::Type(_))));
+}
+
+/// N1 §4.5 singleton evaluation: one non-Boolean item where a Boolean is
+/// expected is true; several items are an error.
+#[test]
+fn singleton_evaluation_of_boolean_operands() {
+    let cases: [(&str, Collection); 6] = [
+        ("42.not()", vec![Value::Bool(false)]),
+        ("(0).not() = false", vec![Value::Bool(true)]),
+        ("active and name", vec![Value::Bool(true)]),
+        ("(true and 'foo').empty()", vec![Value::Bool(false)]),
+        ("false or 'foo'", vec![Value::Bool(true)]),
+        ("'foo' implies false", vec![Value::Bool(false)]),
+    ];
+    for (expr, expected) in cases {
+        assert_eq!(eval(expr), expected, "{expr}");
+    }
+}
+
+/// Several items where one is expected are an error (N1 §4.5, §5.2, §6.4.3,
+/// §6.5), and criteria must be Boolean (§5.2.1, §5.5.1).
+#[test]
+fn singleton_evaluation_errors() {
+    for expr in [
+        "name.given and true",
+        "name.given.not()",
+        "iif('non boolean criteria', 1, 2)",
+        "iif(1 | 2 | 3, true, false)",
+        "('item1' | 'item2').iif(true, 1, 2)",
+        "name.given.where($this)",
+        "name.given.exists(length())",
+        "name.given.all($this)",
+        "(true | 'foo').allTrue()",
+        "('a' | 'c' | 'd') in 'b'",
+        "'b' contains ('a' | 'c')",
+        "(1 | 2 | 3) & 'b'",
+        "(1 | 2) + 1",
+        "(1 | 2) < 3",
+        "-(1 | 2)",
+    ] {
+        let ctx = make_patient();
+        assert!(
+            matches!(evaluate(expr, &ctx), Err(fhir_fhirpath::EvalError::Type(_))),
+            "{expr}: {:?}",
+            evaluate(expr, &ctx)
+        );
+    }
 }
 
 #[test]

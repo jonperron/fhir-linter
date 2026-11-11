@@ -163,11 +163,35 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
 
 // ── Boolean helpers ───────────────────────────────────────────────────────────
 
-pub(super) fn collection_to_bool(col: &Collection) -> Option<bool> {
-    match col.as_slice() {
-        [] => None,
-        [Value::Bool(b)] => Some(*b),
-        _ => None,
+/// N1 §4.5 singleton evaluation: the single item of `col`, `None` when empty,
+/// an error when there are several.
+pub(super) fn singleton<'a>(col: &'a [Value], what: &str) -> Result<Option<&'a Value>, EvalError> {
+    match col {
+        [] | [Value::Null] => Ok(None),
+        [v] => Ok(Some(v)),
+        _ => Err(EvalError::Type(format!(
+            "{what} requires a single item, got {}",
+            col.len()
+        ))),
+    }
+}
+
+/// N1 §4.5: where a Boolean is expected, one Boolean is itself, any other
+/// single item is true, empty is empty and several items are an error.
+pub(super) fn singleton_bool(col: &[Value], what: &str) -> Result<Option<bool>, EvalError> {
+    Ok(singleton(col, what)?.map(|v| !matches!(v, Value::Bool(false))))
+}
+
+/// N1 §5.2.1, §5.5.1: criteria (where, exists, all, iif) must give one
+/// Boolean or empty; anything else is an error.
+pub(super) fn criteria_bool(col: &[Value], what: &str) -> Result<Option<bool>, EvalError> {
+    match singleton(col, what)? {
+        None => Ok(None),
+        Some(Value::Bool(b)) => Ok(Some(*b)),
+        Some(v) => Err(EvalError::Type(format!(
+            "{what} criteria must be Boolean, got {}",
+            v.type_name()
+        ))),
     }
 }
 

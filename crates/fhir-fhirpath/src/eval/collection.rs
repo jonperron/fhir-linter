@@ -4,8 +4,8 @@ use crate::value::{Collection, Value};
 
 use super::Evaluator;
 use super::helpers::{
-    check_arity, check_arity_range, collect_descendants, compare_values, contains_value, distinct,
-    eval_type_name, is_type, single_integer, value_is_type,
+    check_arity, check_arity_range, collect_descendants, compare_values, contains_value,
+    criteria_bool, distinct, eval_type_name, is_type, single_integer, value_is_type,
 };
 
 impl Evaluator<'_> {
@@ -42,7 +42,7 @@ impl Evaluator<'_> {
                 let mut result = false;
                 for item in focus {
                     let col = self.eval(&args[0], std::slice::from_ref(item))?;
-                    if col.iter().any(Value::is_truthy) {
+                    if criteria_bool(&col, name)? == Some(true) {
                         result = true;
                         break;
                     }
@@ -57,36 +57,33 @@ impl Evaluator<'_> {
                 let mut result = true;
                 for item in focus {
                     let col = self.eval(&args[0], std::slice::from_ref(item))?;
-                    if !col.iter().any(Value::is_truthy) {
+                    if criteria_bool(&col, name)? != Some(true) {
                         result = false;
                         break;
                     }
                 }
                 vec![Value::Bool(result)]
             }
-            "allTrue" => {
+            "allTrue" | "anyTrue" | "allFalse" | "anyFalse" => {
                 check_arity(name, args, 0)?;
-                vec![Value::Bool(
-                    focus.iter().all(|v| matches!(v, Value::Bool(true))),
-                )]
-            }
-            "anyTrue" => {
-                check_arity(name, args, 0)?;
-                vec![Value::Bool(
-                    focus.iter().any(|v| matches!(v, Value::Bool(true))),
-                )]
-            }
-            "allFalse" => {
-                check_arity(name, args, 0)?;
-                vec![Value::Bool(
-                    focus.iter().all(|v| matches!(v, Value::Bool(false))),
-                )]
-            }
-            "anyFalse" => {
-                check_arity(name, args, 0)?;
-                vec![Value::Bool(
-                    focus.iter().any(|v| matches!(v, Value::Bool(false))),
-                )]
+                // N1 §5.1: the input must be a collection of Booleans.
+                let bools = focus
+                    .iter()
+                    .map(|v| match v {
+                        Value::Bool(b) => Ok(*b),
+                        v => Err(EvalError::Type(format!(
+                            "{name}() requires Boolean items, got {}",
+                            v.type_name()
+                        ))),
+                    })
+                    .collect::<Result<Vec<bool>, _>>()?;
+                let result = match name {
+                    "allTrue" => bools.iter().all(|b| *b),
+                    "anyTrue" => bools.iter().any(|b| *b),
+                    "allFalse" => bools.iter().all(|b| !*b),
+                    _ => bools.iter().any(|b| !*b),
+                };
+                vec![Value::Bool(result)]
             }
 
             // ── Filtering / subsetting ────────────────────────────────────
@@ -94,11 +91,8 @@ impl Evaluator<'_> {
                 check_arity(name, args, 1)?;
                 let mut out = Vec::new();
                 for item in focus {
-                    let matches = self
-                        .eval(&args[0], std::slice::from_ref(item))?
-                        .iter()
-                        .any(Value::is_truthy);
-                    if matches {
+                    let col = self.eval(&args[0], std::slice::from_ref(item))?;
+                    if criteria_bool(&col, name)? == Some(true) {
                         out.push(item.clone());
                     }
                 }

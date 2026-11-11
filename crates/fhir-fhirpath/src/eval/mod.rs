@@ -19,7 +19,7 @@ mod string_fns;
 mod type_conv;
 
 use helpers::{
-    bool_col, contains_value, is_type, numeric_op, three_valued_and, three_valued_or,
+    bool_col, contains_value, is_type, numeric_op, singleton, three_valued_and, three_valued_or,
     value_is_type, values_equal, values_equivalent,
 };
 
@@ -109,10 +109,10 @@ impl Evaluator<'_> {
             Expr::Mod(l, r) => self.eval_arith(l, r, ctx, ArithOp::Mod),
             Expr::Neg(e) => {
                 let col = self.eval(e, ctx)?;
-                if col.is_empty() {
+                let Some(v) = singleton(&col, "negation")? else {
                     return Ok(vec![]);
-                }
-                match &col[0] {
+                };
+                match v {
                     Value::Integer(n) => n
                         .checked_neg()
                         .map(|r| vec![Value::Integer(r)])
@@ -128,6 +128,8 @@ impl Evaluator<'_> {
             Expr::Concat(l, r) => {
                 let ls = self.eval(l, ctx)?;
                 let rs = self.eval(r, ctx)?;
+                singleton(&ls, "&")?;
+                singleton(&rs, "&")?;
                 let left = helpers::string_or_empty(&ls);
                 let right = helpers::string_or_empty(&rs);
                 Ok(vec![Value::String(Arc::from(
@@ -198,20 +200,18 @@ impl Evaluator<'_> {
             Expr::In(lhs, rhs) => {
                 let lc = self.eval(lhs, ctx)?;
                 let rc = self.eval(rhs, ctx)?;
-                if lc.is_empty() {
-                    return Ok(vec![]);
-                }
-                let result = lc.iter().all(|v| contains_value(&rc, v));
-                Ok(vec![Value::Bool(result)])
+                Ok(singleton(&lc, "in")?
+                    .map(|v| Value::Bool(contains_value(&rc, v)))
+                    .into_iter()
+                    .collect())
             }
             Expr::Contains(lhs, rhs) => {
                 let lc = self.eval(lhs, ctx)?;
                 let rc = self.eval(rhs, ctx)?;
-                if rc.is_empty() {
-                    return Ok(vec![]);
-                }
-                let result = rc.iter().all(|v| contains_value(&lc, v));
-                Ok(vec![Value::Bool(result)])
+                Ok(singleton(&rc, "contains")?
+                    .map(|v| Value::Bool(contains_value(&lc, v)))
+                    .into_iter()
+                    .collect())
             }
         }
     }
@@ -303,11 +303,10 @@ impl Evaluator<'_> {
     ) -> Result<Collection, EvalError> {
         let lc = self.eval(l, ctx)?;
         let rc = self.eval(r, ctx)?;
-        if lc.is_empty() || rc.is_empty() {
+        let (Some(lv), Some(rv)) = (singleton(&lc, "arithmetic")?, singleton(&rc, "arithmetic")?)
+        else {
             return Ok(vec![]);
-        }
-        let lv = &lc[0];
-        let rv = &rc[0];
+        };
         match op {
             ArithOp::Add | ArithOp::Sub | ArithOp::Mul | ArithOp::Div | ArithOp::Mod => {
                 numeric_op(lv, rv, op)
@@ -347,7 +346,12 @@ impl Evaluator<'_> {
             CmpOp::Equiv => Some(values_equivalent(&lc[0], &rc[0])),
             CmpOp::NotEquiv => Some(!values_equivalent(&lc[0], &rc[0])),
             _ => {
-                let ord = helpers::compare_values(&lc[0], &rc[0])?;
+                let (Some(a), Some(b)) =
+                    (singleton(&lc, "comparison")?, singleton(&rc, "comparison")?)
+                else {
+                    return Ok(vec![]);
+                };
+                let ord = helpers::compare_values(a, b)?;
                 let b = match op {
                     CmpOp::Lt => ord == std::cmp::Ordering::Less,
                     CmpOp::Lte => ord != std::cmp::Ordering::Greater,
@@ -363,8 +367,7 @@ impl Evaluator<'_> {
 
     /// Evaluate an expression as a three-valued boolean (`None` = empty collection).
     fn eval_bool(&self, expr: &Expr, ctx: &[Value]) -> Result<Option<bool>, EvalError> {
-        let col = self.eval(expr, ctx)?;
-        Ok(helpers::collection_to_bool(&col))
+        helpers::singleton_bool(&self.eval(expr, ctx)?, "boolean operator")
     }
 }
 
