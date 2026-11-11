@@ -62,6 +62,46 @@ fn official_control_char_fixtures_match_the_reference_validator() {
 }
 
 #[test]
+fn control_character_in_root_id_gets_type_005_and_type_006() {
+    // The id regex rejects it (TYPE_005), and `id` is a string type (TYPE_006).
+    let registry = load_registry();
+    let xml_1_1 = patient_xml(r#"<?xml version="1.1"?>"#, r#"<id value="a&#1;"/>"#);
+    for resource in [
+        parse_json(r#"{"resourceType":"Patient","id":"a\u0001"}"#).unwrap(),
+        parse_xml(&xml_1_1).unwrap(),
+    ] {
+        let codes: Vec<_> = validate(&resource, &registry)
+            .into_iter()
+            .filter(|d| d.path == "Patient.id")
+            .map(|d| (d.code.to_string(), d.severity))
+            .collect();
+        assert_eq!(
+            codes,
+            [
+                ("TYPE_005".to_owned(), Severity::Error),
+                ("TYPE_006".to_owned(), Severity::Warning),
+            ]
+        );
+    }
+}
+
+#[test]
+fn xml_null_reference_in_narrative_is_rejected() {
+    // `&#0;` is never a legal XML character, in 1.0 or 1.1.
+    let decl = r#"<?xml version="1.1"?>"#;
+    let narrative = |text: &str| {
+        let div = format!(r#"<div xmlns="http://www.w3.org/1999/xhtml">{text}</div>"#);
+        patient_xml(decl, &format!("<text>{div}</text>"))
+    };
+    assert!(parse_xml(&narrative("a&#1;")).is_ok());
+    let err = parse_xml(&narrative("a&#0;")).unwrap_err();
+    assert!(
+        err.to_string().contains("invalid entity reference"),
+        "{err}"
+    );
+}
+
+#[test]
 fn json_negative_zero_integer_is_type_001() {
     // R5 integer regex `[0]|[-+]?[1-9][0-9]*` rejects `-0` (PLAN 11.6.4-P11).
     let json = r#"{"resourceType":"Patient","multipleBirthInteger":-0}"#;

@@ -95,17 +95,22 @@ pub(crate) fn check_type(
     // R5 datatypes.html: `string` (and its specialisations) SHOULD NOT hold controls
     // below U+0020 other than tab, CR and LF. XML rejects them at parse time.
     if let ("string" | "markdown" | "code" | "id", Value::Str(s)) = (fhir_type, value) {
-        if s.chars().any(fhir_parser::is_disallowed_control) {
-            diagnostics.push(
-                Diagnostic::warning(
-                    "TYPE_006",
-                    format!("String at '{path}' contains a control character below U+0020"),
-                    path.to_owned(),
-                )
-                .with_location(span),
-            );
+        if let Some(warning) = control_char_warning(s, path) {
+            diagnostics.push(warning.with_location(span));
         }
     }
+}
+
+/// The `TYPE_006` Warning, without a location, when `s` holds a control character
+/// below U+0020 other than tab, CR and LF.
+pub(crate) fn control_char_warning(s: &str, path: &str) -> Option<Diagnostic> {
+    s.chars().any(fhir_parser::is_disallowed_control).then(|| {
+        Diagnostic::warning(
+            "TYPE_006",
+            format!("String at '{path}' contains a control character below U+0020"),
+            path.to_owned(),
+        )
+    })
 }
 
 /// FHIR date: `YYYY`, `YYYY-MM`, or `YYYY-MM-DD` (year 0001-9999, day valid for its month).
