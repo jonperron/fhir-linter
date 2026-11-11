@@ -44,15 +44,7 @@ pub fn validate(
             continue;
         };
 
-        let items: Vec<(&Node, String)> = match &node.value {
-            Value::Array(a) => a
-                .iter()
-                .enumerate()
-                .map(|(i, n)| (n, format!("{path}[{i}]")))
-                .collect(),
-            _ => vec![(node, path.clone())],
-        };
-        for (item, item_path) in items {
+        for (item, item_path) in entries(node, &path) {
             if let Some(bad) = out_of_set(&item.value, fhir_type, vs, required, registry) {
                 let message =
                     format!("Code {bad} at '{item_path}' is not in {strength} ValueSet '{vs}'");
@@ -80,14 +72,14 @@ fn out_of_set(
         ("code", Value::Str(code)) => provably_out(None, code),
         ("Coding", Value::Object(_)) => coding(value).and_then(|(s, c)| provably_out(s, c)),
         ("CodeableConcept", Value::Object(fields)) => {
-            let codings = match fields.get("coding").map(|n| &n.value) {
-                Some(Value::Array(codings)) => codings.as_slice(),
-                _ => &[],
-            };
+            let codings = fields
+                .get("coding")
+                .map(|n| entries(n, ""))
+                .unwrap_or_default();
             // One matching coding is enough; every coding must be provably out to fail.
             let outs: Vec<_> = codings
                 .iter()
-                .filter_map(|n| coding(&n.value))
+                .filter_map(|(n, _)| coding(&n.value))
                 .map(|(s, c)| provably_out(s, c))
                 .collect();
             if outs.is_empty() {
@@ -100,6 +92,20 @@ fn out_of_set(
                 .then(|| outs.into_iter().flatten().collect::<Vec<_>>().join(", "))
         }
         _ => None,
+    }
+}
+
+/// The values of a possibly repeating element with their paths.
+///
+/// A single value stays an object: XML keeps one repeating element unwrapped.
+fn entries<'a>(node: &'a Node, path: &str) -> Vec<(&'a Node, String)> {
+    match &node.value {
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n, format!("{path}[{i}]")))
+            .collect(),
+        _ => vec![(node, path.to_owned())],
     }
 }
 

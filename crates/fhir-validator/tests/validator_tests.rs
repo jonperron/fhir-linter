@@ -257,6 +257,24 @@ fn code_outside_extensible_binding_produces_terminology_001_warning() {
     assert!(severities(&registry, text, "TERMINOLOGY_001").is_empty());
 }
 
+#[test]
+fn single_xml_coding_is_read_by_terminology_checks() {
+    // The XML reshape keeps one <coding> as an object, not a one-item array.
+    // DeviceUsage.usageStatus is bound (required) to a code system in the Registry.
+    let registry = load_registry();
+    let status = |code: &str| {
+        format!(
+            r#"<DeviceUsage xmlns="http://hl7.org/fhir"><usageStatus><coding><system value="http://hl7.org/fhir/deviceusage-status"/><code value="{code}"/></coding></usageStatus></DeviceUsage>"#
+        )
+    };
+    let terminology = |xml: &str| {
+        let codes = xml_codes(&registry, xml);
+        codes.into_iter().filter(|c| c == "TERMINOLOGY_001").count()
+    };
+    assert_eq!(terminology(&status("active")), 0);
+    assert_eq!(terminology(&status("bogus")), 1);
+}
+
 // ── Reference validation ──────────────────────────────────────────────────────
 
 #[test]
