@@ -191,14 +191,9 @@ impl Evaluator<'_> {
 
             // ── Set operators ─────────────────────────────────────────────
             Expr::Union(l, r) => {
-                let mut ls = self.eval(l, ctx)?;
+                let ls = self.eval(l, ctx)?;
                 let rs = self.eval(r, ctx)?;
-                for v in rs {
-                    if !contains_value(&ls, &v) {
-                        ls.push(v);
-                    }
-                }
-                Ok(ls)
+                Ok(helpers::distinct(ls.into_iter().chain(rs)))
             }
             Expr::In(lhs, rhs) => {
                 let lc = self.eval(lhs, ctx)?;

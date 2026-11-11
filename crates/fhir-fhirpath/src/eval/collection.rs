@@ -4,7 +4,7 @@ use crate::value::{Collection, Value};
 
 use super::Evaluator;
 use super::helpers::{
-    check_arity, check_arity_range, collect_descendants, compare_values, contains_value,
+    check_arity, check_arity_range, collect_descendants, compare_values, contains_value, distinct,
     eval_type_name, is_type, single_integer, value_is_type,
 };
 
@@ -209,13 +209,7 @@ impl Evaluator<'_> {
             // ── Set operations ────────────────────────────────────────────
             "distinct" => {
                 check_arity(name, args, 0)?;
-                let mut seen: Collection = Vec::new();
-                for v in focus {
-                    if !contains_value(&seen, v) {
-                        seen.push(v.clone());
-                    }
-                }
-                seen
+                distinct(focus.iter().cloned())
             }
             "isDistinct" => {
                 check_arity(name, args, 0)?;
@@ -243,11 +237,7 @@ impl Evaluator<'_> {
             "intersect" => {
                 check_arity(name, args, 1)?;
                 let other = self.eval(&args[0], ctx)?;
-                focus
-                    .iter()
-                    .filter(|v| contains_value(&other, v))
-                    .cloned()
-                    .collect()
+                distinct(focus.iter().filter(|v| contains_value(&other, v)).cloned())
             }
             "exclude" => {
                 check_arity(name, args, 1)?;

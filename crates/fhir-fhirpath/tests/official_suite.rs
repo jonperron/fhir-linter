@@ -25,7 +25,7 @@ use quick_xml::events::{BytesStart, Event};
 /// evaluator improves. Lowered from 757 when the fake stubs (htmlChecks,
 /// precision, now, today) and the `is` operator's empty-input `false` stopped
 /// passing cases for the wrong reason; this suite runs without choice navigation.
-const MIN_PASSED: u32 = 757;
+const MIN_PASSED: u32 = 758;
 
 /// (run, skipped) case counts on the pinned fixtures, so loader drift or a
 /// broken skip filter cannot hide behind the floor.

@@ -100,6 +100,17 @@ pub(super) fn contains_value(col: &[Value], v: &Value) -> bool {
         .any(|x| values_equal(x, v).unwrap_or_else(|| x == v))
 }
 
+/// First occurrence of each value, in order, under FHIRPath equality.
+pub(super) fn distinct(values: impl IntoIterator<Item = Value>) -> Collection {
+    let mut seen = Vec::new();
+    for v in values {
+        if !contains_value(&seen, &v) {
+            seen.push(v);
+        }
+    }
+    seen
+}
+
 pub(super) fn values_equivalent(a: &Value, b: &Value) -> bool {
     // For ~: null ~ null is true, case-insensitive string comparison
     match (a, b) {

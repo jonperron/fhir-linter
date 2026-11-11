@@ -572,6 +572,17 @@ fn union_merges_deduplicates() {
     assert_eq!(result, vec![Value::Integer(1), Value::Integer(2)]);
 }
 
+/// N1 §5.4.1: "A: 1, 1, 2, 3 ... A union B // 1, 2, 3"; duplicates on the left go too.
+#[test]
+fn union_and_intersect_dedupe_left_operand() {
+    let ints = |v: &[i64]| v.iter().map(|n| Value::Integer(*n)).collect::<Vec<_>>();
+    let left = "(1 | 2 | 3).select(iif($this = 3, 2, 1))"; // 1, 1, 2
+    let union = format!("{left} | 3");
+    assert_eq!(evaluate(&union, &[]).unwrap(), ints(&[1, 2, 3]));
+    let intersect = format!("{left}.intersect(1 | 2)");
+    assert_eq!(evaluate(&intersect, &[]).unwrap(), ints(&[1, 2]));
+}
+
 #[test]
 fn in_operator() {
     assert!(eval_bool("1 in (1 | 2 | 3)"));
