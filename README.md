@@ -32,6 +32,9 @@ nothing is published to crates.io or npmjs.org. On Linux, the npm
 addon needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12, RHEL 10); the
 wheels are manylinux2014 (glibc 2.17).
 
+Usage: [Python](bindings/python/README.md) ·
+[Node.js](bindings/typescript/README.md).
+
 ## Setup
 
 ```bash
