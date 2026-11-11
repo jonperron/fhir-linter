@@ -19,8 +19,11 @@ struct Diagnostic {
     code: String,
     message: String,
     path: String,
+    /// 1-indexed line.
     line: Option<u32>,
+    /// 1-indexed UTF-8 byte column, not a character column.
     col: Option<u32>,
+    /// 0-indexed UTF-8 byte offset into the input, not a `str` index.
     offset: Option<u32>,
     /// Lint rule id; `None` for validator findings.
     rule: Option<String>,

@@ -1,4 +1,4 @@
-/// Index for converting byte offsets to 1-indexed (line, column) pairs.
+/// Index for converting UTF-8 byte offsets to 1-indexed (line, byte column) pairs.
 pub(crate) struct LineIndex {
     /// Byte offset of the start of each line (0-indexed lines).
     line_starts: Vec<u32>,
@@ -15,7 +15,7 @@ impl LineIndex {
         Self { line_starts }
     }
 
-    /// Returns (line, col) both 1-indexed for the given byte offset.
+    /// Returns (line, byte column) both 1-indexed for the given byte offset.
     pub(crate) fn location(&self, offset: u32) -> (u32, u32) {
         let line_idx = self
             .line_starts
@@ -45,5 +45,13 @@ mod tests {
         assert_eq!(idx.location(3), (2, 1));
         assert_eq!(idx.location(4), (2, 2));
         assert_eq!(idx.location(6), (3, 1));
+    }
+
+    #[test]
+    fn columns_count_utf8_bytes_not_characters() {
+        let src = "\"ééé\" x";
+        let x = src.find('x').unwrap();
+        assert_eq!(LineIndex::new(src).location(x as u32), (1, 10));
+        assert_eq!(src[..x].chars().count() + 1, 7);
     }
 }
