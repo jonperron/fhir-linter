@@ -221,7 +221,13 @@ fn parse_children(
                     col,
                 });
             }
-            // Text nodes, comments, PIs between elements are skipped.
+            // FHIR elements have no mixed content: only XML whitespace may sit between them.
+            Event::Text(ref t) if t.iter().all(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n')) => {}
+            Event::Text(_) | Event::GeneralRef(_) | Event::CData(_) => {
+                let message = "text content is not allowed inside FHIR elements";
+                return Err(error_at(line_index, pos, message));
+            }
+            // Comments and PIs between elements are skipped.
             _ => {}
         }
     }

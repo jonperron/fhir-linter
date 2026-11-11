@@ -26,6 +26,28 @@ fn non_utf8_encoding_declaration_is_rejected() {
 }
 
 #[test]
+fn text_inside_fhir_elements_is_rejected() {
+    let cases = [
+        "<name>Smith<family value=\"Smith\"/></name>",
+        "<name><family value=\"Smith\"/>&amp;</name>",
+        "<name><![CDATA[Smith]]><family value=\"Smith\"/></name>",
+        "<name><![CDATA[ ]]><family value=\"Smith\"/></name>",
+    ];
+    for body in cases {
+        let source = format!("<Patient {FHIR_NS}>{body}</Patient>");
+        assert!(xml_error(&source).contains("text"), "{body}");
+    }
+}
+
+#[test]
+fn whitespace_comments_and_processing_instructions_between_elements_are_ignored() {
+    let source = format!(
+        "<Patient {FHIR_NS}>\n  <!-- c -->\n  <?pi x?>\n  <name>\n\t<family value=\"S\"/>\r\n  </name>\n</Patient>"
+    );
+    assert!(parse_xml(&source).is_ok());
+}
+
+#[test]
 fn utf8_encoding_declaration_is_accepted_in_any_case() {
     for encoding in ["UTF-8", "utf-8"] {
         let source = format!("<?xml version=\"1.0\" encoding=\"{encoding}\"?><Patient {FHIR_NS}/>");
