@@ -261,6 +261,8 @@ mod tests {
         // `modifierExtension` is a plain element, not a variant of `modifier[x]`.
         assert!(!REGISTRY.is_choice_variant("modifier", "Extension"));
         assert!(!REGISTRY.is_choice_variant("value", "Element"));
+        // Suffixes are case-sensitive: `valuequantity` is not a variant.
+        assert!(!REGISTRY.is_choice_variant("value", "quantity"));
     }
 
     #[test]
