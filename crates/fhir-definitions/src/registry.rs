@@ -462,20 +462,22 @@ mod tests {
         ] {
             fs::write(dir.join(file), r#"{"entry": []}"#).unwrap();
         }
-        let vs = |name: &str, version: &str| {
+        let vs = |name: &str, version: &str, extra: &str| {
             format!(
                 r#"{{"resource": {{"resourceType": "ValueSet", "url": "http://x/vs/{name}",
                 "name": "{name}", "compose": {{"include": [
-                    {{"system": "http://x/cs", "version": "{version}"}}]}}}}}}"#
+                    {{"system": "http://x/cs", "version": "{version}"{extra}}}]}}}}}}"#
             )
         };
         let bundle = format!(
-            r#"{{"entry": [{}, {}, {}, {{"resource": {{"resourceType": "CodeSystem",
+            r#"{{"entry": [{}, {}, {}, {}, {{"resource": {{"resourceType": "CodeSystem",
             "url": "http://x/cs", "name": "CS", "version": "2", "content": "complete",
             "concept": [{{"code": "a"}}]}}}}]}}"#,
-            vs("same", "2"),
-            vs("any", "*"),
-            vs("other", "1"),
+            vs("same", "2", ""),
+            vs("any", "*", ""),
+            vs("other", "1", ""),
+            // Enumerated codes decide alone, whatever the CodeSystem version.
+            vs("other-listed", "1", r#", "concept": [{"code": "a"}]"#),
         );
         fs::write(dir.join("valuesets.json"), bundle).unwrap();
         let registry = Registry::from_definitions_dir(&dir);
@@ -485,6 +487,7 @@ mod tests {
             ("same", Some(true), Some(false)),
             ("any", Some(true), Some(false)),
             ("other", None, None),
+            ("other-listed", Some(true), Some(false)),
         ] {
             let url = format!("http://x/vs/{vs}");
             assert_eq!(
