@@ -15,10 +15,6 @@ const MAX_DEPTH: usize = 128;
 pub fn parse_json(source: &str) -> Result<Resource, ParseError> {
     let line_index = LineIndex::new(source);
     let mut scanner = Scanner::new(source, &line_index);
-    // Accept a leading UTF-8 BOM, as the XML parser does; offsets still count its bytes.
-    if source.starts_with('\u{FEFF}') {
-        scanner.pos = '\u{FEFF}'.len_utf8();
-    }
 
     let root = scanner.scan_node()?;
 
@@ -87,7 +83,12 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
     fn new(source: &'src str, line_index: &'idx LineIndex) -> Self {
         Self {
             source: source.as_bytes(),
-            pos: 0,
+            // Accept a leading UTF-8 BOM, as the XML parser does; offsets still count its bytes.
+            pos: if source.starts_with('\u{FEFF}') {
+                '\u{FEFF}'.len_utf8()
+            } else {
+                0
+            },
             line_index,
             depth: 0,
         }
