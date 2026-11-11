@@ -215,10 +215,11 @@ pub(super) fn distinct(values: impl IntoIterator<Item = Value>) -> Collection {
 
 /// N1 §6.1.3 `~` on single items; never empty.
 pub(super) fn values_equivalent(a: &Value, b: &Value) -> bool {
+    // N1: "all whitespace characters are treated as equivalent"; runs are not collapsed.
     let normalise = |s: &str| {
-        s.split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
+        s.chars()
+            .map(|c| if c.is_whitespace() { ' ' } else { c })
+            .collect::<String>()
             .to_lowercase()
     };
     match (a, b) {
@@ -261,10 +262,10 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
             .partial_cmp(&(*y as f64))
             .unwrap_or(std::cmp::Ordering::Equal)),
         (Value::String(x), Value::String(y)) => Ok(x.cmp(y)),
-        // Sorting needs a total order: fall back to the text when precision differs.
+        // Sorting needs a total order, so it keeps the text; operators use `operator_order`.
         (Value::Date(x), Value::Date(y))
         | (Value::DateTime(x), Value::DateTime(y))
-        | (Value::Time(x), Value::Time(y)) => Ok(temporal_order(a, b).unwrap_or_else(|| x.cmp(y))),
+        | (Value::Time(x), Value::Time(y)) => Ok(x.cmp(y)),
         (Value::Quantity(xv, xu), Value::Quantity(yv, yu)) => {
             if xu != yu {
                 return Err(EvalError::Type(format!(
