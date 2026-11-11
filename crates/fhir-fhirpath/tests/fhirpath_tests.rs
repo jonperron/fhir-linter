@@ -2467,7 +2467,10 @@ fn is_operator_on_empty_is_empty() {
 // N1 §6.3.1: the `is` operator on more than one item is an error.
 #[test]
 fn is_operator_on_multiple_items_is_error() {
-    assert!(evaluate("(1 | 2) is Integer", &make_patient()).is_err());
+    assert!(matches!(
+        evaluate("(1 | 2) is Integer", &make_patient()),
+        Err(fhir_fhirpath::EvalError::Type(_))
+    ));
 }
 
 // R5 2.1.9.1.1: a choice element is named without its [x] suffix.
