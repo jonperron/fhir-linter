@@ -401,10 +401,10 @@ fn equality_semantics() {
         ("@2013-03-01T01:00:00+02:00 = @2013-02-28T23:00:00Z", t()),
         ("@2012-04-15 = @2012-04-15T10:00:00", vec![]),
         ("@2012-04-14 < @2012-04-15T10:00", t()),
-        // The zone moves the day: local and UTC readings disagree, so unknown.
+        // N1 is silent on a date against a zoned date-time: empty, like any
+        // comparison where only one side has a zone.
         ("@2012-04-16 = @2012-04-15T23:00:00-05:00", vec![]),
-        ("@2012-04-16 > @2012-04-15T23:00:00-05:00", vec![]),
-        ("@2012-04-10 < @2012-04-15T23:00:00-05:00", t()),
+        ("@2012-04-10 < @2012-04-15T23:00:00-05:00", vec![]),
     ];
     for (expr, expected) in cases {
         assert_eq!(eval(expr), expected, "{expr}");
@@ -658,7 +658,7 @@ fn union_merges_deduplicates() {
 
 /// N1 §5.4.1: "A: 1, 1, 2, 3 ... A union B // 1, 2, 3"; duplicates on the left go too.
 #[test]
-fn union_and_intersect_dedupe_left_operand() {
+fn union_and_intersect_dedupe_both_operands() {
     let ints = |v: &[i64]| v.iter().map(|n| Value::Integer(*n)).collect::<Vec<_>>();
     let left = "(1 | 2 | 3).select(iif($this = 3, 2, 1))"; // 1, 1, 2
     let union = format!("{left} | 3");

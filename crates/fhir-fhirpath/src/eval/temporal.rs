@@ -14,8 +14,7 @@ struct Parts {
 }
 
 /// Order of two date/time texts; `None` when they share every common
-/// precision but one is more precise, when only one has a zone, or when a
-/// zone on a date-time compared with a date makes the day uncertain.
+/// precision but one is more precise, or when only one has a zone.
 /// Unparseable text compares as `None` too.
 pub(super) fn compare(a: &str, b: &str, is_time: bool) -> Option<Ordering> {
     let (mut a, mut b) = (parse(a, is_time)?, parse(b, is_time)?);
@@ -31,17 +30,11 @@ pub(super) fn compare(a: &str, b: &str, is_time: bool) -> Option<Ordering> {
             // The official suite expects empty when only one side has a zone.
             _ => return None,
         }
-    } else if a.offset.is_some() || b.offset.is_some() {
-        // A zoned date-time against a date: the zone can move the day, so the
-        // result is known only when the local and UTC readings agree.
-        let local = order(&a.fields, &b.fields);
-        for parts in [&mut a, &mut b] {
-            if let Some(offset) = parts.offset.filter(|_| parts.fields.len() >= 4) {
-                to_utc(parts, offset);
-            }
-        }
-        let utc = order(&a.fields, &b.fields);
-        return if local == utc { local } else { None };
+    } else if a.offset.is_some() != b.offset.is_some() {
+        // A zoned date-time against a date: N1 does not say which zone the date
+        // is in, so this follows the one-sided zone rule above (pending a
+        // maintainer decision).
+        return None;
     }
     order(&a.fields, &b.fields)
 }

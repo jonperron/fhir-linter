@@ -262,7 +262,8 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
             .partial_cmp(&(*y as f64))
             .unwrap_or(std::cmp::Ordering::Equal)),
         (Value::String(x), Value::String(y)) => Ok(x.cmp(y)),
-        // Sorting needs a total order, so it keeps the text; operators use `operator_order`.
+        // shortcut: sort/min/max order date-times by text (total, but zones are not
+        // normalised); operators use `operator_order`. Upgrade with F10 typed dates.
         (Value::Date(x), Value::Date(y))
         | (Value::DateTime(x), Value::DateTime(y))
         | (Value::Time(x), Value::Time(y)) => Ok(x.cmp(y)),
