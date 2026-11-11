@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.5.2](https://github.com/jonperron/fihr-linter/compare/fhir-linter-v0.5.1...fhir-linter-v0.5.2) (2026-11-11)
+
+
+### Bug Fixes
+
+* **ci:** restrict publishing to main and keep queued retries ([aee7dcb](https://github.com/jonperron/fihr-linter/commit/aee7dcb1c37c1222a8d5ce770927964306475d58))
+* **fhirpath:** navigate choice elements by their base name ([2414ded](https://github.com/jonperron/fihr-linter/commit/2414ded6b310782c04a10daa757bcb2e8377a90c))
+* **fhirpath:** return undefined function for unimplemented stubs ([650df9b](https://github.com/jonperron/fihr-linter/commit/650df9bc43abfc1a8945eb12b707e0bd1fbc9812))
+* **fhirpath:** route the is operator through the is() function logic ([aaf64c3](https://github.com/jonperron/fihr-linter/commit/aaf64c3f6c3d590b7487571c321bf79dc1726a07))
+* **fhirpath:** undefined stubs, choice navigation and is operator ([#65](https://github.com/jonperron/fihr-linter/issues/65)) ([b995921](https://github.com/jonperron/fihr-linter/commit/b9959211aa61b11c96e6d8af558acd9b311e11f8))
+* **parser:** accept a leading utf-8 bom in json ([b197375](https://github.com/jonperron/fihr-linter/commit/b1973753ccf06af8222079331ba977963be51e86))
+* **parser:** flag control characters in json and xml strings ([6b48955](https://github.com/jonperron/fihr-linter/commit/6b4895513d00d1141a49afcc136519a3da8b7187))
+* **parser:** json -0, control characters, utf-8 bom and byte offsets ([#68](https://github.com/jonperron/fihr-linter/issues/68)) ([48560a5](https://github.com/jonperron/fihr-linter/commit/48560a5d027d46a0c3869cddf4942017b0ba8c05))
+* **parser:** keep a literal json -0 as a decimal ([255923d](https://github.com/jonperron/fihr-linter/commit/255923d1163b3a1f029cf8432013ed221b2cdd6d))
+* **parser:** reject literal xml control characters anywhere ([61b6dd6](https://github.com/jonperron/fihr-linter/commit/61b6dd6a69c5175109d25a83ffeac2645ad46a32))
+* **release:** publish to registries from the top-level workflow ([cd9aac0](https://github.com/jonperron/fihr-linter/commit/cd9aac0675165f250c6884003e3eaa30c91c808e))
+* **release:** publish to registries from the top-level workflow ([#69](https://github.com/jonperron/fihr-linter/issues/69)) ([d4cb432](https://github.com/jonperron/fihr-linter/commit/d4cb4329f863de8aff8c84931c552bec775253c2))
+* **validator:** check extensible bindings as warnings ([195bcca](https://github.com/jonperron/fihr-linter/commit/195bccadf2b5b93493022e95d6c239b347528098))
+* **validator:** clearer text-only terminology message ([361425d](https://github.com/jonperron/fihr-linter/commit/361425d438454ad69c63318ff5c4bcec6389c1fe))
+* **validator:** compare reference type with a fhir url reference ([ea7d305](https://github.com/jonperron/fihr-linter/commit/ea7d305cf9cd50ab3eae6efe3da1d4c8442887dc))
+* **validator:** empty arrays, code format and date-only zones ([ce141b8](https://github.com/jonperron/fihr-linter/commit/ce141b8379f06df9a5556104a73bfde5c675d2a1))
+* **validator:** follow the r5 regexes for code and dateTime zones ([bdb10d4](https://github.com/jonperron/fihr-linter/commit/bdb10d4626c80ccfc654accc505eda93cd0250c4))
+* **validator:** read a single xml coding in terminology checks ([02fd4e6](https://github.com/jonperron/fihr-linter/commit/02fd4e61a5d01aa9bb50df4ce8855f154e864b3a))
+* **validator:** reject a bare hash reference at the root ([a80a9bc](https://github.com/jonperron/fihr-linter/commit/a80a9bc752f76f5596e6efd4122dc0d825445f25))
+* **validator:** reject text-only codeable concept under required binding ([62accfa](https://github.com/jonperron/fihr-linter/commit/62accfa4a16eae1e3247a5b38f2cde6665855b6f))
+* **validator:** terminology and reference audit fixes (V2, V4, V5, V7, V11) ([#70](https://github.com/jonperron/fihr-linter/issues/70)) ([1b8122e](https://github.com/jonperron/fihr-linter/commit/1b8122e765ccf95c2c7b979e16a5242243bb7c0d))
+* **validator:** treat a coding without system as not a member ([87b88a4](https://github.com/jonperron/fihr-linter/commit/87b88a46f9748d2b66b04e409f2fe9bc49e6c9f3))
+* **validator:** treat empty or all-null arrays as absent ([7b69847](https://github.com/jonperron/fihr-linter/commit/7b69847a4d7f4e3022405bd07c4fa81baa315862))
+* **validator:** treat only a uri scheme as an absolute reference ([36eaf40](https://github.com/jonperron/fihr-linter/commit/36eaf400267a33c744f117053c4d7adaa255993f))
+* **validator:** warn on a malformed relative reference ([51097eb](https://github.com/jonperron/fihr-linter/commit/51097eba12a7a4f034fb4e8a9dd7b65e00588c6a))
+* **validator:** warn on control characters in the resource id ([610de3f](https://github.com/jonperron/fihr-linter/commit/610de3f8d0c447e793a13e309dead2c77492d158))
+
 ## [0.5.1](https://github.com/jonperron/fihr-linter/compare/fhir-linter-v0.5.0...fhir-linter-v0.5.1) (2026-11-10)
 
 
