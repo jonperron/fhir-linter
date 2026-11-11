@@ -58,7 +58,12 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
 
     nested::validate(resource, sd, registry, json, &mut diagnostics);
     terminology::validate(resource, sd, registry, &mut diagnostics);
-    invariants::validate(resource, sd, &mut diagnostics);
+    invariants::validate(
+        resource,
+        sd,
+        &|base, suffix| registry.is_choice_variant(base, suffix),
+        &mut diagnostics,
+    );
     references::validate(resource, sd, registry, &mut diagnostics);
     profile::validate(resource, sd, registry, &mut diagnostics);
 

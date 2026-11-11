@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -14,6 +14,8 @@ pub struct Registry {
     structure_definitions: HashMap<Arc<str>, StructureDefinition>,
     value_sets: HashMap<Arc<str>, ValueSet>,
     code_systems: HashMap<Arc<str>, CodeSystem>,
+    /// Choice element base name (`value` for `*.value[x]`) to its capitalised type suffixes.
+    choice_suffixes: HashMap<Arc<str>, HashSet<String>>,
 }
 
 impl Registry {
@@ -53,10 +55,12 @@ impl Registry {
             &mut code_systems,
         )?;
 
+        let choice_suffixes = index_choice_suffixes(&structure_definitions);
         Ok(Self {
             structure_definitions,
             value_sets,
             code_systems,
+            choice_suffixes,
         })
     }
 
@@ -87,6 +91,20 @@ impl Registry {
     /// Look up a `StructureDefinition` by its canonical URL.
     pub fn structure_definition(&self, url: &str) -> Option<&StructureDefinition> {
         self.structure_definitions.get(url)
+    }
+
+    /// Whether `base` + `suffix` (`value` + `Quantity`) names a variant of a choice
+    /// element: some loaded definition declares `base[x]` with a type whose
+    /// capitalised code is `suffix`.
+    ///
+    /// shortcut: matched by element name across every definition, not by path, so
+    /// a plain element such as `Immunization.doseQuantity` is found via `dose`
+    /// (`dose[x]` is declared by Dosage); no bundled root invariant hits such a
+    /// name today. Make the FHIRPath evaluator path-aware when nested invariants run.
+    pub fn is_choice_variant(&self, base: &str, suffix: &str) -> bool {
+        self.choice_suffixes
+            .get(base)
+            .is_some_and(|suffixes| suffixes.contains(suffix))
     }
 
     /// Look up a `ValueSet` by its canonical URL.
@@ -188,6 +206,30 @@ impl Registry {
     }
 }
 
+/// Map each choice element's base name to the capitalised codes of its declared types.
+fn index_choice_suffixes(
+    structure_definitions: &HashMap<Arc<str>, StructureDefinition>,
+) -> HashMap<Arc<str>, HashSet<String>> {
+    let mut index: HashMap<Arc<str>, HashSet<String>> = HashMap::new();
+    for element in structure_definitions.values().flat_map(|sd| &sd.snapshot) {
+        let name = element.path.rsplit('.').next().unwrap_or(&element.path);
+        let Some(base) = name.strip_suffix("[x]") else {
+            continue;
+        };
+        let suffixes = index.entry(Arc::from(base)).or_default();
+        suffixes.extend(element.types.iter().map(|code| capitalise(code)));
+    }
+    index
+}
+
+fn capitalise(s: &str) -> String {
+    let mut chars = s.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,6 +251,18 @@ mod tests {
                 .structure_definition("http://hl7.org/fhir/StructureDefinition/patient")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn choice_variants_come_from_declared_choice_types() {
+        assert!(REGISTRY.is_choice_variant("value", "Quantity"));
+        assert!(REGISTRY.is_choice_variant("value", "DateTime"));
+        assert!(REGISTRY.is_choice_variant("age", "Age"));
+        // `modifierExtension` is a plain element, not a variant of `modifier[x]`.
+        assert!(!REGISTRY.is_choice_variant("modifier", "Extension"));
+        assert!(!REGISTRY.is_choice_variant("value", "Element"));
+        // Suffixes are case-sensitive: `valuequantity` is not a variant.
+        assert!(!REGISTRY.is_choice_variant("value", "quantity"));
     }
 
     #[test]

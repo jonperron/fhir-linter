@@ -1266,25 +1266,30 @@ fn get_value_returns_non_null_items() {
     assert_eq!(result, vec![Value::Integer(42)]);
 }
 
+// Unimplemented functions must error, never return a plausible-looking answer.
 #[test]
-fn html_checks_returns_true() {
-    let result = evaluate("htmlChecks()", &[]).unwrap();
-    assert_eq!(result, vec![Value::Bool(true)]);
-}
-
-#[test]
-fn comparable_true_for_numeric_collection() {
-    let col = vec![Value::Integer(1), Value::Decimal(2.0)];
-    let result = fhir_fhirpath::evaluate("$this.comparable()", &col).unwrap();
-    assert_eq!(result, vec![Value::Bool(true)]);
-}
-
-#[test]
-fn comparable_false_when_collection_contains_object() {
-    let fields: IndexMap<Arc<str>, Collection> = IndexMap::new();
-    let col = vec![Value::Object(Arc::new(fields))];
-    let result = fhir_fhirpath::evaluate("$this.comparable()", &col).unwrap();
-    assert_eq!(result, vec![Value::Bool(false)]);
+fn unimplemented_functions_are_undefined() {
+    for expr in [
+        "resolve()",
+        "memberOf('http://hl7.org/fhir/ValueSet/x')",
+        "conformsTo('http://hl7.org/fhir/StructureDefinition/Patient')",
+        "today()",
+        "now()",
+        "timeOfDay()",
+        "1.5.lowBoundary()",
+        "1.5.highBoundary()",
+        "1.5.precision()",
+        "htmlChecks()",
+        "1.comparable(2)",
+    ] {
+        assert!(
+            matches!(
+                evaluate(expr, &[]),
+                Err(fhir_fhirpath::EvalError::UndefinedFunction(_))
+            ),
+            "{expr}"
+        );
+    }
 }
 
 #[test]
@@ -2450,4 +2455,52 @@ fn is_as_function_on_multiple_items_is_error() {
     for expr in ["(1 | 2).as(Integer)", "(1 | 2).is(Integer)"] {
         assert!(evaluate(expr, &make_patient()).is_err(), "{expr}");
     }
+}
+
+// N1 §6.3.1: the `is` operator behaves like is(): empty in, empty out.
+#[test]
+fn is_operator_on_empty_is_empty() {
+    assert!(eval("{} is Boolean").is_empty());
+    assert!(eval("deceased is Boolean").is_empty());
+}
+
+// N1 §6.3.1: the `is` operator on more than one item is an error.
+#[test]
+fn is_operator_on_multiple_items_is_error() {
+    assert!(matches!(
+        evaluate("(1 | 2) is Integer", &make_patient()),
+        Err(fhir_fhirpath::EvalError::Type(_))
+    ));
+}
+
+// R5 2.1.9.1.1: a choice element is named without its [x] suffix.
+#[test]
+fn choice_element_is_navigable_by_its_base_name() {
+    let mut fields: IndexMap<Arc<str>, Collection> = IndexMap::new();
+    fields.insert(
+        Arc::from("valueString"),
+        vec![Value::String(Arc::from("a"))],
+    );
+    fields.insert(Arc::from("valueSet"), vec![Value::String(Arc::from("vs"))]);
+    fields.insert(Arc::from("values"), vec![Value::String(Arc::from("s"))]);
+    fields.insert(
+        Arc::from("_valueString"),
+        vec![Value::String(Arc::from("e"))],
+    );
+    let expr = fhir_fhirpath::parse("value").unwrap();
+    let is_type = |base: &str, suffix: &str| base == "value" && suffix == "String";
+    let ctx = vec![Value::Object(Arc::new(fields.clone()))];
+    let found = fhir_fhirpath::evaluate_parsed_with_choices(&expr, &ctx, &is_type).unwrap();
+    assert_eq!(found, vec![Value::String(Arc::from("a"))]);
+    // Without type knowledge there is no choice navigation.
+    assert!(
+        fhir_fhirpath::evaluate_parsed(&expr, &ctx)
+            .unwrap()
+            .is_empty()
+    );
+    // An element literally named `value` wins over the variants.
+    fields.insert(Arc::from("value"), vec![Value::String(Arc::from("v"))]);
+    let ctx = vec![Value::Object(Arc::new(fields))];
+    let found = fhir_fhirpath::evaluate_parsed_with_choices(&expr, &ctx, &is_type).unwrap();
+    assert_eq!(found, vec![Value::String(Arc::from("v"))]);
 }

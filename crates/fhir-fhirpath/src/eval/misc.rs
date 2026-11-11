@@ -7,8 +7,8 @@ use crate::value::{Collection, Value};
 use super::Evaluator;
 use super::helpers::{check_arity, check_arity_range, eval_string_arg};
 
-impl Evaluator {
-    /// Handle miscellaneous functions (logic, system, FHIR-specific stubs).
+impl Evaluator<'_> {
+    /// Handle miscellaneous functions (logic, system, FHIR extension helpers).
     /// Returns `None` if the function name is not in this category.
     pub(super) fn call_misc_function(
         &self,
@@ -61,24 +61,6 @@ impl Evaluator {
                 // trace(name, expr?) — returns focus unchanged; side-effect only
                 focus.to_vec()
             }
-            "now" => {
-                check_arity(name, args, 0)?;
-                // No system clock access in a pure evaluator
-                vec![]
-            }
-            "today" => {
-                check_arity(name, args, 0)?;
-                vec![]
-            }
-            "timeOfDay" => {
-                check_arity(name, args, 0)?;
-                vec![]
-            }
-            "resolve" => {
-                // Context-dependent; returns empty in the base evaluator
-                check_arity(name, args, 0)?;
-                vec![]
-            }
 
             // ── FHIR-specific helpers ──────────────────────────────────────
             "extension" => {
@@ -120,38 +102,8 @@ impl Evaluator {
                     .cloned()
                     .collect()
             }
-            "conformsTo" => {
-                // Requires registry — returns empty in base evaluator
-                check_arity(name, args, 1)?;
-                vec![]
-            }
-            "memberOf" => {
-                // Requires terminology server — returns empty in base evaluator
-                check_arity(name, args, 1)?;
-                vec![]
-            }
-            "htmlChecks" => {
-                check_arity(name, args, 0)?;
-                vec![Value::Bool(true)]
-            }
 
             // ── Introspection ─────────────────────────────────────────────
-            "comparable" => {
-                check_arity(name, args, 0)?;
-                let result = focus.iter().all(|v| {
-                    matches!(
-                        v,
-                        Value::Integer(_)
-                            | Value::Decimal(_)
-                            | Value::Date(_)
-                            | Value::DateTime(_)
-                            | Value::Time(_)
-                            | Value::String(_)
-                            | Value::Quantity(_, _)
-                    )
-                });
-                vec![Value::Bool(result)]
-            }
             "type" => {
                 check_arity(name, args, 0)?;
                 focus
@@ -160,16 +112,10 @@ impl Evaluator {
                     .collect()
             }
 
-            // ── Precision / boundaries (stubs) ────────────────────────────
-            "lowBoundary" | "highBoundary" => {
-                check_arity(name, args, 0)?;
-                vec![]
-            }
-            "precision" => {
-                check_arity(name, args, 0)?;
-                vec![]
-            }
-
+            // Unimplemented functions (resolve, memberOf, conformsTo, now, today,
+            // timeOfDay, htmlChecks, comparable, lowBoundary, highBoundary,
+            // precision) fall through to `UndefinedFunction`: a fake answer
+            // would turn an unchecked invariant into a verdict.
             _ => return Ok(None),
         };
         Ok(Some(col))

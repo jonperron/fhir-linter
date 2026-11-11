@@ -13,7 +13,14 @@ use crate::diagnostic::{Diagnostic, Severity};
 /// a clean result never hides an unchecked constraint (shortcut: the parser
 /// lacks `%` environment variables such as `%resource`, so `dom-3` is always
 /// skipped; add them, with a real `resolve()`, to check contained references).
-pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut Vec<Diagnostic>) {
+/// `is_choice_variant(base, suffix)` makes choice elements navigable (`value`
+/// finds `valueQuantity`).
+pub fn validate(
+    resource: &Resource,
+    sd: &StructureDefinition,
+    is_choice_variant: &dyn Fn(&str, &str) -> bool,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     let resource_type = resource.resource_type.as_ref();
 
     // The root element carries the constraints for the whole resource.
@@ -32,8 +39,9 @@ pub fn validate(resource: &Resource, sd: &StructureDefinition, diagnostics: &mut
         let result = match parsed
             .as_ref()
             .map_err(|e| fhir_fhirpath::EvalError::from(e.clone()))
-            .and_then(|expr| fhir_fhirpath::evaluate_parsed(expr, &context))
-        {
+            .and_then(|expr| {
+                fhir_fhirpath::evaluate_parsed_with_choices(expr, &context, is_choice_variant)
+            }) {
             Ok(r) => r,
             // Parse/evaluation errors are non-fatal: report the skip, then move on.
             Err(e) => {
@@ -125,7 +133,7 @@ mod tests {
             make_sd_with_constraints("Patient", vec![make_constraint("test-1", "error", "true")]);
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        validate(&resource, &sd, &|_, _| false, &mut d);
         assert!(d.is_empty());
     }
 
@@ -136,7 +144,7 @@ mod tests {
             make_sd_with_constraints("Patient", vec![make_constraint("test-2", "error", "false")]);
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        validate(&resource, &sd, &|_, _| false, &mut d);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "INVARIANT_test-2");
         assert_eq!(d[0].severity, Severity::Error);
@@ -150,7 +158,7 @@ mod tests {
         );
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        validate(&resource, &sd, &|_, _| false, &mut d);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].severity, Severity::Warning);
     }
@@ -168,7 +176,7 @@ mod tests {
         );
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        validate(&resource, &sd, &|_, _| false, &mut d);
         assert!(d.is_empty());
     }
 
@@ -185,7 +193,7 @@ mod tests {
         );
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        validate(&resource, &sd, &|_, _| false, &mut d);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "INVARIANT_SKIPPED");
         assert_eq!(d[0].severity, Severity::Information);
@@ -199,7 +207,7 @@ mod tests {
             vec![make_constraint("test-7", "error", "name.where(")],
         );
         let mut d = vec![];
-        validate(&make_empty_resource("Patient"), &sd, &mut d);
+        validate(&make_empty_resource("Patient"), &sd, &|_, _| false, &mut d);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "INVARIANT_SKIPPED");
         assert_eq!(d[0].severity, Severity::Information);
@@ -221,7 +229,7 @@ mod tests {
         // Empty resource: no contained → contained.contained → [] → .exists() → [false]
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        validate(&resource, &sd, &|_, _| false, &mut d);
         // [false] → violated
         assert_eq!(d.len(), 1);
     }
@@ -239,7 +247,7 @@ mod tests {
         );
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
-        validate(&resource, &sd, &mut d);
+        validate(&resource, &sd, &|_, _| false, &mut d);
         assert_eq!(d.len(), 2);
         let codes: Vec<&str> = d.iter().map(|x| x.code.as_ref()).collect();
         assert!(codes.contains(&"INVARIANT_fail-1"));
@@ -253,7 +261,7 @@ mod tests {
             vec![make_constraint("test-10", "information", "false")],
         );
         let mut d = vec![];
-        validate(&make_empty_resource("Patient"), &sd, &mut d);
+        validate(&make_empty_resource("Patient"), &sd, &|_, _| false, &mut d);
         assert_eq!(d[0].severity, Severity::Warning);
     }
 }

@@ -2,8 +2,9 @@
 
 ## Purpose
 
-Évaluateur FHIRPath 3.0 (STU) en Rust, utilisé pour valider les invariants `constraint.expression` des StructureDefinitions FHIR R5.
-Implémente la spécification HL7 FHIRPath 3.0 (https://build.fhir.org/ig/HL7/FHIRPath/en/).
+Évaluateur FHIRPath en Rust, utilisé pour valider les invariants `constraint.expression` des StructureDefinitions FHIR R5.
+Implémente un sous-ensemble de FHIRPath release 2 (2.0.0, http://hl7.org/fhirpath/N1/), version utilisée par FHIR R5, plus quelques ajouts ultérieurs ; les fonctions non implémentées retournent `EvalError::UndefinedFunction`.
+
 ## Requirements
 ### Requirement: API publique evaluate
 
@@ -47,9 +48,9 @@ Le système SHALL exposer `parse(expression: &str) -> Result<ast::Expr, ParseErr
 
 ---
 
-### Requirement: Grammaire PEG FHIRPath 3.0
+### Requirement: Grammaire PEG FHIRPath release 2
 
-Le système SHALL implémenter une grammaire PEG via `pest` couvrant l'intégralité de la syntaxe FHIRPath 3.0.
+Le système SHALL implémenter une grammaire PEG via `pest` couvrant la syntaxe de FHIRPath release 2 (2.0.0), version utilisée par FHIR R5, plus quelques ajouts ultérieurs (par ex. le littéral Long).
 
 #### Scenario: Littéraux pris en charge
 
@@ -95,7 +96,7 @@ Le système SHALL implémenter une grammaire PEG via `pest` couvrant l'intégral
 
 ### Requirement: AST Expr
 
-Le système SHALL exposer un enum `Expr` couvrant toutes les constructions FHIRPath 3.0.
+Le système SHALL exposer un enum `Expr` couvrant toutes les constructions de la grammaire prise en charge.
 
 #### Scenario: Variantes de l'AST
 
@@ -158,6 +159,8 @@ Le système SHALL implémenter `where(criteria)`, `select(projection)`, `repeat(
 
 L'argument de `ofType`, `is` et `as` est un identifiant de nom de type. La correspondance de type (partagée par `ofType`, les fonctions `is`/`as` et les opérateurs `is`/`as`) SHALL accepter les types primitifs FHIRPath ainsi qu'un objet ressource dont `resourceType` est exactement égal au nom de type. Elle ne SHALL pas gérer l'héritage (`Resource`, `DomainResource`), les noms de types complexes FHIR, ni les noms qualifiés (`FHIR.X`, `System.X`).
 
+L'opérateur `is` (`X is Type`) SHALL avoir exactement la même sémantique que la fonction `is(Type)` (N1 §6.3.1) : collection vide en entrée -> collection vide, un seul élément -> `[Bool(true)]` ou `[Bool(false)]`, plus d'un élément -> `Err(EvalError::Type(...))`.
+
 #### Scenario: where filtre les éléments
 
 - **WHEN** `where(active = true)` est évalué sur une collection d'objets
@@ -187,6 +190,11 @@ L'argument de `ofType`, `is` et `as` est un identifiant de nom de type. La corre
 
 - **WHEN** `is(type)` ou `as(type)` est évalué sur une collection de plus d'un élément
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))` (test officiel `testFHIRPathAsFunction21`)
+
+#### Scenario: l'opérateur is suit la sémantique de is()
+
+- **WHEN** `X is Type` est évalué avec `X` vide, d'un seul élément, ou de plusieurs éléments
+- **THEN** le résultat SHALL être respectivement une collection vide, `[Bool(true)]`/`[Bool(false)]`, ou `Err(EvalError::Type(...))`, comme pour `X.is(Type)`
 
 ---
 
@@ -408,7 +416,7 @@ Le système SHALL implémenter `children()` et `descendants()`.
 
 ### Requirement: Fonctions diverses
 
-Le système SHALL implémenter `not()`, `iif(condition, trueResult, otherwiseResult)`, `trace(name)`, `now()`, `today()`, `timeOfDay()`, `hasValue()`, `getValue()`, `htmlChecks()`, `comparable(other)`, `type()`, `lowBoundary()`, `highBoundary()`, `precision()`.
+Le système SHALL implémenter `not()`, `iif(condition, trueResult, otherwiseResult)`, `trace(name)`, `hasValue()`, `getValue()`, `type()`. Les autres fonctions diverses de FHIRPath ne sont pas implémentées (voir « Limitations connues »).
 
 #### Scenario: not inverse un booléen
 
@@ -473,18 +481,19 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 - **WHEN** `aggregate()` est utilisé avec une référence à `$total`
 - **THEN** l'accumulateur `$total` ne sera pas accessible (comportement non défini dans l'implémentation actuelle)
 
-#### Scenario: Fonctions terminologiques retournent une collection vide
+#### Scenario: Fonctions non implémentées retournent UndefinedFunction
 
-- **WHEN** `resolve()`, `conformsTo()` ou `memberOf()` sont évalués
-- **THEN** le résultat SHALL être une collection vide (aucun serveur terminologique connecté)
+- **WHEN** `resolve()`, `memberOf()`, `conformsTo()`, `today()`, `now()`, `timeOfDay()`, `lowBoundary()`, `highBoundary()`, `precision()`, `htmlChecks()` ou `comparable()` est évalué
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::UndefinedFunction(name))` où `name` est le nom de la fonction
+- **AND** il SHALL NOT retourner de résultat deviné (collection vide, booléen), afin que le validateur signale la contrainte comme non vérifiée (`INVARIANT_SKIPPED`)
 
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 
-Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate` sur son `inputfile` (un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_value`) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 757 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
+Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate` sur son `inputfile` (un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_value`) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 749 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
 
 #### Scenario: Réussites sous le plancher
 
-- **WHEN** moins de 757 cas de la suite réussissent
+- **WHEN** moins de 749 cas de la suite réussissent
 - **THEN** le test SHALL échouer
 
 #### Scenario: Dérive du nombre de cas
@@ -516,4 +525,33 @@ Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhi
 
 - **WHEN** la lecture du fichier de la suite échoue pour une raison autre que son absence
 - **THEN** le test SHALL échouer
+
+### Requirement: Navigation des éléments choix
+
+Le système SHALL exposer `evaluate_parsed_with_choices(expr: &Expr, context: &[Value], is_choice_variant: &dyn Fn(&str, &str) -> bool) -> Result<Collection, EvalError>`. Lorsqu'un identifiant `name` est absent d'un objet, l'évaluation SHALL retourner les valeurs des champs `name` + suffixe capitalisé pour chaque suffixe tel que `is_choice_variant(name, suffix)` est vrai (FHIRPath R5 §2.1.9.1.1). Une clé explicite `name` SHALL être prioritaire et les clés commençant par `_` ne SHALL jamais correspondre. `evaluate` et `evaluate_parsed` SHALL conserver leur comportement sans navigation des choix.
+
+#### Scenario: Le nom de base trouve la variante
+
+- **WHEN** `value` est évalué avec `evaluate_parsed_with_choices` sur `{"valueQuantity": {...}}` et que `is_choice_variant("value", "Quantity")` est vrai
+- **THEN** le résultat SHALL contenir la valeur de `valueQuantity`
+
+#### Scenario: Clé explicite prioritaire
+
+- **WHEN** l'objet contient à la fois `value` et `valueQuantity`
+- **THEN** seul le champ `value` SHALL être retourné
+
+#### Scenario: Suffixe non déclaré ignoré
+
+- **WHEN** `modifier` est évalué sur un objet contenant `modifierExtension` et que `is_choice_variant("modifier", "Extension")` est faux
+- **THEN** le résultat SHALL être vide
+
+#### Scenario: Élément primitif étendu ignoré
+
+- **WHEN** l'objet ne contient que `_valueString`
+- **THEN** `value` SHALL retourner une collection vide
+
+#### Scenario: evaluate sans navigation des choix
+
+- **WHEN** `evaluate("value", ...)` est appelé sur `{"valueQuantity": {...}}`
+- **THEN** le résultat SHALL être vide
 

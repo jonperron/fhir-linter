@@ -1,8 +1,8 @@
-/// FHIRPath 3.0 expression evaluator.
+/// FHIRPath expression evaluator (FHIRPath release 2, as used by FHIR R5).
 ///
 /// The evaluator walks an [`Expr`] AST and produces a [`Collection`].
-/// All functions described in the FHIRPath 3.0 specification are implemented
-/// here, grouped by category.
+/// Implemented functions are grouped by category; any other function name
+/// yields [`EvalError::UndefinedFunction`].
 use std::sync::Arc;
 
 use crate::ast::{Expr, TemporalKind};
@@ -19,21 +19,29 @@ mod string_fns;
 mod type_conv;
 
 use helpers::{
-    bool_col, contains_value, numeric_op, three_valued_and, three_valued_or, value_is_type,
-    values_equal, values_equivalent,
+    bool_col, contains_value, is_type, numeric_op, three_valued_and, three_valued_or,
+    value_is_type, values_equal, values_equivalent,
 };
 
 /// Evaluate a FHIRPath expression against a context value.
 ///
 /// `context` is the *input collection* (the current `$this` node).
-/// Returns a collection of results.
-pub fn eval(expr: &Expr, context: &[Value]) -> Result<Collection, EvalError> {
-    Evaluator.eval(expr, context)
+/// Returns a collection of results. `is_choice_variant(base, suffix)` tells
+/// whether `base` is a choice element with a type for the capitalised `suffix`,
+/// so that `value` finds `valueQuantity`.
+pub fn eval(
+    expr: &Expr,
+    context: &[Value],
+    is_choice_variant: &dyn Fn(&str, &str) -> bool,
+) -> Result<Collection, EvalError> {
+    Evaluator { is_choice_variant }.eval(expr, context)
 }
 
-pub(super) struct Evaluator;
+pub(super) struct Evaluator<'a> {
+    is_choice_variant: &'a dyn Fn(&str, &str) -> bool,
+}
 
-impl Evaluator {
+impl Evaluator<'_> {
     pub(super) fn eval(&self, expr: &Expr, ctx: &[Value]) -> Result<Collection, EvalError> {
         match expr {
             // ── Literals ────────────────────────────────────────────────────
@@ -172,11 +180,7 @@ impl Evaluator {
             }
 
             // ── Type operators ────────────────────────────────────────────
-            Expr::Is(base, type_name) => {
-                let col = self.eval(base, ctx)?;
-                let result = col.iter().any(|v| value_is_type(v, type_name));
-                Ok(vec![Value::Bool(result)])
-            }
+            Expr::Is(base, type_name) => is_type(&self.eval(base, ctx)?, type_name),
             Expr::As(base, type_name) => {
                 let col = self.eval(base, ctx)?;
                 Ok(col
@@ -230,6 +234,9 @@ impl Evaluator {
             if let Value::Object(fields) = item {
                 if let Some(children) = fields.get(name) {
                     result.extend_from_slice(children);
+                } else if let Some(variants) = self.choice_variants(fields, name) {
+                    // R5 §2.1.9.1.1: a choice element is named without its `[x]` suffix.
+                    result.extend(variants);
                 } else if allow_type_name
                     && matches!(
                         fields.get("resourceType").map(Vec::as_slice),
@@ -242,6 +249,25 @@ impl Evaluator {
             }
         }
         Ok(result)
+    }
+
+    /// Values of the choice variants of `name` (`valueQuantity` for `value`), or `None`.
+    fn choice_variants(
+        &self,
+        fields: &indexmap::IndexMap<Arc<str>, Collection>,
+        name: &str,
+    ) -> Option<Collection> {
+        let variants: Collection = fields
+            .iter()
+            .filter(|(key, _)| {
+                key.strip_prefix(name).is_some_and(|suffix| {
+                    suffix.starts_with(|c: char| c.is_ascii_uppercase())
+                        && (self.is_choice_variant)(name, suffix)
+                })
+            })
+            .flat_map(|(_, values)| values.iter().cloned())
+            .collect();
+        (!variants.is_empty()).then_some(variants)
     }
 
     // ── Function dispatch ───────────────────────────────────────────────────

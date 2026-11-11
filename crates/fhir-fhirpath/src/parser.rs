@@ -559,7 +559,7 @@ mod tests {
                 .stack_size(2 << 20)
                 .spawn(move || {
                     if let Ok(e) = parse(&c) {
-                        let _ = crate::eval::eval(&e, &[]);
+                        let _ = crate::eval::eval(&e, &[], &|_, _| false);
                     }
                 })
                 .unwrap()
