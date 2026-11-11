@@ -396,6 +396,15 @@ fn equality_semantics() {
         ("@2011 < @2012-01", t()),
         ("@T10:00 < @T10:00:01", vec![]),
         ("@T09:59 < @T10:00:01", t()),
+        ("@2013-01-01T00:30:00+01:00 = @2012-12-31T23:30:00Z", t()),
+        ("@2012-03-01T01:00:00+02:00 = @2012-02-29T23:00:00Z", t()),
+        ("@2013-03-01T01:00:00+02:00 = @2013-02-28T23:00:00Z", t()),
+        ("@2012-04-15 = @2012-04-15T10:00:00", vec![]),
+        ("@2012-04-14 < @2012-04-15T10:00", t()),
+        // The zone moves the day: local and UTC readings disagree, so unknown.
+        ("@2012-04-16 = @2012-04-15T23:00:00-05:00", vec![]),
+        ("@2012-04-16 > @2012-04-15T23:00:00-05:00", vec![]),
+        ("@2012-04-10 < @2012-04-15T23:00:00-05:00", t()),
     ];
     for (expr, expected) in cases {
         assert_eq!(eval(expr), expected, "{expr}");
@@ -656,6 +665,9 @@ fn union_and_intersect_dedupe_left_operand() {
     assert_eq!(evaluate(&union, &[]).unwrap(), ints(&[1, 2, 3]));
     let intersect = format!("{left}.intersect(1 | 2)");
     assert_eq!(evaluate(&intersect, &[]).unwrap(), ints(&[1, 2]));
+    assert_eq!(evaluate("1 | 2.combine(2)", &[]).unwrap(), ints(&[1, 2]));
+    let right_dupes = "(1 | 2).intersect(1.combine(1))";
+    assert_eq!(evaluate(right_dupes, &[]).unwrap(), ints(&[1]));
 }
 
 #[test]

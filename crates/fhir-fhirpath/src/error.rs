@@ -18,6 +18,8 @@ pub enum EvalError {
         expected: usize,
         got: usize,
     },
+    /// No longer produced: division by zero gives empty (N1 §6.6). Kept so
+    /// that matches on the public enum keep compiling.
     #[error("division by zero")]
     DivisionByZero,
     #[error("parse error: {0}")]
