@@ -164,3 +164,11 @@ fn utf8_encoding_declaration_is_accepted_in_any_case() {
         assert!(parse_xml(&source).is_ok(), "{encoding}");
     }
 }
+
+#[test]
+fn attribute_values_are_trimmed_on_read() {
+    let source = format!("<Patient {FHIR_NS}><active value=\" true\t\"/></Patient>");
+    let resource = parse_xml(&source).expect("parses");
+    assert!(matches!(&resource.fields["active"].value, Value::Str(s) if s.as_ref() == "true"));
+    assert_eq!(resource.trimmed_attributes.len(), 1);
+}

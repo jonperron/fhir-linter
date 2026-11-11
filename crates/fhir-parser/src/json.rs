@@ -67,6 +67,7 @@ pub fn parse_json(source: &str) -> Result<Resource, ParseError> {
         id,
         from_xml: false,
         fields,
+        trimmed_attributes: Vec::new(),
     })
 }
 

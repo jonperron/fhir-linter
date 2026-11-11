@@ -74,3 +74,26 @@ fn elements_named_value_url_and_id_that_are_child_elements_pass() {
     ));
     assert!(found.is_empty(), "{found:?}");
 }
+
+// xml.html: readers SHOULD trim attribute values; datatypes.html: non-string primitives
+// SHALL NOT have leading or trailing whitespace. User decision: trim, and warn.
+#[test]
+fn attribute_whitespace_is_trimmed_with_a_warning() {
+    let found = patient_diagnostics(concat!(
+        "<active value=\" true \"/>",
+        "<gender id=\" g1\" value=\"male \"/>",
+        "<birthDate value=\"\t2000-01-01\">",
+        "<extension url=\" http://e.org \"><valueBoolean value=\"true\"/></extension>",
+        "</birthDate>",
+    ));
+    assert_eq!(
+        found,
+        [
+            "Warning TYPE_006 Patient.active",
+            "Warning TYPE_006 Patient.gender",
+            "Warning TYPE_006 Patient._gender.id",
+            "Warning TYPE_006 Patient.birthDate",
+            "Warning TYPE_006 Patient._birthDate.extension.url",
+        ],
+    );
+}

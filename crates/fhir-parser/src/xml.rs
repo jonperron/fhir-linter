@@ -102,7 +102,8 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
                 let resource_type = local_name_arc(e.local_name().as_ref(), &line_index, pos)?;
                 check_element(reader.resolver(), e, FHIR_NS, &line_index, pos)?;
                 reject_root_attrs(reader.resolver(), e, &line_index, pos)?;
-                let mut fields = parse_children(&mut reader, source, &line_index, 1)?;
+                let mut trimmed = Vec::new();
+                let mut fields = parse_children(&mut reader, source, &line_index, 1, &mut trimmed)?;
 
                 let id = match fields.shift_remove("id") {
                     None => None,
@@ -124,6 +125,7 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
                     id,
                     from_xml: true,
                     fields,
+                    trimmed_attributes: trimmed,
                 };
                 expect_eof(&mut reader, &line_index)?;
                 return Ok(resource);
@@ -138,6 +140,7 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
                     id: None,
                     from_xml: true,
                     fields: IndexMap::new(),
+                    trimmed_attributes: Vec::new(),
                 };
                 expect_eof(&mut reader, &line_index)?;
                 return Ok(resource);
@@ -184,6 +187,7 @@ fn parse_children(
     source: &str,
     line_index: &LineIndex,
     depth: usize,
+    trimmed: &mut Vec<(u32, Arc<str>)>,
 ) -> Result<IndexMap<Arc<str>, Node>, ParseError> {
     if depth > MAX_DEPTH {
         let (line, col) = line_index.location(reader.buffer_position() as u32);
@@ -211,8 +215,8 @@ fn parse_children(
                     raw_div(reader, source, line_index, pos)?
                 } else {
                     check_element(reader.resolver(), e, FHIR_NS, line_index, pos)?;
-                    let attrs = collect_attrs(reader.resolver(), e, line_index, pos)?;
-                    let children = parse_children(reader, source, line_index, depth + 1)?;
+                    let attrs = collect_attrs(reader.resolver(), e, line_index, pos, trimmed)?;
+                    let children = parse_children(reader, source, line_index, depth + 1, trimmed)?;
                     if let Some(key) = attrs.keys().find(|k| children.contains_key(*k)) {
                         let message =
                             format!("'{key}' is given both as an attribute and as a child element");
@@ -229,7 +233,7 @@ fn parse_children(
                     raw_div(reader, source, line_index, pos)?
                 } else {
                     check_element(reader.resolver(), e, FHIR_NS, line_index, pos)?;
-                    let attrs = collect_attrs(reader.resolver(), e, line_index, pos)?;
+                    let attrs = collect_attrs(reader.resolver(), e, line_index, pos, trimmed)?;
                     build_complex_node(attrs, IndexMap::new(), span_at(line_index, pos))
                 };
                 groups.entry(name).or_default().push(node);
@@ -478,12 +482,15 @@ fn local_name_arc(bytes: &[u8], line_index: &LineIndex, pos: u32) -> Result<Arc<
 /// Collect all non-xmlns attributes of an element into an ordered map of
 /// `local_name -> Node`. Namespace declarations (`xmlns`, `xmlns:prefix`) are
 /// skipped; all data-carrying attributes (including `value` and `url`) are
-/// captured as `Value::Str` nodes at the element's span.
+/// captured as `Value::Str` nodes at the element's span. Values are trimmed of leading
+/// and trailing XML whitespace (xml.html: readers SHOULD trim), and each trimmed
+/// attribute is recorded in `trimmed` so the validator can warn about it.
 fn collect_attrs(
     resolver: &NamespaceResolver,
     e: &BytesStart<'_>,
     line_index: &LineIndex,
     pos: u32,
+    trimmed: &mut Vec<(u32, Arc<str>)>,
 ) -> Result<IndexMap<Arc<str>, Node>, ParseError> {
     let span = span_at(line_index, pos);
     let mut attrs: IndexMap<Arc<str>, Node> = IndexMap::new();
@@ -525,10 +532,14 @@ fn collect_attrs(
                 }
             })?;
 
+        let value = val.trim_matches([' ', '\t', '\r', '\n']);
+        if value.len() != val.len() {
+            trimmed.push((pos, Arc::clone(&local)));
+        }
         attrs.insert(
             local,
             Node {
-                value: Value::Str(Arc::from(val.as_ref())),
+                value: Value::Str(Arc::from(value)),
                 span,
             },
         );
@@ -539,13 +550,16 @@ fn collect_attrs(
 
 /// xml.html: `id` is an attribute on elements "but not on resources"; a resource root
 /// carries namespace declarations only.
+// shortcut: resources nested in `contained`, `Bundle.entry.resource` or `Parameters` are
+// read as ordinary elements, so their root attributes are not rejected; upgrade with the
+// embedded-resource unwrapping (11.6.4-P1).
 fn reject_root_attrs(
     resolver: &NamespaceResolver,
     e: &BytesStart<'_>,
     line_index: &LineIndex,
     pos: u32,
 ) -> Result<(), ParseError> {
-    let attrs = collect_attrs(resolver, e, line_index, pos)?;
+    let attrs = collect_attrs(resolver, e, line_index, pos, &mut Vec::new())?;
     if attrs.is_empty() {
         return Ok(());
     }

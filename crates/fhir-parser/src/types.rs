@@ -53,6 +53,10 @@ pub struct Resource {
     pub resource_type: Arc<str>,
     pub id: Option<Arc<str>>,
     pub fields: IndexMap<Arc<str>, Node>,
+    /// XML attribute values the reader trimmed (xml.html: readers SHOULD trim leading and
+    /// trailing whitespace), as the owning element's byte offset and the attribute name.
+    /// Empty for JSON.
+    pub trimmed_attributes: Vec<(u32, Arc<str>)>,
 }
 
 /// Errors produced by the parser.

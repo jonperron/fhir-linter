@@ -10,10 +10,15 @@
 //! is `xmlAttr` (a primitive's `value`, `Element.id`, `Extension.url`) must be attributes,
 //! every other element a child element. The parser gives an attribute its element's span
 //! and a child element its own, which is how the two are told apart.
+//!
+//! The parser trims attribute values (xml.html: readers SHOULD trim); each trimmed value of
+//! a known element gets a `TYPE_006` Warning here, where its instance path is known
+//! (user decision 11.7: trim and warn rather than report the whitespace as an error).
 
 use fhir_definitions::{Registry, StructureDefinition};
 use fhir_parser::{Node, Resource, Value};
 use indexmap::IndexMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
@@ -33,6 +38,12 @@ pub(crate) fn to_json_shape(
     let name = resource.resource_type.as_ref();
     let mut shaper = Shaper {
         registry,
+        // A set: hostile input can pad every attribute, so no linear scan per lookup.
+        trimmed: resource
+            .trimmed_attributes
+            .iter()
+            .map(|(offset, name)| (*offset, name.as_ref()))
+            .collect(),
         diagnostics: Vec::new(),
     };
     // The parser rejects attributes on the root, so its fields have no parent offset.
@@ -42,12 +53,14 @@ pub(crate) fn to_json_shape(
         resource_type: Arc::clone(&resource.resource_type),
         id: resource.id.clone(),
         from_xml: false,
+        trimmed_attributes: Vec::new(),
     };
     (reshaped, shaper.diagnostics)
 }
 
 struct Shaper<'a> {
     registry: &'a Registry,
+    trimmed: HashSet<(u32, &'a str)>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -82,7 +95,7 @@ impl Shaper<'_> {
             };
             let child_path = format!("{path}.{name}");
             for (item, item_path) in items(node, &child_path) {
-                self.check_form(item, elem.xml_attr, parent, &item_path);
+                self.check_form(item, name, elem.xml_attr, parent, &item_path);
             }
             if is_primitive(&ty) {
                 let extension_path = format!("{path}._{name}");
@@ -90,7 +103,7 @@ impl Shaper<'_> {
                     .into_iter()
                     .zip(items(node, &extension_path))
                     .map(|((item, value_path), (_, ext_path))| {
-                        self.split_primitive(item, &ty, &value_path, &ext_path)
+                        self.split_primitive(item, &ty, &value_path, &ext_path, parent)
                     })
                     .unzip();
                 let wrap = |nodes: Vec<Node>| match &node.value {
@@ -155,12 +168,36 @@ impl Shaper<'_> {
 
     /// `STRUCTURE_001` when an element is an attribute but must be a child element, or
     /// the reverse (xml.html: `value`, `id` and `url` are attributes, other elements not).
-    fn check_form(&mut self, node: &Node, xml_attr: bool, parent: Option<u32>, path: &str) {
+    fn check_form(
+        &mut self,
+        node: &Node,
+        name: &str,
+        xml_attr: bool,
+        parent: Option<u32>,
+        path: &str,
+    ) {
         let is_attribute = parent == Some(node.span.offset);
-        if is_attribute == xml_attr {
+        if is_attribute != xml_attr {
+            self.unknown_form(node, path, xml_attr);
+        } else if is_attribute {
+            self.warn_if_trimmed(node, name, path);
+        }
+    }
+
+    /// `TYPE_006` Warning when the parser trimmed attribute `name` of the element at
+    /// `node`'s offset.
+    fn warn_if_trimmed(&mut self, node: &Node, name: &str, path: &str) {
+        if !self.trimmed.contains(&(node.span.offset, name)) {
             return;
         }
-        self.unknown_form(node, path, xml_attr);
+        self.diagnostics.push(
+            Diagnostic::warning(
+                "TYPE_006",
+                format!("Leading or trailing whitespace trimmed from the XML value at '{path}'"),
+                path.to_owned(),
+            )
+            .with_location(node.span),
+        );
     }
 
     fn unknown_form(&mut self, node: &Node, path: &str, xml_attr: bool) {
@@ -189,19 +226,27 @@ impl Shaper<'_> {
         ty: &str,
         path: &str,
         extension_path: &str,
+        parent: Option<u32>,
     ) -> (Node, Node) {
         let null = Node {
             value: Value::Null,
             span: node.span,
         };
         match &node.value {
-            Value::Str(text) => (
-                Node {
-                    value: typed(text, ty),
-                    span: node.span,
-                },
-                null,
-            ),
+            Value::Str(text) => {
+                // A plain string is an element whose only attribute is `value`, or an
+                // attribute itself (`id`, `url`), which `check_form` already handled.
+                if parent != Some(node.span.offset) {
+                    self.warn_if_trimmed(node, "value", path);
+                }
+                (
+                    Node {
+                        value: typed(text, ty),
+                        span: node.span,
+                    },
+                    null,
+                )
+            }
             Value::Object(fields) => {
                 let rest: Fields = fields
                     .iter()
@@ -214,6 +259,8 @@ impl Shaper<'_> {
                         // Every primitive's `value` is an attribute (`representation` xmlAttr).
                         if v.span.offset != node.span.offset {
                             self.unknown_form(v, &format!("{path}.value"), true);
+                        } else {
+                            self.warn_if_trimmed(v, "value", path);
                         }
                         match &v.value {
                             Value::Str(text) => Node {
