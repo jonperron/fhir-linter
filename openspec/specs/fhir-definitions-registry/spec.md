@@ -170,7 +170,7 @@ Le crate `fhir-definitions` SHALL exporter `Constraint` et `Binding` dans son AP
 
 ### Requirement: ValueSet includes et CodeSystem codes
 
-Le type `ValueSet` SHALL exposer `includes: Vec<Include>` (chaque `Include` : `system`, `version: Option<Arc<str>>`, `codes`, `has_filter`, `value_sets`) et `has_exclude: bool`. Le type `CodeSystem` SHALL exposer `version: Option<Arc<str>>`, `codes: HashSet<Arc<str>>` (concepts aplatis), `not_selectable: HashSet<Arc<str>>` (codes dont une `property` `notSelectable` ou `abstract` porte `valueBoolean: true`, à tout niveau) et `complete: bool` (faux pour un fragment ou contenu non présent). `Include` SHALL être exporté au premier niveau de `fhir-definitions`.
+Le type `ValueSet` SHALL exposer `includes: Vec<Include>` (chaque `Include` : `system`, `version: Option<Arc<str>>`, `codes`, `has_filter`, `value_sets`) et `has_exclude: bool`. Le type `CodeSystem` SHALL exposer `version: Option<Arc<str>>`, `codes: HashSet<Arc<str>>` (concepts aplatis), `not_selectable: HashSet<Arc<str>>` (codes dont la `property` notSelectable porte `valueBoolean: true`, à tout niveau) et `complete: bool` (faux pour un fragment ou contenu non présent). La propriété notSelectable SHALL être identifiée par le code local que le CodeSystem déclare dans `CodeSystem.property` avec `uri` = `http://hl7.org/fhir/concept-properties#notSelectable` ; uniquement lorsqu'aucune propriété déclarée ne porte cette URI, le code `notSelectable` SHALL être utilisé en repli. Le code `abstract` SHALL NOT être traité comme un alias de notSelectable, R5 ne le définissant pas. `Include` SHALL être exporté au premier niveau de `fhir-definitions`.
 
 #### Scenario: Include chargé depuis compose
 
@@ -184,8 +184,18 @@ Le type `ValueSet` SHALL exposer `includes: Vec<Include>` (chaque `Include` : `s
 
 #### Scenario: Concepts non sélectionnables
 
-- **WHEN** un concept d'un CodeSystem porte une `property` `notSelectable` (ou `abstract`) avec `valueBoolean: true`
+- **WHEN** un CodeSystem ne déclare aucune propriété portant l'URI `http://hl7.org/fhir/concept-properties#notSelectable` et qu'un de ses concepts porte une `property` `notSelectable` avec `valueBoolean: true`
 - **THEN** son code SHALL figurer dans `not_selectable` en plus de `codes`
+
+#### Scenario: Code local mappé par URI
+
+- **WHEN** un CodeSystem déclare dans `CodeSystem.property` un code local (par exemple `nonSel`) avec `uri` = `http://hl7.org/fhir/concept-properties#notSelectable`, et qu'un de ses concepts porte la `property` `nonSel` avec `valueBoolean: true`
+- **THEN** son code SHALL figurer dans `not_selectable`
+
+#### Scenario: Propriété abstract non reconnue
+
+- **WHEN** un concept porte une `property` `abstract` avec `valueBoolean: true` et que `abstract` n'est pas déclaré dans `CodeSystem.property` avec l'URI notSelectable
+- **THEN** son code SHALL NOT figurer dans `not_selectable`
 
 ### Requirement: Appartenance d'un code à un ValueSet
 
@@ -208,7 +218,7 @@ Le système SHALL fournir `Registry::value_set_contains(url, system: Option<&str
 
 #### Scenario: Concept non sélectionnable
 
-- **WHEN** le code correspond à un concept marqué `notSelectable` (ou `abstract`) avec `valueBoolean: true` dans le CodeSystem chargé
+- **WHEN** le code correspond, dans le CodeSystem chargé, à un concept dont la propriété notSelectable (code local déclaré avec l'URI `http://hl7.org/fhir/concept-properties#notSelectable` ou, à défaut, code `notSelectable`) porte `valueBoolean: true`
 - **THEN** le résultat SHALL être `None`
 
 #### Scenario: Version d'include identique ou générique
