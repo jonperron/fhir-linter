@@ -686,31 +686,22 @@ fn all_returns_false() {
 
 // ── Error paths ───────────────────────────────────────────────────────────────
 
+/// N1 §6.6: "12 / 0 // empty", "5 div 0 // empty", "5 mod 0 // empty".
 #[test]
-fn division_by_zero_float_returns_error() {
-    let result = evaluate("1 / 0", &[]);
-    assert!(matches!(
-        result,
-        Err(fhir_fhirpath::EvalError::DivisionByZero)
-    ));
-}
-
-#[test]
-fn modulo_by_zero_returns_error() {
-    let result = evaluate("5 mod 0", &[]);
-    assert!(matches!(
-        result,
-        Err(fhir_fhirpath::EvalError::DivisionByZero)
-    ));
-}
-
-#[test]
-fn div_integer_by_zero_returns_error() {
-    let result = evaluate("5 div 0", &[]);
-    assert!(matches!(
-        result,
-        Err(fhir_fhirpath::EvalError::DivisionByZero)
-    ));
+fn division_by_zero_returns_empty() {
+    for expr in [
+        "1 / 0",
+        "0.0 / 0",
+        "1 / 0.0",
+        "5 div 0",
+        "0 div 0.0",
+        "5 mod 0",
+        "5.5 mod 0",
+        "5 mod 0.0",
+        "0.0 mod 0",
+    ] {
+        assert_eq!(evaluate(expr, &[]).unwrap(), vec![], "{expr}");
+    }
 }
 
 #[test]
@@ -1994,26 +1985,6 @@ fn concat_with_empty_collection_treats_as_empty_string() {
     // Per FHIRPath spec, {} & 'x' = 'x'
     let result = evaluate("{} & 'x'", &[]).unwrap();
     assert_eq!(result, vec![Value::String(Arc::from("x"))]);
-}
-
-// ── Division by zero ─────────────────────────────────────────────────────────
-
-#[test]
-fn division_by_zero_returns_error() {
-    let err = evaluate("1 / 0", &[]).unwrap_err();
-    assert!(matches!(err, fhir_fhirpath::EvalError::DivisionByZero));
-}
-
-#[test]
-fn mod_by_zero_returns_error() {
-    let err = evaluate("5 mod 0", &[]).unwrap_err();
-    assert!(matches!(err, fhir_fhirpath::EvalError::DivisionByZero));
-}
-
-#[test]
-fn div_by_zero_returns_error() {
-    let err = evaluate("5 div 0", &[]).unwrap_err();
-    assert!(matches!(err, fhir_fhirpath::EvalError::DivisionByZero));
 }
 
 #[test]

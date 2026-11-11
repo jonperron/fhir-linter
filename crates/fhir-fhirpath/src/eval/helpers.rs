@@ -36,7 +36,8 @@ pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collecti
         ArithOp::Add => a + b,
         ArithOp::Sub => a - b,
         ArithOp::Mul => a * b,
-        ArithOp::Div | ArithOp::Mod if b == 0.0 => return Err(EvalError::DivisionByZero),
+        // N1 §6.6: division by zero gives empty, not an error.
+        ArithOp::Div | ArithOp::Mod if b == 0.0 => return Ok(vec![]),
         ArithOp::Div => a / b,
         ArithOp::Mod => a % b,
         ArithOp::DivInt => return Err(EvalError::Type("div is not a numeric_op".into())),
@@ -57,7 +58,8 @@ fn integer_op(lv: &Value, rv: &Value, op: &ArithOp) -> Result<Option<Value>, Eva
         ArithOp::Add => a.checked_add(b),
         ArithOp::Sub => a.checked_sub(b),
         ArithOp::Mul => a.checked_mul(b),
-        ArithOp::Mod if b == 0 => return Err(EvalError::DivisionByZero),
+        // Zero falls through to the decimal path, which gives empty.
+        ArithOp::Mod if b == 0 => return Ok(None),
         ArithOp::Mod => a.checked_rem(b),
         _ => return Ok(None),
     }

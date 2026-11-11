@@ -325,7 +325,7 @@ impl Evaluator<'_> {
                     .as_decimal()
                     .ok_or_else(|| EvalError::Type("div requires numbers".into()))?;
                 if b == 0.0 {
-                    return Err(EvalError::DivisionByZero);
+                    return Ok(vec![]);
                 }
                 Ok(vec![Value::Integer((a / b).trunc() as i64)])
             }
