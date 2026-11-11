@@ -25,7 +25,49 @@ const MAX_DEPTH: usize = 128;
 /// - XHTML `<div>` content is captured as plain text.
 /// - Primitive-with-extensions elements (e.g. `<birthDate value="..."><extension .../></birthDate>`)
 ///   are represented as objects with a special `"value"` key.
+/// - XML 1.0 forbids controls below U+0020 other than tab, LF and CR, even as
+///   character references (`&#1;`): not well-formed. XML 1.1 allows the references.
 pub fn parse_xml(source: &str) -> Result<Resource, ParseError> {
+    let resource = parse_document(source)?;
+    if declared_version(source) != XmlVersion::Explicit1_1 {
+        reject_controls(resource.id.as_deref(), &resource.fields)?;
+    }
+    Ok(resource)
+}
+
+/// The version in the XML declaration, `Implicit1_0` without one.
+fn declared_version(source: &str) -> XmlVersion {
+    match Reader::from_str(source).read_event() {
+        Ok(Event::Decl(decl)) => decl.xml_version().unwrap_or_default(),
+        _ => XmlVersion::Implicit1_0,
+    }
+}
+
+/// Fail on the first string holding a control character XML 1.0 does not allow.
+fn reject_controls(id: Option<&str>, fields: &IndexMap<Arc<str>, Node>) -> Result<(), ParseError> {
+    let error = |line, col| ParseError::XmlError {
+        message: "not well-formed: XML 1.0 does not allow this control character".into(),
+        line,
+        col,
+    };
+    if id.is_some_and(|s| s.chars().any(crate::is_disallowed_control)) {
+        return Err(error(1, 1));
+    }
+    fn walk(node: &Node) -> Option<Span> {
+        match &node.value {
+            Value::Str(s) if s.chars().any(crate::is_disallowed_control) => Some(node.span),
+            Value::Object(map) => map.values().find_map(walk),
+            Value::Array(items) => items.iter().find_map(walk),
+            _ => None,
+        }
+    }
+    match fields.values().find_map(walk) {
+        Some(span) => Err(error(span.line, span.col)),
+        None => Ok(()),
+    }
+}
+
+fn parse_document(source: &str) -> Result<Resource, ParseError> {
     let line_index = LineIndex::new(source);
     let mut reader = Reader::from_str(source);
     reader.config_mut().trim_text(false);

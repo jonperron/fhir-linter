@@ -12,3 +12,9 @@ mod xml;
 pub use json::parse_json;
 pub use types::{Node, ParseError, Resource, Span, Value};
 pub use xml::parse_xml;
+
+/// A control character below U+0020 other than tab, LF and CR: R5 strings SHOULD NOT
+/// contain one (datatypes.html), and XML 1.0 does not allow one at all.
+pub fn is_disallowed_control(c: char) -> bool {
+    c < ' ' && !matches!(c, '\t' | '\n' | '\r')
+}
