@@ -44,13 +44,8 @@ fn has_text(text: &str) -> bool {
 }
 
 /// narrative.html: the div SHALL have some non-whitespace content (text or an image).
-/// JSON gives the div as XHTML markup; the XML parser gives its decoded text only.
-// shortcut: the XML parser drops `<img>`, so an image-only XML div reads as empty; keep the
-// div markup in the parser if that false positive matters.
-fn div_has_content(div: &str, from_xml: bool) -> bool {
-    if from_xml {
-        return has_text(div);
-    }
+/// Both parsers give the div as its XHTML markup.
+fn div_has_content(div: &str) -> bool {
     let mut reader = Reader::from_str(div);
     loop {
         match reader.read_event() {
@@ -88,8 +83,7 @@ impl Rule for NarrativeAbsent {
             Some(Value::Object(text)) => {
                 // narrative-status `empty`: no human-readable text, whatever the div says.
                 primitive(resource, text.get("status")) == Some("empty")
-                    || !primitive(resource, text.get("div"))
-                        .is_some_and(|div| div_has_content(div, resource.from_xml))
+                    || !primitive(resource, text.get("div")).is_some_and(div_has_content)
             }
             _ => true,
         };

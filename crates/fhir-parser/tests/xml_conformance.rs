@@ -1,5 +1,5 @@
 //! XML conformance rules from the FHIR R5 `xml.html` page (audit 11.6.4).
-use fhir_parser::{ParseError, parse_xml};
+use fhir_parser::{ParseError, Value, parse_xml};
 
 const FHIR_NS: &str = "xmlns=\"http://hl7.org/fhir\"";
 
@@ -69,6 +69,32 @@ fn attribute_and_child_element_with_the_same_name_are_rejected() {
     for body in cases {
         let source = format!("<Patient {FHIR_NS}>{body}</Patient>");
         assert!(xml_error(&source).contains("both"), "{body}");
+    }
+}
+
+/// The `text.div` value of a Patient whose narrative div is `div`.
+fn div_value(div: &str) -> Value {
+    let source =
+        format!("<Patient {FHIR_NS}><text><status value=\"generated\"/>{div}</text></Patient>");
+    let resource = parse_xml(&source).expect("parses");
+    let Value::Object(text) = &resource.fields["text"].value else {
+        panic!("text should be an object");
+    };
+    text["div"].value.clone()
+}
+
+#[test]
+fn xhtml_div_is_kept_as_its_raw_source() {
+    let cases = [
+        "<div xmlns=\"http://www.w3.org/1999/xhtml\"><img src=\"a.png\"/></div>",
+        "<div xmlns=\"http://www.w3.org/1999/xhtml\"><p>a &amp; b</p><div>x</div></div>",
+        "<div xmlns=\"http://www.w3.org/1999/xhtml\"/>",
+    ];
+    for div in cases {
+        assert!(
+            matches!(div_value(div), Value::Str(s) if s.as_ref() == div),
+            "{div}"
+        );
     }
 }
 

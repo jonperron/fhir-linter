@@ -185,6 +185,16 @@ fn xml_div_text_that_looks_like_markup_is_content() {
     assert!(!fires_xml(&xml, "narrative-absent"));
 }
 
+// narrative.html: an image is content; the XML parser keeps the div markup, as JSON does.
+#[test]
+fn xml_image_only_div_is_content() {
+    let xml = format!(
+        r#"<Patient xmlns="http://hl7.org/fhir"><text><status value="generated"/>
+        <div {XHTML}><img src="a.png"/></div></text></Patient>"#
+    );
+    assert!(!fires_xml(&xml, "narrative-absent"));
+}
+
 // In XML a primitive with an extension is an object holding `value`.
 #[test]
 fn xml_primitives_with_extensions_are_read() {

@@ -22,7 +22,7 @@ const MAX_DEPTH: usize = 128;
 /// - Primitive fields use a `value` attribute: `<status value="active"/>`.
 /// - Complex fields contain child elements: `<name><family value="Smith"/></name>`.
 /// - Repeated sibling elements become a `Value::Array`.
-/// - XHTML `<div>` content is captured as plain text.
+/// - The XHTML `<div>` is kept as its raw source markup, as JSON carries it.
 /// - Primitive-with-extensions elements (e.g. `<birthDate value="..."><extension .../></birthDate>`)
 ///   are represented as objects with a special `"value"` key.
 /// - A literal control below U+0020 other than tab, LF and CR is not well-formed.
@@ -92,7 +92,7 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
             Event::Start(ref e) => {
                 let resource_type = local_name_arc(e.local_name().as_ref(), &line_index, pos)?;
                 reject_root_attrs(e, &line_index, pos)?;
-                let mut fields = parse_children(&mut reader, &line_index, 1)?;
+                let mut fields = parse_children(&mut reader, source, &line_index, 1)?;
 
                 let id = match fields.shift_remove("id") {
                     None => None,
@@ -170,6 +170,7 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
 /// siblings with the same name into arrays. An unexpected `Eof` is an error.
 fn parse_children(
     reader: &mut Reader<&[u8]>,
+    source: &str,
     line_index: &LineIndex,
     depth: usize,
 ) -> Result<IndexMap<Arc<str>, Node>, ParseError> {
@@ -194,15 +195,11 @@ fn parse_children(
                 let name = local_name_arc(e.local_name().as_ref(), line_index, pos)?;
                 let span = span_at(line_index, pos);
                 let node = if name.as_ref() == "div" {
-                    // XHTML narrative: collect text content and skip child elements.
-                    let text = read_xhtml_text(reader, line_index, pos)?;
-                    Node {
-                        value: Value::Str(Arc::from(text)),
-                        span,
-                    }
+                    skip_xhtml(reader, line_index, pos)?;
+                    raw_div(reader, source, line_index, pos)?
                 } else {
                     let attrs = collect_attrs(e, line_index, pos)?;
-                    let children = parse_children(reader, line_index, depth + 1)?;
+                    let children = parse_children(reader, source, line_index, depth + 1)?;
                     if let Some(key) = attrs.keys().find(|k| children.contains_key(*k)) {
                         let message =
                             format!("'{key}' is given both as an attribute and as a child element");
@@ -214,9 +211,12 @@ fn parse_children(
             }
             Event::Empty(ref e) => {
                 let name = local_name_arc(e.local_name().as_ref(), line_index, pos)?;
-                let span = span_at(line_index, pos);
-                let attrs = collect_attrs(e, line_index, pos)?;
-                let node = build_complex_node(attrs, IndexMap::new(), span);
+                let node = if name.as_ref() == "div" {
+                    raw_div(reader, source, line_index, pos)?
+                } else {
+                    let attrs = collect_attrs(e, line_index, pos)?;
+                    build_complex_node(attrs, IndexMap::new(), span_at(line_index, pos))
+                };
                 groups.entry(name).or_default().push(node);
             }
             Event::End(_) => break,
@@ -308,14 +308,35 @@ fn collapse_groups(groups: IndexMap<Arc<str>, Vec<Node>>) -> IndexMap<Arc<str>, 
 
 // -- XHTML handling ------------------------------------------------------------
 
-/// Read all content inside an XHTML `<div>` (already past the opening tag),
-/// returning the concatenated text content while skipping markup.
-fn read_xhtml_text(
+/// The XHTML narrative `<div>` from `start` up to the reader's position (just past its
+/// end tag) as the raw source string, which is what the JSON form carries (narrative.html).
+fn raw_div(
+    reader: &Reader<&[u8]>,
+    source: &str,
+    line_index: &LineIndex,
+    start: u32,
+) -> Result<Node, ParseError> {
+    let end = reader.buffer_position() as usize;
+    let markup = source.get(start as usize..end).ok_or_else(|| {
+        error_at(
+            line_index,
+            start,
+            "XHTML div is not on a character boundary",
+        )
+    })?;
+    Ok(Node {
+        value: Value::Str(Arc::from(markup)),
+        span: span_at(line_index, start),
+    })
+}
+
+/// Read past the content of an XHTML `<div>` (already past the opening tag) to its end
+/// tag, rejecting malformed text and unknown entity references on the way.
+fn skip_xhtml(
     reader: &mut Reader<&[u8]>,
     line_index: &LineIndex,
     start_pos: u32,
-) -> Result<String, ParseError> {
-    let mut text = String::new();
+) -> Result<(), ParseError> {
     let mut depth: usize = 1;
 
     loop {
@@ -333,39 +354,14 @@ fn read_xhtml_text(
             }
             Event::Empty(_) => {}
             Event::Text(ref t) => {
-                let s = t.decode().map_err(|e| {
-                    let (line, col) = line_index.location(pos);
-                    ParseError::XmlError {
-                        message: format!("invalid text in XHTML div: {e}"),
-                        line,
-                        col,
-                    }
+                t.decode().map_err(|e| {
+                    error_at(line_index, pos, format!("invalid text in XHTML div: {e}"))
                 })?;
-                text.push_str(&s);
             }
             // quick-xml 0.38+ reports entity and character references separately.
-            Event::GeneralRef(ref r) => {
-                let resolved = resolve_reference(r).ok_or_else(|| {
-                    let (line, col) = line_index.location(pos);
-                    ParseError::XmlError {
-                        message: "invalid entity reference in XHTML div".into(),
-                        line,
-                        col,
-                    }
-                })?;
-                text.push_str(&resolved);
-            }
-            Event::CData(ref c) => {
-                // CDATA content is already literal text - no escaping needed.
-                let s = std::str::from_utf8(c.as_ref()).map_err(|_| {
-                    let (line, col) = line_index.location(pos);
-                    ParseError::XmlError {
-                        message: "invalid UTF-8 in CDATA section".into(),
-                        line,
-                        col,
-                    }
-                })?;
-                text.push_str(s);
+            Event::GeneralRef(ref r) if resolve_reference(r).is_none() => {
+                let message = "invalid entity reference in XHTML div";
+                return Err(error_at(line_index, pos, message));
             }
             Event::Eof => {
                 let (line, col) = line_index.location(start_pos);
@@ -379,7 +375,7 @@ fn read_xhtml_text(
         }
     }
 
-    Ok(text)
+    Ok(())
 }
 
 // -- Trailing-content guard ---------------------------------------------------
@@ -669,7 +665,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_xhtml_div_resolves_entity_and_char_references() {
+    fn parse_xhtml_div_keeps_entity_and_char_references_as_written() {
         let source = concat!(
             "<Patient xmlns=\"http://hl7.org/fhir\">",
             "<text><status value=\"generated\"/>",
@@ -681,7 +677,8 @@ mod tests {
             panic!("text should be an object");
         };
         let div = text.get("div").expect("div field present");
-        assert!(matches!(&div.value, Value::Str(s) if s.as_ref() == "a & b < A"));
+        let raw = "<div xmlns=\"http://www.w3.org/1999/xhtml\">a &amp; b &lt; &#65;</div>";
+        assert!(matches!(&div.value, Value::Str(s) if s.as_ref() == raw));
     }
 
     #[test]
