@@ -2,23 +2,21 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use quick_xml::XmlVersion;
-use quick_xml::escape::resolve_predefined_entity;
-use quick_xml::events::{BytesRef, BytesStart, Event};
-use quick_xml::name::{NamespaceResolver, ResolveResult};
+use quick_xml::events::Event;
 use quick_xml::reader::{NsReader, Reader};
 
 use crate::line_index::LineIndex;
 use crate::types::{Node, ParseError, Resource, Span, Value};
+use crate::xml_checks::{
+    FHIR_NS, XHTML_NS, check_element, collect_attrs, error_at, local_name_arc, reject_root_attrs,
+    resolve_reference, span_at, xml_error,
+};
 
 /// Maximum element nesting accepted (guards against stack overflow).
 const MAX_DEPTH: usize = 128;
 
-/// xml.html: "FHIR elements are always in the namespace http://hl7.org/fhir".
-const FHIR_NS: &[u8] = b"http://hl7.org/fhir";
-/// xml.html: the narrative div is "in the xhtml namespace".
-const XHTML_NS: &[u8] = b"http://www.w3.org/1999/xhtml";
-/// xml.html: content SHALL NOT "even contain the schema instance namespace".
-const XSI_NS: &[u8] = b"http://www.w3.org/2001/XMLSchema-instance";
+/// Maximum `xmlns` declarations accepted on one element (bounds namespace lookups).
+const MAX_DECLARATIONS_PER_ELEMENT: usize = 8;
 
 /// Parse a FHIR XML resource from a source string.
 ///
@@ -32,7 +30,8 @@ const XSI_NS: &[u8] = b"http://www.w3.org/2001/XMLSchema-instance";
 /// - Complex fields contain child elements: `<name><family value="Smith"/></name>`.
 /// - Repeated sibling elements become a `Value::Array`.
 /// - The XHTML `<div>` is kept as its raw source markup, as JSON carries it.
-/// - Primitive-with-extensions elements (e.g. `<birthDate value="..."><extension .../></birthDate>`)
+/// - Primitive-with-extensions elements
+///   (e.g. `<birthDate value="..."><extension .../></birthDate>`)
 ///   are represented as objects with a special `"value"` key.
 /// - A literal control below U+0020 other than tab, LF and CR is not well-formed.
 ///   XML 1.0 also forbids it as a character reference (`&#1;`); XML 1.1 allows that.
@@ -91,6 +90,11 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
     let line_index = LineIndex::new(source);
     let mut reader = NsReader::from_str(source);
     reader.config_mut().trim_text(false);
+    // Every element lookup scans the live namespace bindings; with MAX_DEPTH this keeps
+    // them bounded (FHIR needs the FHIR and XHTML namespaces, plus the odd prefix).
+    reader
+        .resolver_mut()
+        .set_max_declarations_per_element(MAX_DECLARATIONS_PER_ELEMENT);
 
     loop {
         let pos = reader.buffer_position() as u32;
@@ -327,6 +331,8 @@ fn collapse_groups(groups: IndexMap<Arc<str>, Vec<Node>>) -> IndexMap<Arc<str>, 
 
 // -- XHTML handling ------------------------------------------------------------
 
+// shortcut: a prefixed div (`<h:div>`) keeps a prefix bound on an ancestor, so the slice is
+// not standalone XHTML; xml.html asks for default namespaces, upgrade if prefixed divs occur.
 /// The XHTML narrative `<div>` from `start` up to the reader's position (just past its
 /// end tag) as the raw source string, which is what the JSON form carries (narrative.html).
 fn raw_div(
@@ -367,6 +373,9 @@ fn skip_xhtml(
             Event::Start(ref e) => {
                 check_element(reader.resolver(), e, XHTML_NS, line_index, pos)?;
                 depth += 1;
+                if depth > MAX_DEPTH {
+                    return Err(error_at(line_index, pos, "maximum nesting depth exceeded"));
+                }
             }
             Event::End(_) => {
                 depth -= 1;
@@ -451,181 +460,6 @@ fn expect_eof(reader: &mut NsReader<&[u8]>, line_index: &LineIndex) -> Result<()
             // Comments, PIs, and the XML declaration are ignored.
             _ => {}
         }
-    }
-}
-
-// -- Helpers -------------------------------------------------------------------
-
-/// Resolve a character reference or one of the five predefined entities.
-fn resolve_reference(reference: &BytesRef<'_>) -> Option<String> {
-    if let Ok(Some(c)) = reference.resolve_char_ref() {
-        return Some(c.to_string());
-    }
-    let name = reference.decode().ok()?;
-    resolve_predefined_entity(&name).map(str::to_owned)
-}
-
-/// Convert a local name byte slice to `Arc<str>`, returning an error when the
-/// bytes are not valid UTF-8 (which should not happen for well-formed XML but
-/// is propagated rather than silently substituted).
-fn local_name_arc(bytes: &[u8], line_index: &LineIndex, pos: u32) -> Result<Arc<str>, ParseError> {
-    std::str::from_utf8(bytes).map(Arc::from).map_err(|_| {
-        let (line, col) = line_index.location(pos);
-        ParseError::XmlError {
-            message: "element name is not valid UTF-8".into(),
-            line,
-            col,
-        }
-    })
-}
-
-/// Collect all non-xmlns attributes of an element into an ordered map of
-/// `local_name -> Node`. Namespace declarations (`xmlns`, `xmlns:prefix`) are
-/// skipped; all data-carrying attributes (including `value` and `url`) are
-/// captured as `Value::Str` nodes at the element's span. Values are trimmed of leading
-/// and trailing XML whitespace (xml.html: readers SHOULD trim), and each trimmed
-/// attribute is recorded in `trimmed` so the validator can warn about it.
-fn collect_attrs(
-    resolver: &NamespaceResolver,
-    e: &BytesStart<'_>,
-    line_index: &LineIndex,
-    pos: u32,
-    trimmed: &mut Vec<(u32, Arc<str>)>,
-) -> Result<IndexMap<Arc<str>, Node>, ParseError> {
-    let span = span_at(line_index, pos);
-    let mut attrs: IndexMap<Arc<str>, Node> = IndexMap::new();
-
-    for attr_result in e.attributes() {
-        let attr = attr_result.map_err(|e| {
-            let (line, col) = line_index.location(pos);
-            ParseError::XmlError {
-                message: format!("malformed attribute: {e}"),
-                line,
-                col,
-            }
-        })?;
-
-        // Skip namespace declarations.
-        let raw_key = attr.key.as_ref();
-        if raw_key == b"xmlns" || raw_key.starts_with(b"xmlns:") {
-            continue;
-        }
-
-        // xml.html names no namespaced attribute on FHIR elements (`fhir:value` included).
-        if !matches!(
-            resolver.resolve_attribute(attr.key).0,
-            ResolveResult::Unbound
-        ) {
-            let key = String::from_utf8_lossy(raw_key);
-            let message = format!("attribute '{key}' must not be in a namespace");
-            return Err(error_at(line_index, pos, message));
-        }
-        let local = local_name_arc(attr.key.local_name().as_ref(), line_index, pos)?;
-        let val = attr
-            .normalized_value(XmlVersion::Implicit1_0)
-            .map_err(|e| {
-                let (line, col) = line_index.location(pos);
-                ParseError::XmlError {
-                    message: format!("invalid attribute value: {e}"),
-                    line,
-                    col,
-                }
-            })?;
-
-        let value = val.trim_matches([' ', '\t', '\r', '\n']);
-        if value.len() != val.len() {
-            trimmed.push((pos, Arc::clone(&local)));
-        }
-        attrs.insert(
-            local,
-            Node {
-                value: Value::Str(Arc::from(value)),
-                span,
-            },
-        );
-    }
-
-    Ok(attrs)
-}
-
-/// xml.html: `id` is an attribute on elements "but not on resources"; a resource root
-/// carries namespace declarations only.
-// shortcut: resources nested in `contained`, `Bundle.entry.resource` or `Parameters` are
-// read as ordinary elements, so their root attributes are not rejected; upgrade with the
-// embedded-resource unwrapping (11.6.4-P1).
-fn reject_root_attrs(
-    resolver: &NamespaceResolver,
-    e: &BytesStart<'_>,
-    line_index: &LineIndex,
-    pos: u32,
-) -> Result<(), ParseError> {
-    let attrs = collect_attrs(resolver, e, line_index, pos, &mut Vec::new())?;
-    if attrs.is_empty() {
-        return Ok(());
-    }
-    let names: Vec<&str> = attrs.keys().map(AsRef::as_ref).collect();
-    let message = format!(
-        "attributes are not allowed on the resource root element: {}",
-        names.join(", ")
-    );
-    Err(error_at(line_index, pos, message))
-}
-
-/// Reject an element outside the `expected` namespace, or one that declares the schema
-/// instance namespace.
-fn check_element(
-    resolver: &NamespaceResolver,
-    e: &BytesStart<'_>,
-    expected: &[u8],
-    line_index: &LineIndex,
-    pos: u32,
-) -> Result<(), ParseError> {
-    let in_expected = matches!(
-        resolver.resolve_element(e.name()).0,
-        ResolveResult::Bound(ns) if ns.as_ref() == expected
-    );
-    if !in_expected {
-        let name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
-        let expected = String::from_utf8_lossy(expected);
-        let message = format!("element '{name}' must be in the namespace {expected}");
-        return Err(error_at(line_index, pos, message));
-    }
-    // Malformed attributes are reported by `collect_attrs` or quick-xml itself.
-    let declares_xsi = e.attributes().flatten().any(|attr| {
-        let key = attr.key.as_ref();
-        (key == b"xmlns" || key.starts_with(b"xmlns:")) && attr.value.as_ref() == XSI_NS
-    });
-    if declares_xsi {
-        let message = "the XML schema instance namespace is not allowed in FHIR XML";
-        return Err(error_at(line_index, pos, message));
-    }
-    Ok(())
-}
-
-fn span_at(line_index: &LineIndex, pos: u32) -> Span {
-    let (line, col) = line_index.location(pos);
-    Span {
-        line,
-        col,
-        offset: pos,
-    }
-}
-
-fn error_at(line_index: &LineIndex, pos: u32, message: impl Into<String>) -> ParseError {
-    let (line, col) = line_index.location(pos);
-    ParseError::XmlError {
-        message: message.into(),
-        line,
-        col,
-    }
-}
-
-fn xml_error(line_index: &LineIndex, pos: u32, e: quick_xml::Error) -> ParseError {
-    let (line, col) = line_index.location(pos);
-    ParseError::XmlError {
-        message: e.to_string(),
-        line,
-        col,
     }
 }
 

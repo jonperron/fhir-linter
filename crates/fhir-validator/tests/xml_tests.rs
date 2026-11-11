@@ -64,6 +64,17 @@ fn child_elements_given_as_attributes_are_reported() {
 }
 
 #[test]
+fn value_attribute_on_a_complex_element_is_reported() {
+    let found = patient_diagnostics("<identifier value=\"1\"/>");
+    assert!(
+        found
+            .iter()
+            .any(|d| d == "Error TYPE_001 Patient.identifier"),
+        "{found:?}"
+    );
+}
+
+#[test]
 fn elements_named_value_url_and_id_that_are_child_elements_pass() {
     let found = patient_diagnostics(concat!(
         "<identifier id=\"i1\"><value value=\"123\"/></identifier>",

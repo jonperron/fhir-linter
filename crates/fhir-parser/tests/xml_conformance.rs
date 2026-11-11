@@ -42,7 +42,8 @@ fn text_inside_fhir_elements_is_rejected() {
 #[test]
 fn whitespace_comments_and_processing_instructions_between_elements_are_ignored() {
     let source = format!(
-        "<Patient {FHIR_NS}>\n  <!-- c -->\n  <?pi x?>\n  <name>\n\t<family value=\"S\"/>\r\n  </name>\n</Patient>"
+        "<Patient {FHIR_NS}>\n  <!-- c -->\n  <?pi x?>\n  <name>\n\t{}\r\n  </name>\n</Patient>",
+        "<family value=\"S\"/>"
     );
     assert!(parse_xml(&source).is_ok());
 }
@@ -131,11 +132,13 @@ fn narrative_div_outside_the_xhtml_namespace_is_rejected() {
 fn prefixed_attributes_and_the_schema_instance_namespace_are_rejected() {
     let cases = [
         format!(
-            "<Patient {FHIR_NS} xmlns:fhir=\"http://hl7.org/fhir\"><gender fhir:value=\"male\"/></Patient>"
+            "<Patient {FHIR_NS} xmlns:fhir=\"{}\"><gender fhir:value=\"male\"/></Patient>",
+            "http://hl7.org/fhir"
         ),
         format!("<Patient {FHIR_NS} xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/>"),
         format!(
-            "<Patient {FHIR_NS}><name xmlns:s=\"http://www.w3.org/2001/XMLSchema-instance\"><family value=\"S\"/></name></Patient>"
+            "<Patient {FHIR_NS}><name xmlns:s=\"{}\"><family value=\"S\"/></name></Patient>",
+            "http://www.w3.org/2001/XMLSchema-instance"
         ),
     ];
     for source in cases {
@@ -155,6 +158,35 @@ fn prefixed_fhir_and_xhtml_elements_are_accepted() {
         "<Patient {FHIR_NS}><text><status value=\"generated\"/>{XHTML_DIV}</text></Patient>"
     );
     assert!(parse_xml(&source).is_ok());
+}
+
+#[test]
+fn deep_nesting_inside_the_div_is_rejected() {
+    let n = 10_000;
+    let div = format!(
+        "<div xmlns=\"http://www.w3.org/1999/xhtml\">{}{}</div>",
+        "<p>".repeat(n),
+        "</p>".repeat(n)
+    );
+    let source =
+        format!("<Patient {FHIR_NS}><text><status value=\"generated\"/>{div}</text></Patient>");
+    assert!(xml_error(&source).contains("depth"));
+}
+
+#[test]
+fn many_namespace_declarations_on_one_element_are_rejected() {
+    let declarations: String = (0..64)
+        .map(|i| format!(" xmlns:p{i}=\"urn:{i}\""))
+        .collect();
+    let source = format!("<Patient {FHIR_NS}><name{declarations}/></Patient>");
+    assert!(xml_error(&source).contains("namespace bindings"));
+}
+
+#[test]
+fn schema_instance_namespace_written_with_a_character_reference_is_rejected() {
+    let source =
+        format!("<Patient {FHIR_NS} xmlns:s=\"http://www.w3.org/2001/XMLSchema&#45;instance\"/>");
+    assert!(xml_error(&source).contains("namespace"));
 }
 
 #[test]
