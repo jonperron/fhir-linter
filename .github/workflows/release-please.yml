@@ -14,9 +14,12 @@ on:
 permissions:
   contents: read
 
-# A manual retry must not race the push run publishing the same release.
+# GitHub keeps one pending run per group and replaces older pending ones, so
+# push runs share one group and each retried tag gets its own: none can drop
+# another. A retry racing a push for the same tag is safe: every publish step
+# is idempotent.
 concurrency:
-  group: release
+  group: release-${{ github.event_name == 'push' && 'push' || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -40,8 +43,10 @@ jobs:
   release-assets:
     needs: release-please
     # release-please is skipped on a manual run; !cancelled() lets this job run anyway.
+    # Only the reviewed main workflow may build, upload or publish.
     if: >-
-      !cancelled() && (github.event_name == 'workflow_dispatch'
+      !cancelled() && github.ref == 'refs/heads/main'
+      && (github.event_name == 'workflow_dispatch'
       || needs.release-please.outputs.release_created == 'true')
     permissions:
       contents: write
@@ -52,7 +57,7 @@ jobs:
   publish-npm:
     # release-please is listed for its tag output on push runs.
     needs: [release-please, release-assets]
-    if: ${{ !cancelled() && needs.release-assets.result == 'success' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.release-assets.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -83,8 +88,9 @@ jobs:
   # reusable workflows. The PyPI publisher must name release-please.yml.
   publish-pypi:
     needs: release-assets
-    if: ${{ !cancelled() && needs.release-assets.result == 'success' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.release-assets.result == 'success' }}
     runs-on: ubuntu-latest
+    # Also restrict the pypi environment to the main branch (deployment rules).
     # Must match the environment of the PyPI trusted publisher.
     environment: pypi
     permissions:
