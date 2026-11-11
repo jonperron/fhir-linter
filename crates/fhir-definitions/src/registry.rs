@@ -167,17 +167,22 @@ impl Registry {
         if system.is_some_and(|s| s != inc_system) {
             return Some(false);
         }
-        if !inc.codes.is_empty() {
-            return Some(inc.codes.iter().any(|c| c.as_ref() == code));
-        }
-        let cs = self.code_systems.get(inc_system)?;
-        if cs.codes.contains(code) {
-            Some(true)
-        } else if cs.complete {
-            Some(false)
+        let cs = self.code_systems.get(inc_system);
+        let found = if inc.codes.is_empty() {
+            let cs = cs?;
+            if !cs.codes.contains(code) {
+                return cs.complete.then_some(false);
+            }
+            true
         } else {
-            None
+            inc.codes.iter().any(|c| c.as_ref() == code)
+        };
+        // R5 forbids selecting notSelectable codes only in expansions; from a compose
+        // membership is undecidable.
+        if found && cs.is_some_and(|cs| cs.not_selectable.contains(code)) {
+            return None;
         }
+        Some(found)
     }
 
     /// Total number of indexed `StructureDefinition` entries.
@@ -478,6 +483,9 @@ mod tests {
                 "bogus",
                 None,
             ),
+            // notSelectable concept (item-type#question): undecidable.
+            ("item-type", None, "question", None),
+            ("item-type", None, "group", Some(true)),
             // Unknown ValueSet.
             ("no-such-value-set", None, "male", None),
         ];

@@ -200,7 +200,8 @@ fn parse_code_system(resource: &Value) -> Option<CodeSystem> {
     let url: Arc<str> = resource["url"].as_str()?.into();
     let name: Arc<str> = resource["name"].as_str()?.into();
     let mut codes = HashSet::new();
-    collect_concepts(&resource["concept"], &mut codes);
+    let mut not_selectable = HashSet::new();
+    collect_concepts(&resource["concept"], &mut codes, &mut not_selectable);
     // Only a complete, enumerated system can prove a code absent.
     // Case-insensitive systems are never proven absent: lookup is exact-match.
     let complete = resource["content"].as_str() == Some("complete")
@@ -210,17 +211,35 @@ fn parse_code_system(resource: &Value) -> Option<CodeSystem> {
         url,
         name,
         codes,
+        not_selectable,
         complete,
     })
 }
 
-fn collect_concepts(concepts: &Value, out: &mut HashSet<Arc<str>>) {
+fn collect_concepts(
+    concepts: &Value,
+    out: &mut HashSet<Arc<str>>,
+    not_selectable: &mut HashSet<Arc<str>>,
+) {
     for c in concepts.as_array().into_iter().flatten() {
         if let Some(code) = c["code"].as_str() {
             out.insert(Arc::from(code));
+            if is_not_selectable(c) {
+                not_selectable.insert(Arc::from(code));
+            }
         }
-        collect_concepts(&c["concept"], out);
+        collect_concepts(&c["concept"], out, not_selectable);
     }
+}
+
+/// A concept flagged `notSelectable` (or `abstract`) with `valueBoolean: true`.
+fn is_not_selectable(concept: &Value) -> bool {
+    concept["property"].as_array().is_some_and(|props| {
+        props.iter().any(|p| {
+            matches!(p["code"].as_str(), Some("notSelectable" | "abstract"))
+                && p["valueBoolean"].as_bool() == Some(true)
+        })
+    })
 }
 
 #[cfg(test)]
@@ -438,6 +457,26 @@ mod tests {
         let mut css = HashMap::new();
         load_bundle(&path, &mut sds, &mut vss, &mut css).unwrap();
         assert!(vss.is_empty(), "ValueSet without name should be skipped");
+    }
+
+    #[test]
+    fn code_system_collects_not_selectable_concepts_at_every_depth() {
+        let cs = parse_code_system(&serde_json::json!({
+            "url": "http://example.com/cs", "name": "CS", "content": "complete",
+            "concept": [
+                {"code": "a", "property": [{"code": "notSelectable", "valueBoolean": true}],
+                 "concept": [
+                     {"code": "b", "property": [{"code": "abstract", "valueBoolean": true}]},
+                     {"code": "c", "property": [{"code": "notSelectable", "valueBoolean": false}]}
+                 ]},
+                {"code": "d", "property": [{"code": "abstract-type", "valueBoolean": true}]}
+            ]
+        }))
+        .expect("CodeSystem should be parsed");
+        assert_eq!(cs.codes.len(), 4);
+        let mut flagged: Vec<_> = cs.not_selectable.iter().map(AsRef::as_ref).collect();
+        flagged.sort_unstable();
+        assert_eq!(flagged, ["a", "b"]);
     }
 
     #[test]
