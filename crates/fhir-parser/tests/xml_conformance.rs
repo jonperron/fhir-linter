@@ -61,6 +61,18 @@ fn root_attributes_other_than_namespace_declarations_are_rejected() {
 }
 
 #[test]
+fn attribute_and_child_element_with_the_same_name_are_rejected() {
+    let cases = [
+        "<gender id=\"g1\" value=\"male\"><id value=\"zz\"/></gender>",
+        "<active value=\"true\"><value value=\"false\"/></active>",
+    ];
+    for body in cases {
+        let source = format!("<Patient {FHIR_NS}>{body}</Patient>");
+        assert!(xml_error(&source).contains("both"), "{body}");
+    }
+}
+
+#[test]
 fn utf8_encoding_declaration_is_accepted_in_any_case() {
     for encoding in ["UTF-8", "utf-8"] {
         let source = format!("<?xml version=\"1.0\" encoding=\"{encoding}\"?><Patient {FHIR_NS}/>");

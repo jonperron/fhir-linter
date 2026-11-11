@@ -47,14 +47,15 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
     // The reshape keeps XML grouping, so only JSON input has a meaningful array shape.
     let json = !resource.from_xml;
     let reshaped;
+    let mut diagnostics = Vec::new();
     let resource = if resource.from_xml {
-        reshaped = xml_shape::to_json_shape(resource, sd, registry);
+        let (shaped, xml_diagnostics) = xml_shape::to_json_shape(resource, sd, registry);
+        reshaped = shaped;
+        diagnostics = xml_diagnostics;
         &reshaped
     } else {
         resource
     };
-
-    let mut diagnostics = Vec::new();
 
     nested::validate(resource, sd, registry, json, &mut diagnostics);
     terminology::validate(resource, sd, registry, &mut diagnostics);

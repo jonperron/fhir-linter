@@ -103,6 +103,9 @@ fn parse_element_definition(elem: &Value) -> Option<ElementDefinition> {
 
     let binding = parse_binding(&elem["binding"]);
     let slice_name = elem["sliceName"].as_str().map(Arc::from);
+    let xml_attr = elem["representation"]
+        .as_array()
+        .is_some_and(|r| r.iter().any(|v| v == "xmlAttr"));
 
     Some(ElementDefinition {
         path,
@@ -112,6 +115,7 @@ fn parse_element_definition(elem: &Value) -> Option<ElementDefinition> {
         constraints,
         binding,
         slice_name,
+        xml_attr,
     })
 }
 

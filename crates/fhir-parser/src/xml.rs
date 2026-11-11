@@ -203,6 +203,11 @@ fn parse_children(
                 } else {
                     let attrs = collect_attrs(e, line_index, pos)?;
                     let children = parse_children(reader, line_index, depth + 1)?;
+                    if let Some(key) = attrs.keys().find(|k| children.contains_key(*k)) {
+                        let message =
+                            format!("'{key}' is given both as an attribute and as a child element");
+                        return Err(error_at(line_index, pos, message));
+                    }
                     build_complex_node(attrs, children, span)
                 };
                 groups.entry(name).or_default().push(node);
