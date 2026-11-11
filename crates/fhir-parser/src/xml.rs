@@ -19,6 +19,8 @@ const MAX_DEPTH: usize = 128;
 const MAX_DECLARATIONS_PER_ELEMENT: usize = 8;
 
 /// xml.html: "There SHALL be no DTD references in FHIR resources", wherever they appear.
+const DTD_NOT_ALLOWED: &str = "a DTD is not allowed in FHIR XML";
+
 /// What the reader records for the validator while parsing.
 #[derive(Default)]
 struct Notes {
@@ -35,8 +37,6 @@ impl Notes {
         }
     }
 }
-
-const DTD_NOT_ALLOWED: &str = "a DTD is not allowed in FHIR XML";
 
 /// Parse a FHIR XML resource from a source string.
 ///
@@ -66,8 +66,8 @@ pub fn parse_xml(source: &str) -> Result<Resource, ParseError> {
         });
     }
     let resource = parse_document(source)?;
-    // shortcut: references such as `&#1;` are only caught in captured values and the div,
-    // not in root attributes; check them in the reader if those need it.
+    // shortcut: references such as `&#1;` are only caught in captured values and the div
+    // text, not in root or XHTML attributes; check them in the reader if those need it.
     if declared_version(source) != XmlVersion::Explicit1_1 {
         reject_controls(resource.id.as_deref(), &resource.fields)?;
     }
