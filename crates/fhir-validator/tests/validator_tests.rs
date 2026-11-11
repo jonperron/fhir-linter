@@ -208,6 +208,132 @@ fn valid_code_with_required_binding_passes_terminology() {
     assert_eq!(codes(&registry, json, "TERMINOLOGY_001"), 0);
 }
 
+fn severities(registry: &Registry, json: &str, code: &str) -> Vec<(Severity, String)> {
+    let resource = parse_json(json).unwrap();
+    validate(&resource, registry)
+        .into_iter()
+        .filter(|d| d.code.as_ref() == code)
+        .map(|d| (d.severity, d.path))
+        .collect()
+}
+
+#[test]
+fn text_only_codeable_concept_under_required_binding_produces_terminology_001() {
+    // terminologies.html 4.1.4.2.1: text is not a substitute for the required code.
+    let registry = load_registry();
+    let base =
+        r#"{"resourceType":"Condition","subject":{"reference":"Patient/1"},"clinicalStatus":"#;
+    let error = vec![(Severity::Error, "Condition.clinicalStatus".to_owned())];
+    for bad in [r#"{"text":"whatever"}"#, r#"{"coding":[{"display":"x"}]}"#] {
+        let json = format!("{base}{bad}}}");
+        assert_eq!(
+            severities(&registry, &json, "TERMINOLOGY_001"),
+            error,
+            "{bad}"
+        );
+    }
+    let coded = concat!(
+        r#"{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/condition-clinical","#,
+        r#""code":"active"}],"text":"x"}"#,
+    );
+    let json = format!("{base}{coded}}}");
+    assert!(severities(&registry, &json, "TERMINOLOGY_001").is_empty());
+}
+
+#[test]
+fn code_outside_extensible_binding_produces_terminology_001_warning() {
+    // FamilyMemberHistory.sex is bound extensibly to administrative-gender.
+    let registry = load_registry();
+    let sex = |code: &str| {
+        format!(
+            concat!(
+                r#"{{"resourceType":"FamilyMemberHistory","sex":{{"coding":[{{"#,
+                r#""system":"http://hl7.org/fhir/administrative-gender","code":"{code}"}}]}}}}"#,
+            ),
+            code = code,
+        )
+    };
+    let warning = vec![(Severity::Warning, "FamilyMemberHistory.sex".to_owned())];
+    assert_eq!(
+        severities(&registry, &sex("bogus"), "TERMINOLOGY_001"),
+        warning
+    );
+    assert!(severities(&registry, &sex("female"), "TERMINOLOGY_001").is_empty());
+    // Extensible bindings allow text alone when no code fits.
+    let text = r#"{"resourceType":"FamilyMemberHistory","sex":{"text":"x"}}"#;
+    assert!(severities(&registry, text, "TERMINOLOGY_001").is_empty());
+    // A Coding without system is not a member there either, and the missing system warns.
+    let bare = r#"{"resourceType":"FamilyMemberHistory","sex":{"coding":[{"code":"female"}]}}"#;
+    assert_eq!(severities(&registry, bare, "TERMINOLOGY_001"), warning);
+    assert_eq!(
+        severities(&registry, bare, "TERMINOLOGY_002"),
+        vec![(
+            Severity::Warning,
+            "FamilyMemberHistory.sex.coding[0]".to_owned()
+        )],
+    );
+}
+
+#[test]
+fn single_xml_coding_is_read_by_terminology_checks() {
+    // The XML reshape keeps one <coding> as an object, not a one-item array.
+    // DeviceUsage.usageStatus is bound (required) to a code system in the Registry.
+    let registry = load_registry();
+    let status = |code: &str| {
+        format!(
+            concat!(
+                r#"<DeviceUsage xmlns="http://hl7.org/fhir"><usageStatus><coding>"#,
+                r#"<system value="http://hl7.org/fhir/deviceusage-status"/>"#,
+                r#"<code value="{code}"/></coding></usageStatus></DeviceUsage>"#,
+            ),
+            code = code,
+        )
+    };
+    let terminology = |xml: &str| {
+        let codes = xml_codes(&registry, xml);
+        codes.into_iter().filter(|c| c == "TERMINOLOGY_001").count()
+    };
+    assert_eq!(terminology(&status("active")), 0);
+    assert_eq!(terminology(&status("bogus")), 1);
+    let text_only = concat!(
+        r#"<DeviceUsage xmlns="http://hl7.org/fhir">"#,
+        r#"<usageStatus><text value="x"/></usageStatus></DeviceUsage>"#,
+    );
+    assert_eq!(terminology(text_only), 1);
+}
+
+#[test]
+fn coding_without_system_is_not_a_member_and_warns() {
+    let registry = load_registry();
+    let status = |codings: &str| {
+        format!(r#"{{"resourceType":"DeviceUsage","usageStatus":{{"coding":[{codings}]}}}}"#)
+    };
+    let bare = status(r#"{"code":"active"}"#);
+    assert_eq!(
+        severities(&registry, &bare, "TERMINOLOGY_001"),
+        vec![(Severity::Error, "DeviceUsage.usageStatus".to_owned())],
+    );
+    assert_eq!(
+        severities(&registry, &bare, "TERMINOLOGY_002"),
+        vec![(
+            Severity::Warning,
+            "DeviceUsage.usageStatus.coding[0]".to_owned()
+        )],
+    );
+    // A second, valid Coding makes the concept a member; the bare one still warns.
+    let mixed = status(
+        r#"{"code":"active"},{"system":"http://hl7.org/fhir/deviceusage-status","code":"active"}"#,
+    );
+    assert!(severities(&registry, &mixed, "TERMINOLOGY_001").is_empty());
+    assert_eq!(
+        severities(&registry, &mixed, "TERMINOLOGY_002"),
+        vec![(
+            Severity::Warning,
+            "DeviceUsage.usageStatus.coding[0]".to_owned()
+        )],
+    );
+}
+
 // ── Reference validation ──────────────────────────────────────────────────────
 
 #[test]
@@ -215,6 +341,13 @@ fn reference_to_unknown_type_produces_reference_001() {
     let registry = load_registry();
     let json = r#"{"resourceType":"Patient","managingOrganization":{"reference":"Bogus/1"}}"#;
     assert_eq!(codes(&registry, json, "REFERENCE_001"), 1);
+    // A ':' that does not end a leading URI scheme leaves the reference relative.
+    for reference in ["Bogus/a:b", "Bogus?identifier=sys:1"] {
+        let json = format!(
+            r#"{{"resourceType":"Patient","managingOrganization":{{"reference":"{reference}"}}}}"#
+        );
+        assert_eq!(codes(&registry, &json, "REFERENCE_001"), 1, "{reference}");
+    }
 }
 
 #[test]
@@ -225,10 +358,128 @@ fn reference_to_known_type_and_absolute_url_pass() {
 }
 
 #[test]
+fn reference_type_disagreeing_with_fhir_url_produces_reference_003() {
+    // references.html 2.1.3.0.1: type and a FHIR URL reference SHALL be consistent.
+    let registry = load_registry();
+    let org = |reference: &str, kind: &str| {
+        format!(
+            concat!(
+                r#"{{"resourceType":"Patient","managingOrganization":"#,
+                r#"{{"reference":"{reference}","type":"{kind}"}}}}"#,
+            ),
+            reference = reference,
+            kind = kind,
+        )
+    };
+    let error = vec![(
+        Severity::Error,
+        "Patient.managingOrganization.reference".to_owned(),
+    )];
+    for (reference, kind) in [
+        ("Organization/2", "Patient"),
+        ("http://example.org/fhir/Organization/2", "Patient"),
+        (
+            "Organization/2/_history/1",
+            "http://hl7.org/fhir/StructureDefinition/Patient",
+        ),
+        // Reference.type names a resource definition, not a profile: absolute URLs are
+        // only allowed for logical models (R5 Reference.type comment).
+        (
+            "Organization/2",
+            "http://example.org/fhir/StructureDefinition/my-organization",
+        ),
+    ] {
+        let json = org(reference, kind);
+        assert_eq!(
+            severities(&registry, &json, "REFERENCE_003"),
+            error,
+            "{reference} {kind}"
+        );
+    }
+    for (reference, kind) in [
+        ("Organization/2", "Organization"),
+        ("https://example.org/fhir/Organization/2", "Organization"),
+        (
+            "Organization/2",
+            "http://hl7.org/fhir/StructureDefinition/Organization",
+        ),
+        // Not FHIR URLs: the rule does not apply.
+        ("Organization?identifier=1", "Patient"),
+        ("http://example.org/my_fhir/Organization/2", "Patient"),
+        ("urn:uuid:9d5e4b5a-7f2b-4c1e-9a3c-0b6c8f5d2e11", "Patient"),
+    ] {
+        let json = org(reference, kind);
+        assert!(
+            severities(&registry, &json, "REFERENCE_003").is_empty(),
+            "{reference} {kind}"
+        );
+    }
+}
+
+#[test]
+fn malformed_relative_reference_produces_reference_004_warning() {
+    // The R5 literal reference regex is not worded as a SHALL: a warning.
+    let registry = load_registry();
+    let gp = |reference: &str| {
+        format!(
+            r#"{{"resourceType":"Patient","generalPractitioner":[{{"reference":"{reference}"}}]}}"#
+        )
+    };
+    let warning = vec![(
+        Severity::Warning,
+        "Patient.generalPractitioner[0].reference".to_owned(),
+    )];
+    let long_id = format!("Practitioner/{}", "a".repeat(65));
+    for bad in [
+        "Practitioner",
+        "Practitioner/a b",
+        "Practitioner/1/_history",
+        &long_id,
+        // A ':' after a '/' is not a URI scheme (RFC 3986): still a relative reference.
+        "Practitioner/a:b",
+    ] {
+        assert_eq!(
+            severities(&registry, &gp(bad), "REFERENCE_004"),
+            warning,
+            "{bad}"
+        );
+    }
+    for good in [
+        "Practitioner/1",
+        "Practitioner/a-1.b/_history/2",
+        "Practitioner?name=x",
+        // Not relative references: the rule does not apply.
+        "#",
+        "#p1",
+        "http://example.org/fhir/Practitioner/a b",
+        "urn:uuid:9d5e4b5a-7f2b-4c1e-9a3c-0b6c8f5d2e11",
+    ] {
+        assert!(
+            severities(&registry, &gp(good), "REFERENCE_004").is_empty(),
+            "{good}"
+        );
+    }
+}
+
+#[test]
 fn unresolved_contained_reference_produces_reference_002() {
     let registry = load_registry();
     let json = r##"{"resourceType":"Patient","managingOrganization":{"reference":"#org"}}"##;
     assert_eq!(codes(&registry, json, "REFERENCE_002"), 1);
+}
+
+#[test]
+fn bare_hash_reference_at_root_produces_reference_002() {
+    // ref-1: '#' is valid only when %rootResource != %resource; the root has no container.
+    let registry = load_registry();
+    let json = r##"{"resourceType":"Patient","managingOrganization":{"reference":"#"}}"##;
+    assert_eq!(
+        severities(&registry, json, "REFERENCE_002"),
+        vec![(
+            Severity::Error,
+            "Patient.managingOrganization.reference".to_owned()
+        )],
+    );
 }
 
 #[test]
