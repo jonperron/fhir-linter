@@ -83,7 +83,12 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
     fn new(source: &'src str, line_index: &'idx LineIndex) -> Self {
         Self {
             source: source.as_bytes(),
-            pos: 0,
+            // Accept a leading UTF-8 BOM, as the XML parser does; offsets still count its bytes.
+            pos: if source.starts_with('\u{FEFF}') {
+                '\u{FEFF}'.len_utf8()
+            } else {
+                0
+            },
             line_index,
             depth: 0,
         }
@@ -392,7 +397,8 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
         let num_str = std::str::from_utf8(&self.source[start..self.pos])
             .map_err(|_| self.error_at(start, "invalid number encoding"))?;
 
-        if !is_float {
+        // `-0` stays a decimal: the R5 integer regex `[0]|[-+]?[1-9][0-9]*` rejects it.
+        if !is_float && num_str != "-0" {
             // The grammar above guarantees digits, so a failure here means
             // i64 overflow: fall back to a decimal like any other JSON number.
             // shortcut: f64 rounds beyond ~17 significant digits, switch to an
@@ -613,9 +619,10 @@ mod tests {
             resource.fields.get("big").unwrap().value,
             Value::Decimal(f) if f == 12345678901234567890.0
         ));
+        // R5 integer regex `[0]|[-+]?[1-9][0-9]*` rejects `-0`: keep it a decimal.
         assert!(matches!(
             resource.fields.get("neg").unwrap().value,
-            Value::Integer(0)
+            Value::Decimal(f) if f == 0.0 && f.is_sign_negative()
         ));
         let tiny = parse_json(r#"{"resourceType": "Basic", "x": 1e-400}"#).unwrap();
         assert!(matches!(
@@ -745,6 +752,19 @@ mod depth_dup_tests {
             "]".repeat(100_000)
         );
         assert!(parse_json(&src).is_err());
+    }
+
+    #[test]
+    fn leading_utf8_bom_is_skipped_and_offsets_count_it() {
+        let src = "\u{FEFF}{\"resourceType\":\"Patient\",\"active\":true}";
+        let resource = parse_json(src).unwrap();
+        assert_eq!(&*resource.resource_type, "Patient");
+        let active = &resource.fields["active"];
+        // Spans stay byte offsets into the input as given, BOM included.
+        assert_eq!(active.span.offset as usize, src.find("true").unwrap());
+        // Only a leading BOM is skipped.
+        assert!(parse_json("{\"resourceType\":\"Patient\"}\u{FEFF}").is_err());
+        assert!(parse_json("\u{FEFF}\u{FEFF}{\"resourceType\":\"Patient\"}").is_err());
     }
 
     #[test]

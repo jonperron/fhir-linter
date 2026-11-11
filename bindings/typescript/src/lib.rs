@@ -20,8 +20,12 @@ pub struct Diagnostic {
     pub code: String,
     pub message: String,
     pub path: String,
+    /// 1-indexed line.
     pub line: Option<u32>,
+    /// 1-indexed UTF-8 byte column, not a UTF-16 string column.
     pub col: Option<u32>,
+    /// 0-indexed UTF-8 byte offset into the input, not a string index:
+    /// `Buffer.from(json).subarray(offset)` lands on the finding.
     pub offset: Option<u32>,
     /// Lint rule id; absent for validator findings.
     pub rule: Option<String>,

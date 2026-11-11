@@ -9,6 +9,13 @@ for d in fhir_linter.validate(resource_json) + fhir_linter.lint(resource_json):
     print(d.severity, d.code, d.path, d.message)
 ```
 
+## Locations
+
+`line` is 1-indexed. `col` (1-indexed) and `offset` (0-indexed) count UTF-8
+bytes, not characters: after non-ASCII text such as `"ééé"`,
+`resource_json[d.offset:]` lands too far. Index the encoded bytes instead:
+`resource_json.encode()[d.offset:]`. All three are `None` without a location.
+
 ## FHIR definitions
 
 The wheel does not bundle the FHIR R5 definitions (about 60 MB). Download them

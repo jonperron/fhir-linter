@@ -33,6 +33,13 @@ pub fn validate(
             path,
         ));
     }
+    if let Some(warning) = resource
+        .id
+        .as_deref()
+        .and_then(|id| crate::type_check::control_char_warning(id, &format!("{resource_type}.id")))
+    {
+        diagnostics.push(warning);
+    }
 
     walk(
         &resource.fields,

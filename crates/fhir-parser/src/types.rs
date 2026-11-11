@@ -2,11 +2,16 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-/// Byte offset and 1-indexed line/column of a source location.
+/// A source location, counted in UTF-8 bytes of the input as given (a leading
+/// BOM included), not in characters: after `"ééé"` the column is 3 more than the
+/// character count.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
+    /// 1-indexed line.
     pub line: u32,
+    /// 1-indexed UTF-8 byte column within the line.
     pub col: u32,
+    /// 0-indexed UTF-8 byte offset from the start of the input.
     pub offset: u32,
 }
 

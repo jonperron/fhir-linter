@@ -4,7 +4,8 @@ use crate::diagnostic::Diagnostic;
 
 /// Check one value against a primitive FHIR type, recursing into arrays.
 ///
-/// Emits `TYPE_001` through `TYPE_005` for format and type mismatches.
+/// Emits `TYPE_001` through `TYPE_005` for format and type mismatches, and the
+/// `TYPE_006` warning for a control character in a string.
 pub(crate) fn check_type(
     value: &Value,
     fhir_type: &str,
@@ -90,6 +91,26 @@ pub(crate) fn check_type(
     if let Some((code, message)) = error {
         diagnostics.push(Diagnostic::error(code, message, path.to_owned()).with_location(span));
     }
+
+    // R5 datatypes.html: `string` (and its specialisations) SHOULD NOT hold controls
+    // below U+0020 other than tab, CR and LF. XML rejects them at parse time.
+    if let ("string" | "markdown" | "code" | "id", Value::Str(s)) = (fhir_type, value) {
+        if let Some(warning) = control_char_warning(s, path) {
+            diagnostics.push(warning.with_location(span));
+        }
+    }
+}
+
+/// The `TYPE_006` Warning, without a location, when `s` holds a control character
+/// below U+0020 other than tab, CR and LF.
+pub(crate) fn control_char_warning(s: &str, path: &str) -> Option<Diagnostic> {
+    s.chars().any(fhir_parser::is_disallowed_control).then(|| {
+        Diagnostic::warning(
+            "TYPE_006",
+            format!("String at '{path}' contains a control character below U+0020"),
+            path.to_owned(),
+        )
+    })
 }
 
 /// FHIR date: `YYYY`, `YYYY-MM`, or `YYYY-MM-DD` (year 0001-9999, day valid for its month).
