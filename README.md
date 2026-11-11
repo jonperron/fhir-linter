@@ -51,11 +51,14 @@ Create a `fhir-linter.toml`:
 
 ```toml
 [rules.narrative-absent]
-severity = "error"      # error | warning | information | hint
+severity = "error"      # fatal | error | warning | information
 
 [rules.missing-identifier]
 enabled = false
 ```
+
+Severities are the FHIR IssueSeverity codes. `hint` is still accepted as an
+alias and is reported as `information`.
 
 ## Layout
 

@@ -47,14 +47,17 @@ Le système SHALL fournir un type `Diagnostic` public avec les champs : `severit
 
 ### Requirement: Type Severity
 
-Le système SHALL fournir une enum `Severity` publique avec les variants `Error`, `Warning`, `Information`, `Hint`, ordonnés du plus sévère au moins sévère.
+Le système SHALL fournir une enum `Severity` publique dont les variants sont les codes FHIR R5 IssueSeverity utilisables par un diagnostic : `Fatal`, `Error`, `Warning`, `Information`, ordonnés du plus sévère au moins sévère. Le code `success` n'est pas un niveau de diagnostic et SHALL NOT avoir de variant ; aucun variant `Hint` ne SHALL exister. `Severity::ALL` SHALL contenir tous les variants, du plus sévère au moins sévère.
 
 #### Scenario: Ordre des sévérités
 
 - **WHEN** deux valeurs `Severity` sont comparées avec `<`
-- **THEN** `Error < Warning < Information < Hint` SHALL être vrai
+- **THEN** `Fatal < Error < Warning < Information` SHALL être vrai
 
----
+#### Scenario: Liste des variants
+
+- **WHEN** `Severity::ALL` est lu
+- **THEN** il SHALL valoir `[Fatal, Error, Warning, Information]`
 
 ### Requirement: Validation structurelle — type de ressource inconnu (STRUCTURE_000)
 
@@ -387,7 +390,7 @@ Les enfants `id` des éléments imbriqués SHALL être vérifiés comme `string`
 
 ### Requirement: Validation des invariants FHIRPath (INVARIANT_<key>)
 
-Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur l'élément racine du snapshot. Pour chaque contrainte dont l'expression ne retourne pas `[true]`, il SHALL émettre un `Diagnostic` avec code `INVARIANT_<key>` où `<key>` est la valeur du champ `key` de la contrainte. Le code `INVARIANT_SKIPPED` est réservé : il signale une contrainte non vérifiée et n'est jamais une violation.
+Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur l'élément racine du snapshot. Pour chaque contrainte dont l'expression ne retourne pas `[true]`, il SHALL émettre un `Diagnostic` avec code `INVARIANT_<key>` où `<key>` est la valeur du champ `key` de la contrainte. Le code `INVARIANT_SKIPPED` est réservé : il signale une contrainte non vérifiée et n'est jamais une violation. La severity R5 d'une contrainte est liée (binding required) à constraint-severity (`error | warning`) : seule la valeur exacte `warning` SHALL donner `Severity::Warning` ; toute autre valeur (`error`, mais aussi `information`, `Warning` ou un code inconnu) SHALL donner `Severity::Error`.
 
 #### Scenario: Contrainte violée émet INVARIANT_<key>
 
@@ -423,10 +426,10 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 - **THEN** aucun Diagnostic `INVARIANT_dgr-1` ne SHALL être émis
 - **AND** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` nommant `dgr-1` SHALL être émis
 
-#### Scenario: Severity `information` mappée en Warning
+#### Scenario: Severity hors de constraint-severity mappée en Error
 
-- **WHEN** une contrainte violée a `severity="information"`
-- **THEN** le Diagnostic `INVARIANT_<key>` SHALL avoir la severity `Warning`
+- **WHEN** une contrainte violée a `severity="information"` ou `severity="Warning"` (codes sensibles à la casse)
+- **THEN** le Diagnostic `INVARIANT_<key>` SHALL avoir la severity `Error`
 
 #### Scenario: Contrainte sans expression ignorée
 
@@ -660,12 +663,22 @@ Un seul parcours récursif SHALL appliquer ces vérifications, en partant du pre
 
 ### Requirement: Nom textuel de Severity
 
-Le système SHALL fournir `Severity::as_str()` retournant le nom en minuscules de la sévérité : `"error"`, `"warning"`, `"information"`, `"hint"`. C'est la représentation exposée par les bindings.
+Le système SHALL fournir `Severity::as_str()` retournant le code FHIR R5 IssueSeverity de la sévérité : `"fatal"`, `"error"`, `"warning"`, `"information"`. C'est la représentation exposée par les bindings. `Severity` SHALL implémenter `FromStr` comme inverse exact de `as_str` : toute autre chaîne (`success`, `hint`, casse différente comme `Error`, chaîne vide) SHALL être rejetée.
 
 #### Scenario: Conversion en chaîne
 
-- **WHEN** `as_str()` est appelé sur `Severity::Error`, `Warning`, `Information` et `Hint`
-- **THEN** il SHALL retourner respectivement `"error"`, `"warning"`, `"information"` et `"hint"`
+- **WHEN** `as_str()` est appelé sur `Severity::Fatal`, `Error`, `Warning` et `Information`
+- **THEN** il SHALL retourner respectivement `"fatal"`, `"error"`, `"warning"` et `"information"`
+
+#### Scenario: Aller-retour FromStr
+
+- **WHEN** `s.as_str().parse::<Severity>()` est appelé pour chaque `s` de `Severity::ALL`
+- **THEN** il SHALL retourner `Ok(s)`
+
+#### Scenario: Codes rejetés par FromStr
+
+- **WHEN** `"success"`, `"hint"`, `"Error"` ou `""` est analysé en `Severity`
+- **THEN** l'analyse SHALL échouer
 
 ### Requirement: Remodelage des ressources XML
 

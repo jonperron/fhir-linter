@@ -15,7 +15,7 @@ const DEFINITIONS_DIR_ENV: &str = "FHIR_DEFINITIONS_DIR";
 /// A validation or lint finding.
 #[napi(object)]
 pub struct Diagnostic {
-    /// `error`, `warning`, `information` or `hint`.
+    /// FHIR IssueSeverity code: `fatal`, `error`, `warning` or `information`.
     pub severity: String,
     pub code: String,
     pub message: String,

@@ -233,3 +233,32 @@ fn unknown_rule_or_severity_is_an_error() {
     assert!(run(BARE, "[rules.nope]\nenabled = false").is_err());
     assert!(run(BARE, "[rules.narrative-absent]\nseverity = \"loud\"").is_err());
 }
+
+/// Configured severities are FHIR IssueSeverity codes (`success` is not a
+/// diagnostic level); `hint` is a config alias output as `information`.
+#[test]
+fn config_severity_maps_to_issue_severity() {
+    for (configured, output) in [
+        ("fatal", "fatal"),
+        ("error", "error"),
+        ("warning", "warning"),
+        ("information", "information"),
+        ("hint", "information"),
+    ] {
+        let cfg = format!("[rules.narrative-absent]\nseverity = \"{configured}\"");
+        let found = run(BARE, &cfg).unwrap_or_else(|e| panic!("{configured}: {e}"));
+        let (_, severity) = found
+            .iter()
+            .find(|(id, _)| id == "narrative-absent")
+            .unwrap();
+        assert_eq!(severity.as_str(), output, "configured {configured}");
+    }
+}
+
+#[test]
+fn config_severity_outside_issue_severity_is_an_error() {
+    for configured in ["success", "Error"] {
+        let cfg = format!("[rules.narrative-absent]\nseverity = \"{configured}\"");
+        assert!(run(BARE, &cfg).is_err(), "configured {configured}");
+    }
+}

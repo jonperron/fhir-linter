@@ -62,9 +62,10 @@ pub fn validate(
         let satisfied = matches!(result.as_slice(), [fhir_fhirpath::Value::Bool(true)]);
 
         if !satisfied {
-            // "warning" and "information" are downgraded; "error" and unknown values stay errors.
+            // R5 constraint-severity is error | warning (required binding):
+            // only "warning" downgrades, any other code stays an error.
             let severity = match constraint.severity.as_ref() {
-                "warning" | "information" => Severity::Warning,
+                "warning" => Severity::Warning,
                 _ => Severity::Error,
             };
             diagnostics.push(Diagnostic {
@@ -257,13 +258,17 @@ mod tests {
     }
 
     #[test]
-    fn information_severity_maps_to_warning() {
-        let sd = make_sd_with_constraints(
-            "Patient",
-            vec![make_constraint("test-10", "information", "false")],
-        );
-        let mut d = vec![];
-        validate(&make_empty_resource("Patient"), &sd, &|_, _| false, &mut d);
-        assert_eq!(d[0].severity, Severity::Warning);
+    fn severity_outside_constraint_severity_stays_error() {
+        // R5 constraint-severity is error | warning (case-sensitive codes);
+        // any other code is not a downgrade.
+        for code in ["information", "Warning"] {
+            let sd = make_sd_with_constraints(
+                "Patient",
+                vec![make_constraint("test-10", code, "false")],
+            );
+            let mut d = vec![];
+            validate(&make_empty_resource("Patient"), &sd, &|_, _| false, &mut d);
+            assert_eq!(d[0].severity, Severity::Error, "{code}");
+        }
     }
 }

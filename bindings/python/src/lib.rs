@@ -14,7 +14,7 @@ const DEFINITIONS_DIR_ENV: &str = "FHIR_DEFINITIONS_DIR";
 /// A validation or lint finding.
 #[pyclass(frozen, get_all, module = "fhir_linter")]
 struct Diagnostic {
-    /// `error`, `warning`, `information` or `hint`.
+    /// FHIR IssueSeverity code: `fatal`, `error`, `warning` or `information`.
     severity: &'static str,
     code: String,
     message: String,

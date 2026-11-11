@@ -47,6 +47,16 @@ enabled = false
     assert diagnostics["narrative-absent"].severity == "error"
 
 
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [("fatal", "fatal"), ("hint", "information")],
+)
+def test_lint_config_severity_outputs_issue_severity_code(configured, expected):
+    config = f'[rules.narrative-absent]\nseverity = "{configured}"'
+    diagnostics = {d.rule: d for d in fhir_linter.lint(BARE_PATIENT, config)}
+    assert diagnostics["narrative-absent"].severity == expected
+
+
 @pytest.mark.parametrize("function", [fhir_linter.validate, fhir_linter.lint])
 def test_malformed_json_raises_value_error(function):
     with pytest.raises(ValueError, match="parse error"):
