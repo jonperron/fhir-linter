@@ -12,9 +12,9 @@ for d in fhir_linter.validate(resource_json) + fhir_linter.lint(resource_json):
 ## Locations
 
 `line` is 1-indexed. `col` (1-indexed) and `offset` (0-indexed) count UTF-8
-bytes, not characters: after non-ASCII text such as `"ééé"`, `s[offset:]`
-lands too far. Index the encoded bytes instead:
-`resource_json.encode()[d.offset:]`. Both are `None` without a location.
+bytes, not characters: after non-ASCII text such as `"ééé"`,
+`resource_json[d.offset:]` lands too far. Index the encoded bytes instead:
+`resource_json.encode()[d.offset:]`. All three are `None` without a location.
 
 ## FHIR definitions
 

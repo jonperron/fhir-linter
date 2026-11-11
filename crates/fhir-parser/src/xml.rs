@@ -25,8 +25,8 @@ const MAX_DEPTH: usize = 128;
 /// - XHTML `<div>` content is captured as plain text.
 /// - Primitive-with-extensions elements (e.g. `<birthDate value="..."><extension .../></birthDate>`)
 ///   are represented as objects with a special `"value"` key.
-/// - XML 1.0 forbids controls below U+0020 other than tab, LF and CR, even as
-///   character references (`&#1;`): not well-formed. XML 1.1 allows the references.
+/// - A literal control below U+0020 other than tab, LF and CR is not well-formed.
+///   XML 1.0 also forbids it as a character reference (`&#1;`); XML 1.1 allows that.
 pub fn parse_xml(source: &str) -> Result<Resource, ParseError> {
     // A literal control is not well-formed in XML 1.0 nor (as a RestrictedChar) in 1.1.
     if let Some(offset) = source.find(crate::is_disallowed_control) {
