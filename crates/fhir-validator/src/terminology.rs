@@ -63,8 +63,9 @@ fn out_of_set(value: &Value, fhir_type: &str, vs: &str, registry: &Registry) -> 
         ("code", Value::Str(code)) => provably_out(None, code),
         ("Coding", Value::Object(_)) => coding(value).and_then(|(s, c)| provably_out(s, c)),
         ("CodeableConcept", Value::Object(fields)) => {
-            let Value::Array(codings) = &fields.get("coding")?.value else {
-                return None;
+            let codings = match fields.get("coding").map(|n| &n.value) {
+                Some(Value::Array(codings)) => codings.as_slice(),
+                _ => &[],
             };
             // One matching coding is enough; every coding must be provably out to fail.
             let outs: Vec<_> = codings
@@ -72,8 +73,13 @@ fn out_of_set(value: &Value, fhir_type: &str, vs: &str, registry: &Registry) -> 
                 .filter_map(|n| coding(&n.value))
                 .map(|(s, c)| provably_out(s, c))
                 .collect();
-            let all_out = !outs.is_empty() && outs.iter().all(Option::is_some);
-            all_out.then(|| outs.into_iter().flatten().collect::<Vec<_>>().join(", "))
+            if outs.is_empty() {
+                // terminologies.html 4.1.4.2.1: text is no substitute for the required code.
+                return Some("none (no Coding has a code)".to_owned());
+            }
+            outs.iter()
+                .all(Option::is_some)
+                .then(|| outs.into_iter().flatten().collect::<Vec<_>>().join(", "))
         }
         _ => None,
     }

@@ -208,6 +208,35 @@ fn valid_code_with_required_binding_passes_terminology() {
     assert_eq!(codes(&registry, json, "TERMINOLOGY_001"), 0);
 }
 
+fn severities(registry: &Registry, json: &str, code: &str) -> Vec<(Severity, String)> {
+    let resource = parse_json(json).unwrap();
+    validate(&resource, registry)
+        .into_iter()
+        .filter(|d| d.code.as_ref() == code)
+        .map(|d| (d.severity, d.path))
+        .collect()
+}
+
+#[test]
+fn text_only_codeable_concept_under_required_binding_produces_terminology_001() {
+    // terminologies.html 4.1.4.2.1: text is not a substitute for the required code.
+    let registry = load_registry();
+    let base =
+        r#"{"resourceType":"Condition","subject":{"reference":"Patient/1"},"clinicalStatus":"#;
+    let error = vec![(Severity::Error, "Condition.clinicalStatus".to_owned())];
+    for bad in [r#"{"text":"whatever"}"#, r#"{"coding":[{"display":"x"}]}"#] {
+        let json = format!("{base}{bad}}}");
+        assert_eq!(
+            severities(&registry, &json, "TERMINOLOGY_001"),
+            error,
+            "{bad}"
+        );
+    }
+    let coded = r#"{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/condition-clinical","code":"active"}],"text":"x"}"#;
+    let json = format!("{base}{coded}}}");
+    assert!(severities(&registry, &json, "TERMINOLOGY_001").is_empty());
+}
+
 // ── Reference validation ──────────────────────────────────────────────────────
 
 #[test]
