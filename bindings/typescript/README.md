@@ -72,7 +72,7 @@ const diagnostics = await lint(json, config);
 
 ```toml
 [rules.narrative-absent]
-severity = "error"      # error | warning | information | hint
+severity = "error"      # fatal | error | warning | information (hint = information)
 
 [rules.missing-identifier]
 enabled = false
@@ -92,7 +92,7 @@ Built-in rules, all `warning` by default:
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `severity` | `string` | `error`, `warning`, `information` or `hint` |
+| `severity` | `string` | `fatal`, `error`, `warning` or `information` |
 | `code` | `string` | Stable code, e.g. `STRUCTURE_000`, `INVARIANT_dom-6`, `LINT_001` |
 | `message` | `string` | Human-readable description |
 | `path` | `string` | Element path in the resource |

@@ -59,7 +59,7 @@ diagnostics = fhir_linter.lint(resource_json, config_toml=config)
 
 ```toml
 [rules.narrative-absent]
-severity = "error"      # error | warning | information | hint
+severity = "error"      # fatal | error | warning | information (hint = information)
 
 [rules.missing-identifier]
 enabled = false
@@ -79,7 +79,7 @@ Read-only object with these attributes:
 
 | Attribute | Type | Meaning |
 |-----------|------|---------|
-| `severity` | `str` | `error`, `warning`, `information` or `hint` |
+| `severity` | `str` | `fatal`, `error`, `warning` or `information` |
 | `code` | `str` | Stable code, e.g. `STRUCTURE_000`, `INVARIANT_dom-6`, `LINT_001` |
 | `message` | `str` | Human-readable description |
 | `path` | `str` | Element path in the resource |
