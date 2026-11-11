@@ -82,7 +82,8 @@ pub fn validate(
 ///
 /// Conditional references (`Type?query`) and unknown types (`REFERENCE_001`) are left out.
 fn malformed_relative(reference: &str, registry: &Registry) -> bool {
-    let relative = !reference.starts_with('#') && !reference.contains([':', '?']);
+    let relative =
+        !reference.starts_with('#') && !has_scheme(reference) && !reference.contains('?');
     let type_name = reference.split('/').next().unwrap_or(reference);
     relative
         && is_resource_type(registry, type_name)
@@ -124,6 +125,17 @@ fn fhir_url_type<'a>(reference: &'a str, registry: &Registry) -> Option<&'a str>
     (base_ok && is_resource_type(registry, type_name)).then_some(type_name)
 }
 
+/// Whether `reference` starts with a URI scheme (RFC 3986: `ALPHA *( ALPHA / DIGIT / "+" / "-" /
+/// "." ) ":"`), making it absolute. A ':' after a '/' does not make one.
+fn has_scheme(reference: &str) -> bool {
+    reference.split_once(':').is_some_and(|(scheme, _)| {
+        scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+            && scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
+    })
+}
+
 /// `[A-Za-z0-9\-\.]{1,64}`: the id and version parts of a literal reference.
 fn is_id(s: &str) -> bool {
     (1..=64).contains(&s.len())
@@ -159,7 +171,7 @@ fn check(
             )
         });
     }
-    if reference.contains(':') {
+    if has_scheme(reference) {
         return None;
     }
     let type_name = reference.split(['/', '?']).next().unwrap_or(reference);
