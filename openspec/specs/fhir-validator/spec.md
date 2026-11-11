@@ -673,7 +673,7 @@ Quand `Resource.from_xml` est vrai (positionné par `parse_xml`), `validate` SHA
 
 Le remodelage SHALL vérifier la forme XML de chaque élément d'après `ElementDefinition.xml_attr` : un élément dont la `representation` contient `xmlAttr` (valeur d'un primitif, `Element.id`, `Extension.url`) donné comme élément enfant, et tout autre élément donné comme attribut, SHALL produire un Diagnostic `STRUCTURE_001` au chemin d'instance de cet élément.
 
-Une valeur d'attribut épurée par le parseur (`Resource::trimmed_attributes`) sur un élément connu SHALL produire un Diagnostic `TYPE_006` de sévérité `Warning` au chemin d'instance de l'élément, au lieu d'une erreur de type.
+Une valeur d'attribut épurée par le parseur (`Resource::trimmed_attributes`) sur un élément connu SHALL produire un Diagnostic `TYPE_007` de sévérité `Warning` au chemin d'instance de l'élément, au lieu d'une erreur de type.
 
 #### Scenario: Primitif XML typé
 
@@ -720,7 +720,7 @@ Une valeur d'attribut épurée par le parseur (`Resource::trimmed_attributes`) s
 #### Scenario: Valeur d'attribut épurée
 
 - **WHEN** `validate` reçoit `<active value=" true"/>`, un `id` épuré sur `<gender>` ou un `url` épuré sur une extension de `<birthDate>`
-- **THEN** `validate` SHALL émettre un `TYPE_006` de sévérité `Warning` au chemin respectif `Patient.active`, `Patient._gender.id` ou `Patient._birthDate.extension.url`, sans `TYPE_001`
+- **THEN** `validate` SHALL émettre un `TYPE_007` de sévérité `Warning` au chemin respectif `Patient.active`, `Patient._gender.id` ou `Patient._birthDate.extension.url`, sans `TYPE_001`
 
 ### Requirement: Validation terminologique — Coding sans system (TERMINOLOGY_002)
 
@@ -831,4 +831,32 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_006` et severity `War
 
 - **WHEN** les fixtures `unicode-problem.json` et `xml_v11.xml` sont validées
 - **THEN** un Diagnostic `TYPE_006` de severity `Warning` SHALL être émis
+
+### Requirement: Validation de type — valeur d'attribut XML épurée (TYPE_007)
+
+Pour une ressource XML, chaque valeur d'attribut épurée par le parseur (`Resource::trimmed_attributes`) sur un élément connu SHALL produire un `Diagnostic` avec code `TYPE_007` et severity `Warning`. Le `path` SHALL être le chemin d'instance de l'élément (ex. `Patient.active`, `Patient._gender.id`, `Patient._birthDate.extension.url`). Les blancs retirés SHALL NOT produire d'erreur de type (`TYPE_001`). Ce code est distinct de `TYPE_006`, réservé aux caractères de contrôle.
+
+#### Scenario: Valeur primitive épurée
+
+- **WHEN** `validate` reçoit une ressource XML `Patient` avec `<active value=" true"/>`
+- **THEN** un Diagnostic `TYPE_007` de severity `Warning` SHALL être émis au chemin `Patient.active`, sans `TYPE_001` ni `TYPE_006`
+
+#### Scenario: id et url épurés
+
+- **WHEN** `validate` reçoit un `id` épuré sur `<gender>` ou un `url` épuré sur une extension de `<birthDate>`
+- **THEN** un `TYPE_007` de severity `Warning` SHALL être émis au chemin respectif `Patient._gender.id` ou `Patient._birthDate.extension.url`
+
+### Requirement: Validation structurelle — namespace schema instance XML (STRUCTURE_003)
+
+Pour une ressource XML, le système SHALL émettre, pour chaque élément enregistré dans `Resource::schema_instance`, un `Diagnostic` avec code `STRUCTURE_003`, severity `Error`, `path` = type de la ressource, localisation = span de l'élément, et message `The XML schema instance namespace is not allowed in FHIR resources` (xml.html 2.1.6.3.4). Une ressource JSON SHALL NOT produire ce diagnostic.
+
+#### Scenario: xsi:schemaLocation sur la racine
+
+- **WHEN** `validate` reçoit un `Patient` XML dont la racine déclare `xmlns:xsi` et porte `xsi:schemaLocation`
+- **THEN** exactement un Diagnostic `STRUCTURE_003` de severity `Error` SHALL être émis avec `path` = `Patient`, la localisation de la racine et le message `The XML schema instance namespace is not allowed in FHIR resources`
+
+#### Scenario: Plusieurs éléments concernés
+
+- **WHEN** deux éléments distincts de la ressource déclarent le namespace XMLSchema-instance
+- **THEN** deux Diagnostics `STRUCTURE_003` SHALL être émis, chacun à la localisation de son élément
 

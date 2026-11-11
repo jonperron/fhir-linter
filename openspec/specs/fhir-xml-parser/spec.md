@@ -7,7 +7,7 @@ TBD - created by archiving change fhir-xml-parser. Update Purpose after archive.
 
 Le système SHALL exposer une fonction `parse_xml(source: &str) -> Result<Resource, ParseError>` qui convertit une chaîne XML FHIR en `Resource`.
 
-Un caractère littéral inférieur à U+0020 autre que tabulation, LF et CR SHALL rendre le document non bien formé (`Err(ParseError::XmlError)`), où qu'il se trouve, en XML 1.0 comme en XML 1.1. Dans un document XML 1.0 (version déclarée ou implicite), un tel caractère obtenu par référence de caractère (ex. `&#1;`) dans une valeur capturée SHALL également rendre le document non bien formé ; en XML 1.1 ces références SHALL être acceptées (le validateur émet alors `TYPE_006`). Limite connue : les références de caractère dans les attributs du `div` XHTML et de l'élément racine ne sont pas vérifiées.
+Un caractère littéral inférieur à U+0020 autre que tabulation, LF et CR SHALL rendre le document non bien formé (`Err(ParseError::XmlError)`), où qu'il se trouve, en XML 1.0 comme en XML 1.1. Dans un document XML 1.0 (version déclarée ou implicite), un tel caractère obtenu par référence de caractère (ex. `&#1;`) dans une valeur capturée ou dans le texte brut du div narratif (ex. `&#3;`, `&#x1;`) SHALL également rendre le document non bien formé ; en XML 1.1 ces références SHALL être acceptées (le validateur émet alors `TYPE_006` pour les valeurs). Limite connue : les références de caractère dans les attributs XHTML du div et de l'élément racine ne sont pas vérifiées.
 
 #### Scenario: Ressource valide avec champs primitifs
 
@@ -33,6 +33,11 @@ Un caractère littéral inférieur à U+0020 autre que tabulation, LF et CR SHAL
 
 - **WHEN** `parse_xml` reçoit un document sans déclaration ou déclaré `version="1.0"` dont une valeur capturée contient `&#1;`
 - **THEN** elle SHALL retourner `Err(ParseError::XmlError)`
+
+#### Scenario: Référence de caractère de contrôle dans le div en XML 1.0
+
+- **WHEN** `parse_xml` reçoit un document XML 1.0 dont le texte du div narratif contient `&#3;` ou `&#x1;`
+- **THEN** elle SHALL retourner `Err(ParseError::XmlError)`, alors que le même div sous une déclaration `<?xml version="1.1"?>` SHALL être accepté
 
 #### Scenario: Référence de caractère de contrôle en XML 1.1
 
@@ -164,13 +169,14 @@ Le système SHALL associer une position source (`Span`) à chaque `Node` produit
 - une DTD (`<!DOCTYPE ...>`) ;
 - une déclaration XML dont l'`encoding` n'est pas UTF-8 (comparaison insensible à la casse) ;
 - du texte non blanc, une référence d'entité ou une section CDATA entre éléments FHIR (les commentaires et instructions de traitement SHALL être ignorés) ;
-- tout attribut de la racine de la ressource autre qu'une déclaration de namespace, le message SHALL nommer tous les attributs fautifs ;
+- tout attribut de la racine de la ressource autre qu'une déclaration de namespace ou un attribut lié au namespace XMLSchema-instance, le message SHALL nommer tous les attributs fautifs ;
 - un attribut et un élément enfant de même nom sur un même élément ;
 - un élément hors du namespace `http://hl7.org/fhir` (un préfixe lié à ce namespace SHALL être accepté) ;
 - le div narratif, ou tout élément qu'il contient, hors du namespace XHTML `http://www.w3.org/1999/xhtml` ;
-- un attribut dans un namespace sur un élément FHIR ;
-- toute déclaration du namespace XMLSchema-instance (`http://www.w3.org/2001/XMLSchema-instance`), comparée sur la valeur normalisée ;
+- un attribut dans un namespace sur un élément FHIR, hors namespace XMLSchema-instance ;
 - plus de 8 déclarations de namespace sur un même élément.
+
+Le namespace XMLSchema-instance n'est pas une erreur de parse : il est enregistré dans `Resource::schema_instance` (voir « Namespace schema instance XML »).
 
 #### Scenario: DTD refusée
 
@@ -209,13 +215,13 @@ Le système SHALL associer une position source (`Span`) à chaque `Node` produit
 
 #### Scenario: Attribut dans un namespace
 
-- **WHEN** un élément FHIR porte un attribut préfixé lié à un namespace (ex. `x:value`)
+- **WHEN** un élément FHIR porte un attribut préfixé lié à un namespace autre que XMLSchema-instance (ex. `x:value`)
 - **THEN** `parse_xml` SHALL retourner `Err(ParseError::XmlError)`
 
 #### Scenario: Namespace XMLSchema-instance
 
-- **WHEN** un élément déclare le namespace XMLSchema-instance, y compris sous une forme non normalisée de la même valeur
-- **THEN** `parse_xml` SHALL retourner `Err(ParseError::XmlError)`
+- **WHEN** un élément déclare le namespace XMLSchema-instance ou porte `xsi:schemaLocation` / `xsi:type`
+- **THEN** `parse_xml` SHALL retourner `Ok(Resource)` et l'élément SHALL figurer dans `schema_instance`
 
 #### Scenario: Trop de déclarations de namespace
 
@@ -240,4 +246,23 @@ Le système SHALL associer une position source (`Span`) à chaque `Node` produit
 
 - **WHEN** une ressource est produite par `parse_json`
 - **THEN** `trimmed_attributes` SHALL être vide
+
+### Requirement: Namespace schema instance XML
+
+`parse_xml` SHALL NOT échouer sur le namespace XMLSchema-instance. Chaque élément qui déclare un namespace dont la valeur normalisée est `http://www.w3.org/2001/XMLSchema-instance`, ou qui porte un attribut lié à ce namespace (ex. `xsi:schemaLocation`, `xsi:type`), SHALL être enregistré une seule fois, sous la forme du `Span` de l'élément, dans `Resource::schema_instance: Vec<Span>`. Ces attributs ne portent aucune donnée et SHALL NOT produire d'erreur d'attribut de la racine ni d'attribut dans un namespace. Pour une ressource issue du JSON, `schema_instance` SHALL être vide. Le validateur signale chaque élément enregistré par `STRUCTURE_003`.
+
+#### Scenario: Déclaration et schemaLocation sur la racine
+
+- **WHEN** `parse_xml` reçoit `<Patient xmlns="http://hl7.org/fhir" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="...">`
+- **THEN** il SHALL retourner `Ok(Resource)` et `schema_instance` SHALL contenir exactement un `Span`, celui de l'élément racine
+
+#### Scenario: Forme non normalisée
+
+- **WHEN** un élément déclare le namespace XMLSchema-instance sous une forme non normalisée de la même valeur
+- **THEN** l'élément SHALL être enregistré dans `schema_instance`
+
+#### Scenario: Ressource JSON
+
+- **WHEN** une ressource est produite par `parse_json`
+- **THEN** `schema_instance` SHALL être vide
 
