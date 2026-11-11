@@ -438,4 +438,55 @@ mod tests {
     fn shared_from_nonexistent_dir_returns_error() {
         assert!(Registry::shared("/nonexistent/path/that/does/not/exist").is_err());
     }
+
+    #[test]
+    fn value_set_contains_decides_membership_from_the_bundled_definitions() {
+        const VS: &str = "http://hl7.org/fhir/ValueSet/";
+        let gender = Some("http://hl7.org/fhir/administrative-gender");
+        // (ValueSet, system, code, expected)
+        let cases: &[(&str, Option<&str>, &str, Option<bool>)] = &[
+            // Whole complete CodeSystem: in, out, other system.
+            ("administrative-gender", gender, "male", Some(true)),
+            ("administrative-gender", None, "male", Some(true)),
+            ("administrative-gender", gender, "bogus", Some(false)),
+            (
+                "administrative-gender",
+                Some("http://example.org/cs"),
+                "male",
+                Some(false),
+            ),
+            // Enumerated concepts.
+            ("security-label-data-examples", None, "N", Some(true)),
+            ("security-label-data-examples", None, "V", Some(false)),
+            // include.filter is never evaluated.
+            ("example-filter", None, "anything", None),
+            // include.valueSet: decided by the imported ValueSet (fhir-types).
+            ("elementdefinition-types", None, "Patient", Some(true)),
+            ("elementdefinition-types", None, "NotAType", Some(false)),
+            // compose.exclude (with a filtered include): undecidable.
+            ("encounter-participant-type", None, "ADM", None),
+            // CodeSystem with content `example`: present codes only.
+            (
+                "biologicallyderived-product-property-type-codes",
+                None,
+                "collectiontype",
+                Some(true),
+            ),
+            (
+                "biologicallyderived-product-property-type-codes",
+                None,
+                "bogus",
+                None,
+            ),
+            // Unknown ValueSet.
+            ("no-such-value-set", None, "male", None),
+        ];
+        for &(vs, system, code, expected) in cases {
+            assert_eq!(
+                REGISTRY.value_set_contains(&format!("{VS}{vs}"), system, code),
+                expected,
+                "{vs} {system:?} {code}",
+            );
+        }
+    }
 }
