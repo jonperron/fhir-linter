@@ -13,7 +13,6 @@ pub struct StructureDefinition {
     pub name: Arc<str>,
     pub kind: Arc<str>,
     pub is_abstract: bool,
-    pub base_definition: Option<Arc<str>>,
     pub snapshot: Vec<ElementDefinition>,
     /// Position in `snapshot` of the first element with each path.
     path_index: HashMap<Arc<str>, usize>,
@@ -25,7 +24,6 @@ impl StructureDefinition {
         name: Arc<str>,
         kind: Arc<str>,
         is_abstract: bool,
-        base_definition: Option<Arc<str>>,
         snapshot: Vec<ElementDefinition>,
     ) -> Self {
         let mut path_index = HashMap::with_capacity(snapshot.len());
@@ -38,7 +36,6 @@ impl StructureDefinition {
             name,
             kind,
             is_abstract,
-            base_definition,
             snapshot,
             path_index,
         }
@@ -197,7 +194,6 @@ mod tests {
             Arc::from("Obs"),
             Arc::from("resource"),
             false,
-            None,
             paths.iter().map(|&(p, min)| elem(p, min)).collect(),
         )
     }

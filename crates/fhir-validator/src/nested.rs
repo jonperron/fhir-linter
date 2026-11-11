@@ -509,7 +509,6 @@ mod tests {
             Arc::from("ObsProfile"),
             Arc::from("resource"),
             false,
-            None,
             vec![
                 elem("Observation", 0),
                 elem("Observation.subject", 1),
@@ -550,7 +549,6 @@ mod tests {
             Arc::from("ObsProfile"),
             Arc::from("resource"),
             false,
-            None,
             vec![
                 elem("Observation", 0),
                 elem("Observation.value[x]", 0),

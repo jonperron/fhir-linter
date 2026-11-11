@@ -348,18 +348,6 @@ mod tests {
     }
 
     #[test]
-    fn structure_definition_has_base_definition() {
-        let registry = &*REGISTRY;
-        let sd = registry
-            .structure_definition("http://hl7.org/fhir/StructureDefinition/Patient")
-            .unwrap();
-        assert_eq!(
-            sd.base_definition.as_deref(),
-            Some("http://hl7.org/fhir/StructureDefinition/DomainResource")
-        );
-    }
-
-    #[test]
     fn registry_value_set_count_is_positive() {
         let registry = &*REGISTRY;
         assert!(

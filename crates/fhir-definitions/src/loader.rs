@@ -65,7 +65,6 @@ fn parse_structure_definition(resource: &Value) -> Option<StructureDefinition> {
     let name: Arc<str> = resource["name"].as_str()?.into();
     let kind: Arc<str> = resource["kind"].as_str()?.into();
     let is_abstract = resource["abstract"].as_bool().unwrap_or(false);
-    let base_definition = resource["baseDefinition"].as_str().map(Arc::from);
 
     let snapshot = resource["snapshot"]["element"]
         .as_array()
@@ -77,7 +76,6 @@ fn parse_structure_definition(resource: &Value) -> Option<StructureDefinition> {
         name,
         kind,
         is_abstract,
-        base_definition,
         snapshot,
     ))
 }
