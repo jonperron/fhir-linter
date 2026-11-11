@@ -378,6 +378,20 @@ fn unresolved_contained_reference_produces_reference_002() {
 }
 
 #[test]
+fn bare_hash_reference_at_root_produces_reference_002() {
+    // ref-1: '#' is valid only when %rootResource != %resource; the root has no container.
+    let registry = load_registry();
+    let json = r##"{"resourceType":"Patient","managingOrganization":{"reference":"#"}}"##;
+    assert_eq!(
+        severities(&registry, json, "REFERENCE_002"),
+        vec![(
+            Severity::Error,
+            "Patient.managingOrganization.reference".to_owned()
+        )],
+    );
+}
+
+#[test]
 fn resolved_contained_reference_passes() {
     let registry = load_registry();
     let json = r##"{"resourceType":"Patient","contained":[{"resourceType":"Organization","id":"org"}],"managingOrganization":{"reference":"#org"}}"##;

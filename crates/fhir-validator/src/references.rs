@@ -7,7 +7,7 @@ use crate::diagnostic::Diagnostic;
 ///
 /// Emits `REFERENCE_001` for a relative reference whose type is not a known
 /// resource type, and `REFERENCE_002` for a `#id` reference with no matching
-/// entry in `contained`. Absolute URLs and `urn:` references are not resolved.
+/// entry in `contained` or a bare `#` (only the root resource is validated). Absolute URLs and `urn:` references are not resolved.
 /// `REFERENCE_003` reports a `Reference.type` that disagrees with the type of a
 /// FHIR URL reference.
 pub fn validate(
@@ -123,8 +123,12 @@ fn check(
     registry: &Registry,
 ) -> Option<(&'static str, String)> {
     if let Some(id) = reference.strip_prefix('#') {
-        // "#" alone points at the containing resource.
-        return (!id.is_empty() && !contained.contains(&id)).then(|| {
+        // ref-1: "#" alone points at the container, and this resource is the root.
+        if id.is_empty() {
+            let message = "Reference '#' points at a containing resource, but this is the root";
+            return Some(("REFERENCE_002", message.to_owned()));
+        }
+        return (!contained.contains(&id)).then(|| {
             (
                 "REFERENCE_002",
                 format!("Contained resource '{id}' not found"),
