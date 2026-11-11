@@ -330,6 +330,14 @@ pub(super) fn three_valued_and(a: Option<bool>, b: Option<bool>) -> Option<bool>
     }
 }
 
+pub(super) fn three_valued_implies(a: Option<bool>, b: Option<bool>) -> Option<bool> {
+    match (a, b) {
+        (Some(false), _) | (_, Some(true)) => Some(true),
+        (Some(true), b) => b,
+        (None, _) => None,
+    }
+}
+
 pub(super) fn three_valued_or(a: Option<bool>, b: Option<bool>) -> Option<bool> {
     match (a, b) {
         (Some(true), _) | (_, Some(true)) => Some(true),

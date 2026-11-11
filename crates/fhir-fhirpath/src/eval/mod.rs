@@ -21,7 +21,7 @@ mod type_conv;
 
 use helpers::{
     bool_col, collections_equal, collections_equivalent, contains_value, is_type, numeric_op,
-    singleton, three_valued_and, three_valued_or, value_is_type,
+    singleton, three_valued_and, three_valued_implies, three_valued_or, value_is_type,
 };
 
 /// Evaluate a FHIRPath expression against a context value.
@@ -149,16 +149,8 @@ impl Evaluator<'_> {
             Expr::NotEquiv(l, r) => self.eval_cmp(l, r, ctx, CmpOp::NotEquiv),
 
             // ── Boolean operators ─────────────────────────────────────────
-            Expr::And(l, r) => {
-                let lv = self.eval_bool(l, ctx)?;
-                let rv = self.eval_bool(r, ctx)?;
-                Ok(bool_col(three_valued_and(lv, rv)))
-            }
-            Expr::Or(l, r) => {
-                let lv = self.eval_bool(l, ctx)?;
-                let rv = self.eval_bool(r, ctx)?;
-                Ok(bool_col(three_valued_or(lv, rv)))
-            }
+            Expr::And(l, r) => self.eval_logical(l, r, ctx, [false, false], three_valued_and),
+            Expr::Or(l, r) => self.eval_logical(l, r, ctx, [true, true], three_valued_or),
             Expr::Xor(l, r) => {
                 let lv = self.eval_bool(l, ctx)?;
                 let rv = self.eval_bool(r, ctx)?;
@@ -169,17 +161,7 @@ impl Evaluator<'_> {
                 Ok(bool_col(result))
             }
             Expr::Implies(l, r) => {
-                let lv = self.eval_bool(l, ctx)?;
-                let rv = self.eval_bool(r, ctx)?;
-                let result = match lv {
-                    Some(false) => Some(true),
-                    Some(true) => rv,
-                    None => match rv {
-                        Some(true) => Some(true),
-                        _ => None,
-                    },
-                };
-                Ok(bool_col(result))
+                self.eval_logical(l, r, ctx, [false, true], three_valued_implies)
             }
 
             // ── Type operators ────────────────────────────────────────────
@@ -370,6 +352,33 @@ impl Evaluator<'_> {
             }
         };
         Ok(bool_col(result))
+    }
+
+    /// `and`, `or` and `implies`: when one side has the value in `deciding`
+    /// (left, right), the truth table fixes the result, so an error on the
+    /// other side is ignored (N1 §6.5). The right side is skipped when the
+    /// left decides.
+    fn eval_logical(
+        &self,
+        l: &Expr,
+        r: &Expr,
+        ctx: &[Value],
+        deciding: [bool; 2],
+        combine: fn(Option<bool>, Option<bool>) -> Option<bool>,
+    ) -> Result<Collection, EvalError> {
+        let left = self.eval_bool(l, ctx);
+        if let Ok(Some(b)) = left
+            && b == deciding[0]
+        {
+            return Ok(bool_col(combine(Some(b), None)));
+        }
+        let right = self.eval_bool(r, ctx);
+        if let Ok(Some(b)) = right
+            && b == deciding[1]
+        {
+            return Ok(bool_col(combine(left.unwrap_or(None), Some(b))));
+        }
+        Ok(bool_col(combine(left?, right?)))
     }
 
     /// Evaluate an expression as a three-valued boolean (`None` = empty collection).

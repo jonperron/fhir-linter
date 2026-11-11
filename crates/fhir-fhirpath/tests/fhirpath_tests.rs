@@ -851,6 +851,35 @@ fn singleton_evaluation_of_boolean_operands() {
     }
 }
 
+/// N1 §6.5 truth tables: once one side decides `and`, `or` or `implies`,
+/// an error on the other side does not change the result.
+#[test]
+fn boolean_operators_ignore_errors_on_the_undeciding_side() {
+    let error = "(1 | 2).not()";
+    for (expr, expected) in [
+        (format!("true or {error}"), true),
+        (format!("{error} or true"), true),
+        (format!("false and {error}"), false),
+        (format!("{error} and false"), false),
+        (format!("false implies {error}"), true),
+        (format!("{error} implies true"), true),
+    ] {
+        assert_eq!(
+            evaluate(&expr, &[]).unwrap(),
+            vec![Value::Bool(expected)],
+            "{expr}"
+        );
+    }
+    for expr in [
+        format!("false or {error}"),
+        format!("{error} and true"),
+        format!("{error} xor true"),
+        format!("true implies {error}"),
+    ] {
+        assert!(evaluate(&expr, &[]).is_err(), "{expr}");
+    }
+}
+
 /// Several items where one is expected are an error (N1 §4.5, §5.2, §6.4.3,
 /// §6.5), and criteria must be Boolean (§5.2.1, §5.5.1).
 #[test]
