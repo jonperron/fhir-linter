@@ -452,6 +452,7 @@ fn equivalence_semantics() {
         evaluate("$this !~ 1", &null).unwrap(),
         vec![Value::Bool(true)]
     );
+    assert_eq!(evaluate("$this = (1 | 2)", &null).unwrap(), vec![]);
 }
 
 // ── String functions ─────────────────────────────────────────────────────────
