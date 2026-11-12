@@ -262,3 +262,16 @@ fn config_severity_outside_issue_severity_is_an_error() {
         assert!(run(BARE, &cfg).is_err(), "configured {configured}");
     }
 }
+
+#[test]
+fn check_config_validates_without_a_resource() {
+    let check =
+        |toml: &str| RuleRegistry::default().check_config(&Config::from_toml(toml).unwrap());
+    assert!(check("[rules.narrative-absent]\nseverity = \"error\"").is_ok());
+    assert_eq!(
+        check("[rules.nope]\nenabled = false"),
+        Err("unknown lint rule 'nope'".into())
+    );
+    // A disabled rule's severity is still checked.
+    assert!(check("[rules.narrative-absent]\nenabled = false\nseverity = \"loud\"").is_err());
+}

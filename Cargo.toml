@@ -41,6 +41,9 @@ indexmap    = { version = "2", features = ["serde"] }
 # Diagnostics
 thiserror   = "2"
 
+# CLI
+clap        = { version = "4", features = ["derive", "env"] }
+
 # Bindings
 pyo3         = { version = "0.30", features = ["abi3-py310"] }
 napi         = { version = "3", default-features = false, features = ["napi4", "async"] }

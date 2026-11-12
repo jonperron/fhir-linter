@@ -1,0 +1,15 @@
+<Patient xmlns="http://hl7.org/fhir">
+  <id value="example-xml"/>
+  <meta>
+    <profile value="http://hl7.org/fhir/StructureDefinition/Patient"/>
+  </meta>
+  <text>
+    <status value="generated"/>
+    <div xmlns="http://www.w3.org/1999/xhtml"><p>John Doe</p></div>
+  </text>
+  <identifier>
+    <system value="urn:oid:1.2.36.146.595.217.0.1"/>
+    <value value="67890"/>
+  </identifier>
+  <gender value="male"/>
+</Patient>
