@@ -15,7 +15,9 @@ mod value;
 
 pub use ast::Expr;
 pub use error::{EvalError, ParseError};
-pub use value::{Collection, Value, from_parser_value, resource_to_value};
+pub use value::{
+    ChildElement, Collection, Value, from_parser_value, resource_to_typed_value, resource_to_value,
+};
 
 /// Parse and evaluate a FHIRPath expression against a context collection.
 ///
