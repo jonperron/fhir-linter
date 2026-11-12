@@ -58,6 +58,16 @@ impl Value {
         }
     }
 
+    /// The child elements, for `children()` and `descendants()`: every field
+    /// but `resourceType`, which names the type in JSON and is not an element.
+    pub(crate) fn child_elements(&self) -> impl Iterator<Item = &Value> {
+        self.fields()
+            .into_iter()
+            .flatten()
+            .filter(|(key, _)| &***key != "resourceType")
+            .flat_map(|(_, values)| values)
+    }
+
     /// Human-readable type name for error messages.
     pub fn type_name(&self) -> &'static str {
         match self {
@@ -182,7 +192,8 @@ fn convert(
     child_element: &ChildElement<'_>,
 ) -> Collection {
     match v {
-        fhir_parser::Value::Null => vec![Value::Null],
+        // A JSON null (an array placeholder) is not an item.
+        fhir_parser::Value::Null => vec![],
         fhir_parser::Value::Bool(b) => vec![Value::Bool(*b)],
         fhir_parser::Value::Integer(n) => vec![Value::Integer(*n)],
         fhir_parser::Value::Decimal(d) => vec![Value::Decimal(*d)],
@@ -245,7 +256,9 @@ fn object_fields(
             (value, Some(element)) => split(value, element, child.as_ref(), child_element),
             (None, None) => continue,
         };
-        map.insert(name, values);
+        if !values.is_empty() {
+            map.insert(name, values);
+        }
     }
     map
 }

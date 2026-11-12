@@ -374,15 +374,11 @@ impl Evaluator<'_> {
             // ── Navigation ────────────────────────────────────────────────
             "children" => {
                 check_arity(name, args, 0)?;
-                let mut out = Vec::new();
-                for item in focus {
-                    if let Some(fields) = item.fields() {
-                        for col in fields.values() {
-                            out.extend_from_slice(col);
-                        }
-                    }
-                }
-                out
+                focus
+                    .iter()
+                    .flat_map(Value::child_elements)
+                    .cloned()
+                    .collect()
             }
             "descendants" => {
                 check_arity(name, args, 0)?;

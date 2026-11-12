@@ -123,3 +123,12 @@ fn bdl_10_needs_a_timestamp_value_not_only_extensions() {
     assert_eq!(fired.len(), 1, "{fired:?}");
     assert!(fired[0].starts_with("INVARIANT_bdl-10 "), "{fired:?}");
 }
+
+#[test]
+fn org_1_does_not_count_a_null_name() {
+    let fired = json_about(r#"{"resourceType":"Organization","name":"Acme"}"#, "org-1");
+    assert!(fired.is_empty(), "{fired:?}");
+    let fired = json_about(r#"{"resourceType":"Organization","name":null}"#, "org-1");
+    assert_eq!(fired.len(), 1, "{fired:?}");
+    assert!(fired[0].starts_with("INVARIANT_org-1 "), "{fired:?}");
+}

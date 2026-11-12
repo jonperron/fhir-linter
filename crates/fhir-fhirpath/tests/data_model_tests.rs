@@ -130,7 +130,7 @@ fn json_primitive_extensions_are_found_on_the_primitive() {
         assert_eq!(bools(&one("birthDate.id = 'b1'")), [true]);
         // The split representation is not visible (R5 fhirpath.html §2.1.9.1).
         assert_eq!(bools(&one("_birthDate.exists()")), [false]);
-        assert_eq!(bools(&one("children().count() = 2")), [true]);
+        assert_eq!(bools(&one("children().count() = 1")), [true]);
         // The value still behaves as the primitive.
         assert_eq!(bools(&one("birthDate.toString() = '1970-01-01'")), [true]);
         assert_eq!(bools(&one("birthDate.toString().length() = 10")), [true]);
@@ -224,4 +224,36 @@ fn has_value_is_true_only_for_one_primitive_with_a_value() {
     assert!(one("name.given.hasValue()").is_empty());
     assert!(one("{}.hasValue()").is_empty());
     assert!(one("birthDate.extension.hasValue()").is_empty());
+}
+
+#[test]
+fn resource_type_is_not_a_child() {
+    // resourceType names the type in JSON; it is not an element.
+    let ctx = untyped(
+        r#"{"resourceType":"Patient","active":true,
+        "contained":[{"resourceType":"Basic","id":"b"}]}"#,
+    );
+    let one = |expr: &str| evaluate(expr, &ctx).unwrap();
+    assert_eq!(bools(&one("children().count() = 2")), [true]);
+    // contained, its id, and active: no resourceType at either level.
+    assert_eq!(bools(&one("descendants().count() = 3")), [true]);
+    assert_eq!(
+        bools(&one("descendants().where($this = 'Basic').empty()")),
+        [true]
+    );
+    // The type name still leads a path.
+    assert_eq!(bools(&one("Patient.active")), [true]);
+}
+
+#[test]
+fn null_placeholders_are_not_items() {
+    let ctx = untyped(
+        r#"{"resourceType":"Patient","name":[{"given":["a",null,"c"]}],
+        "gender":null}"#,
+    );
+    let one = |expr: &str| evaluate(expr, &ctx).unwrap();
+    assert_eq!(bools(&one("name.given.count() = 2")), [true]);
+    assert_eq!(bools(&one("name.given[1] = 'c'")), [true]);
+    assert_eq!(bools(&one("gender.exists()")), [false]);
+    assert_eq!(bools(&one("name.children().count() = 2")), [true]);
 }

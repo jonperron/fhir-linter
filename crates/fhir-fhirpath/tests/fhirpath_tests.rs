@@ -1838,10 +1838,10 @@ fn is_truthy_false_for_false_bool() {
 // ── from_parser_value ───────────────────────────────────────────────────────
 
 #[test]
-fn from_parser_value_null() {
+fn from_parser_value_null_is_no_item() {
     use fhir_fhirpath::from_parser_value;
     let result = from_parser_value(&fhir_parser::Value::Null);
-    assert_eq!(result, vec![Value::Null]);
+    assert_eq!(result, vec![]);
 }
 
 #[test]

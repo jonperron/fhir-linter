@@ -485,12 +485,8 @@ pub(super) fn collect_descendants(v: &Value, out: &mut Collection) {
     // Iterative depth-first pre-order, so hostile deep input cannot overflow the stack.
     let mut stack: Vec<&Value> = vec![v];
     while let Some(current) = stack.pop() {
-        if let Some(fields) = current.fields() {
-            let children: Vec<&Value> = fields.values().flatten().collect();
-            for child in children.into_iter().rev() {
-                stack.push(child);
-            }
-        }
+        let children: Vec<&Value> = current.child_elements().collect();
+        stack.extend(children.into_iter().rev());
         if !std::ptr::eq(current, v) {
             out.push(current.clone());
         }

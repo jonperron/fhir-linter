@@ -315,9 +315,10 @@ impl Evaluator<'_> {
         ctx: &[Value],
         op: CmpOp,
     ) -> Result<Collection, EvalError> {
-        // A lone null placeholder is empty, as in singleton evaluation.
+        // A lone item without a value (a primitive with only extensions) is
+        // empty, as in singleton evaluation.
         let without_lone_null = |col: Collection| match col.as_slice() {
-            [Value::Null] => vec![],
+            [v] if matches!(v.primitive_value(), Value::Null) => vec![],
             _ => col,
         };
         let lc = without_lone_null(self.eval(l, ctx)?);
