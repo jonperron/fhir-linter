@@ -372,8 +372,8 @@ fn equality_semantics() {
         ("(1 | 1) = (1 | 2 | {})", f()),
         ("name = name", t()),
         ("telecom = name", f()),
-        // N1 says false; empty until F10 types XML primitives with extensions.
-        ("name.first() = 'Peter'", vec![]),
+        // N1 §6.1.1: a complex value never equals a primitive.
+        ("name.first() = 'Peter'", f()),
         ("@2012-04-15T15:30:31 = @2012-04-15T15:30:31.0", t()),
         ("@2012-01 = @2012", vec![]),
         ("@2012-01-01 = @2012-02", f()),
@@ -1434,6 +1434,7 @@ fn has_value_true_when_focus_is_non_empty() {
 
 #[test]
 fn has_value_false_when_focus_is_empty() {
+    // R5 constraints such as exp-2 (`name.hasValue() implies ...`) need false here.
     let result = evaluate("{}.hasValue()", &[]).unwrap();
     assert_eq!(result, vec![Value::Bool(false)]);
 }
@@ -1837,10 +1838,10 @@ fn is_truthy_false_for_false_bool() {
 // ── from_parser_value ───────────────────────────────────────────────────────
 
 #[test]
-fn from_parser_value_null() {
+fn from_parser_value_null_is_no_item() {
     use fhir_fhirpath::from_parser_value;
     let result = from_parser_value(&fhir_parser::Value::Null);
-    assert_eq!(result, vec![Value::Null]);
+    assert_eq!(result, vec![]);
 }
 
 #[test]

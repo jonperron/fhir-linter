@@ -65,7 +65,7 @@ impl Evaluator<'_> {
                 let url = eval_string_arg(&self.eval(&args[0], ctx)?, "extension url")?;
                 let mut out = Vec::new();
                 for item in focus {
-                    if let Value::Object(fields) = item {
+                    if let Some(fields) = item.fields() {
                         if let Some(exts) = fields.get("extension") {
                             for ext in exts {
                                 if let Value::Object(ext_fields) = ext {
@@ -87,15 +87,22 @@ impl Evaluator<'_> {
             }
             "hasValue" => {
                 check_arity(name, args, 0)?;
-                vec![Value::Bool(
-                    focus.len() == 1 && !matches!(focus[0], Value::Null),
-                )]
+                // R5: true for one primitive that has a value. A complex value
+                // gives empty ("otherwise, the return value is empty"); no item,
+                // several items or a primitive without a value give false, as the
+                // R5 constraints (exp-2, per-1) and the official suite expect.
+                match focus {
+                    [item] if matches!(item.primitive_value(), Value::Object(_)) => vec![],
+                    [item] => vec![Value::Bool(!matches!(item.primitive_value(), Value::Null))],
+                    _ => vec![Value::Bool(false)],
+                }
             }
             "getValue" => {
                 check_arity(name, args, 0)?;
                 focus
                     .iter()
-                    .filter(|v| !matches!(v, Value::Null))
+                    .map(Value::primitive_value)
+                    .filter(|v| !matches!(v, Value::Null | Value::Object(_)))
                     .cloned()
                     .collect()
             }

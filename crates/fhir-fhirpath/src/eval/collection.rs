@@ -5,7 +5,8 @@ use crate::value::{Collection, Value};
 use super::Evaluator;
 use super::helpers::{
     as_type, check_arity, check_arity_range, collect_descendants, compare_values, contains_value,
-    criteria_bool, distinct, eval_type_name, is_type, single_integer, value_is_type,
+    criteria_bool, distinct, eval_type_name, is_type, primitive_values, single_integer,
+    value_is_type,
 };
 
 impl Evaluator<'_> {
@@ -28,6 +29,15 @@ impl Evaluator<'_> {
         focus: &[Value],
         ctx: &[Value],
     ) -> Result<Option<Collection>, EvalError> {
+        // Aggregates read values: a primitive without one is not an input item.
+        let values;
+        let focus = match name {
+            "allTrue" | "anyTrue" | "allFalse" | "anyFalse" | "sum" | "min" | "max" | "avg" => {
+                values = primitive_values(focus);
+                &*values
+            }
+            _ => focus,
+        };
         let col: Collection = match name {
             // ── Existence ────────────────────────────────────────────────
             "empty" => {
@@ -69,7 +79,7 @@ impl Evaluator<'_> {
                 // N1 §5.1: the input must be a collection of Booleans.
                 let bools = focus
                     .iter()
-                    .map(|v| match v {
+                    .map(|v| match v.primitive_value() {
                         Value::Bool(b) => Ok(*b),
                         v => Err(EvalError::Type(format!(
                             "{name}() requires Boolean items, got {}",
@@ -267,7 +277,7 @@ impl Evaluator<'_> {
                 let mut sum = 0f64;
                 let mut all_integer = true;
                 for v in focus {
-                    match v {
+                    match v.primitive_value() {
                         Value::Integer(n) => sum += *n as f64,
                         Value::Decimal(d) => {
                             sum += d;
@@ -321,7 +331,7 @@ impl Evaluator<'_> {
                 let count = focus.len() as f64;
                 let mut sum = 0f64;
                 for v in focus {
-                    match v {
+                    match v.primitive_value() {
                         Value::Integer(n) => sum += *n as f64,
                         Value::Long(n) => sum += *n as f64,
                         Value::Decimal(d) => sum += d,
@@ -374,15 +384,11 @@ impl Evaluator<'_> {
             // ── Navigation ────────────────────────────────────────────────
             "children" => {
                 check_arity(name, args, 0)?;
-                let mut out = Vec::new();
-                for item in focus {
-                    if let Value::Object(fields) = item {
-                        for col in fields.values() {
-                            out.extend_from_slice(col);
-                        }
-                    }
-                }
-                out
+                focus
+                    .iter()
+                    .flat_map(Value::child_elements)
+                    .cloned()
+                    .collect()
             }
             "descendants" => {
                 check_arity(name, args, 0)?;

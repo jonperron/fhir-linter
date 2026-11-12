@@ -63,6 +63,7 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
         resource,
         sd,
         &|base, suffix| registry.is_choice_variant(base, suffix),
+        &|parent, name| registry.child_element(parent, name),
         &mut diagnostics,
     );
     references::validate(resource, sd, registry, &mut diagnostics);

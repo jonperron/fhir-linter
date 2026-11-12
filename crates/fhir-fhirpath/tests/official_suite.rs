@@ -10,12 +10,16 @@
 //! There is no static type check: `contextType` is ignored, strict and
 //! lenient cases run alike (some pairs cannot both pass), and an `invalid`
 //! case also passes when the error is an unimplemented function.
+//! Inputs are typed with the R5 `Registry` (`resource_to_typed_value`), as in
+//! the validator; there is no choice navigation.
 //! The test fails when the pass count drops below `MIN_PASSED`.
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
-use fhir_fhirpath::{Collection, EvalError, Value, evaluate, resource_to_value};
+use fhir_definitions::Registry;
+use fhir_fhirpath::{Collection, EvalError, Value, evaluate, resource_to_typed_value};
 use fhir_parser::{parse_json, parse_xml};
 use quick_xml::Reader;
 use quick_xml::escape::resolve_predefined_entity;
@@ -27,8 +31,9 @@ use quick_xml::events::{BytesStart, Event};
 /// passing cases for the wrong reason; this suite runs without choice navigation.
 /// Raised to 817 by the operator semantics fixes, then to 839 by the N1
 /// empty-input rules for string functions (F8), then to 865 by the N1
-/// conversion rules (F9).
-const MIN_PASSED: u32 = 865;
+/// conversion rules (F9), then to 877 by the FHIR data model mapping (F10:
+/// typed inputs, primitive extensions, hasValue).
+const MIN_PASSED: u32 = 877;
 
 /// (run, skipped) case counts on the pinned fixtures, so loader drift or a
 /// broken skip filter cannot hide behind the floor.
@@ -184,6 +189,7 @@ fn actual_key(value: &Value) -> String {
         Value::Quantity(n, u) => format!("Quantity:{n} {u}"),
         Value::Null => "null".to_owned(),
         Value::Object(_) => "object".to_owned(),
+        Value::Primitive(value, _) => actual_key(value),
     }
 }
 
@@ -195,10 +201,22 @@ fn temporal_text(text: &str) -> &str {
 fn as_predicate(result: &Collection) -> Collection {
     let truth = match result.as_slice() {
         [] => false,
-        [Value::Bool(b)] => *b,
+        [v] => !matches!(v.primitive_value(), Value::Bool(false)),
         _ => true,
     };
     vec![Value::Bool(truth)]
+}
+
+/// The R5 definitions, loaded once.
+fn registry() -> Result<&'static Registry, String> {
+    static REGISTRY: OnceLock<Result<Registry, String>> = OnceLock::new();
+    REGISTRY
+        .get_or_init(|| {
+            let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5");
+            Registry::from_definitions_dir(dir).map_err(|e| format!("R5 definitions: {e}"))
+        })
+        .as_ref()
+        .map_err(Clone::clone)
 }
 
 /// Load an input resource as a FHIRPath context.
@@ -214,8 +232,9 @@ fn load_input(file: &str) -> Result<Value, String> {
     } else {
         parse_xml(&source)
     };
+    let registry = registry()?;
     resource
-        .map(|r| resource_to_value(&r))
+        .map(|r| resource_to_typed_value(&r, &|parent, name| registry.child_element(parent, name)))
         .map_err(|e| format!("{file}: {e}"))
 }
 

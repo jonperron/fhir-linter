@@ -74,6 +74,7 @@ fn integer_op(lv: &Value, rv: &Value, op: &ArithOp) -> Result<Option<Value>, Eva
 // ── Equality / comparison ─────────────────────────────────────────────────────
 
 pub(super) fn values_equal(a: &Value, b: &Value) -> Option<bool> {
+    let (a, b) = (a.primitive_value(), b.primitive_value());
     match (a, b) {
         (Value::Null, _) | (_, Value::Null) => None,
         (Value::Bool(x), Value::Bool(y)) => Some(x == y),
@@ -89,10 +90,9 @@ pub(super) fn values_equal(a: &Value, b: &Value) -> Option<bool> {
         (Value::Quantity(xv, xu), Value::Quantity(yv, yu)) => Some(xv == yv && xu == yu),
         // N1 §6.1.1: complex values are equal when all their properties are.
         (Value::Object(x), Value::Object(y)) => objects_match(x, y, false),
-        // shortcut: N1 says a complex value never equals a primitive (false), but an
-        // XML primitive with extensions is still an Object here, so this stays empty
-        // to avoid false results on it; give false once F10 types primitives.
-        (Value::Object(_), _) | (_, Value::Object(_)) => None,
+        // A complex value never equals a primitive. Without type knowledge an XML
+        // primitive with extensions is still an Object; see `resource_to_typed_value`.
+        (Value::Object(_), _) | (_, Value::Object(_)) => Some(false),
         _ => temporal_order(a, b).map(|order| order.is_eq()),
     }
 }
@@ -103,6 +103,7 @@ pub(super) fn operator_order(
     a: &Value,
     b: &Value,
 ) -> Result<Option<std::cmp::Ordering>, EvalError> {
+    let (a, b) = (a.primitive_value(), b.primitive_value());
     match (a, b) {
         (Value::Date(_) | Value::DateTime(_), Value::Date(_) | Value::DateTime(_))
         | (Value::Time(_), Value::Time(_)) => Ok(temporal_order(a, b)),
@@ -215,6 +216,7 @@ pub(super) fn distinct(values: impl IntoIterator<Item = Value>) -> Collection {
 
 /// N1 §6.1.3 `~` on single items; never empty.
 pub(super) fn values_equivalent(a: &Value, b: &Value) -> bool {
+    let (a, b) = (a.primitive_value(), b.primitive_value());
     // N1: "all whitespace characters are treated as equivalent"; runs are not collapsed.
     let normalise = |s: &str| {
         s.chars()
@@ -241,7 +243,7 @@ pub(super) fn values_equivalent(a: &Value, b: &Value) -> bool {
 }
 
 pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering, EvalError> {
-    match (a, b) {
+    match (a.primitive_value(), b.primitive_value()) {
         (Value::Integer(x), Value::Integer(y)) => Ok(x.cmp(y)),
         (Value::Long(x), Value::Long(y)) => Ok(x.cmp(y)),
         (Value::Long(x), Value::Integer(y)) => Ok(x.cmp(y)),
@@ -263,7 +265,7 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
             .unwrap_or(std::cmp::Ordering::Equal)),
         (Value::String(x), Value::String(y)) => Ok(x.cmp(y)),
         // shortcut: sort/min/max order date-times by text (total, but zones are not
-        // normalised); operators use `operator_order`. Upgrade with F10 typed dates.
+        // normalised); operators use `operator_order`. Upgrade when sort needs zones.
         (Value::Date(x), Value::Date(y))
         | (Value::DateTime(x), Value::DateTime(y))
         | (Value::Time(x), Value::Time(y)) => Ok(x.cmp(y)),
@@ -287,10 +289,11 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
 
 /// N1 §4.5 singleton evaluation: the single item of `col`, `None` when empty,
 /// an error when there are several.
+/// A primitive gives its value, and one without a value counts as empty.
 pub(super) fn singleton<'a>(col: &'a [Value], what: &str) -> Result<Option<&'a Value>, EvalError> {
     match col {
-        [] | [Value::Null] => Ok(None),
-        [v] => Ok(Some(v)),
+        [] => Ok(None),
+        [v] => Ok(Some(v.primitive_value()).filter(|v| !matches!(v, Value::Null))),
         _ => Err(EvalError::Type(format!(
             "{what} requires a single item, got {}",
             col.len()
@@ -351,6 +354,7 @@ pub(super) fn three_valued_or(a: Option<bool>, b: Option<bool>) -> Option<bool> 
 // ── Type helpers ──────────────────────────────────────────────────────────────
 
 pub(super) fn value_is_type(v: &Value, type_name: &str) -> bool {
+    let v = v.primitive_value();
     match type_name {
         "Boolean" | "boolean" | "bool" => matches!(v, Value::Bool(_)),
         "Integer" | "integer" => matches!(v, Value::Integer(_)),
@@ -446,7 +450,7 @@ pub(super) fn json_unescape(s: &str) -> String {
 // ── Argument extraction ───────────────────────────────────────────────────────
 
 pub(super) fn single_integer(col: &Collection, context: &str) -> Result<i64, EvalError> {
-    match col.first() {
+    match col.first().map(Value::primitive_value) {
         Some(Value::Integer(n)) => Ok(*n),
         Some(v) => Err(EvalError::Type(format!(
             "{context}: expected Integer, got {}",
@@ -481,16 +485,28 @@ pub(super) fn collect_descendants(v: &Value, out: &mut Collection) {
     // Iterative depth-first pre-order, so hostile deep input cannot overflow the stack.
     let mut stack: Vec<&Value> = vec![v];
     while let Some(current) = stack.pop() {
-        if let Value::Object(fields) = current {
-            let children: Vec<&Value> = fields.values().flatten().collect();
-            for child in children.into_iter().rev() {
-                stack.push(child);
-            }
-        }
+        let children: Vec<&Value> = current.child_elements().collect();
+        stack.extend(children.into_iter().rev());
         if !std::ptr::eq(current, v) {
             out.push(current.clone());
         }
     }
+}
+
+/// Each item's primitive value (see [`Value::primitive_value`]), dropping
+/// primitives that have none; borrowed when no item is a primitive element.
+pub(super) fn primitive_values(focus: &[Value]) -> std::borrow::Cow<'_, [Value]> {
+    if !focus.iter().any(|v| matches!(v, Value::Primitive(..))) {
+        return std::borrow::Cow::Borrowed(focus);
+    }
+    std::borrow::Cow::Owned(
+        focus
+            .iter()
+            .map(Value::primitive_value)
+            .filter(|v| !matches!(v, Value::Null))
+            .cloned()
+            .collect(),
+    )
 }
 
 /// Check that a function received between `min` and `max` arguments (inclusive).

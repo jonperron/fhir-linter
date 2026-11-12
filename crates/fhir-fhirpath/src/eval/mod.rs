@@ -203,7 +203,7 @@ impl Evaluator<'_> {
     ) -> Result<Collection, EvalError> {
         let mut result = Vec::new();
         for item in ctx {
-            if let Value::Object(fields) = item {
+            if let Some(fields) = item.fields() {
                 if let Some(children) = fields.get(name) {
                     result.extend_from_slice(children);
                 } else if let Some(variants) = self.choice_variants(fields, name) {
@@ -254,13 +254,16 @@ impl Evaluator<'_> {
         if let Some(r) = self.call_collection_function(name, args, focus, ctx) {
             return r;
         }
-        if let Some(r) = self.call_string_function(name, args, focus, ctx) {
+        // String, math and conversion functions see each primitive's value; a
+        // primitive without one is not an input item for them.
+        let values = helpers::primitive_values(focus);
+        if let Some(r) = self.call_string_function(name, args, &values, ctx) {
             return r;
         }
-        if let Some(r) = self.call_math_function(name, args, focus, ctx) {
+        if let Some(r) = self.call_math_function(name, args, &values, ctx) {
             return r;
         }
-        if let Some(r) = self.call_type_function(name, args, focus) {
+        if let Some(r) = self.call_type_function(name, args, &values) {
             return r;
         }
         if let Some(r) = self.call_misc_function(name, args, focus, ctx) {
@@ -312,9 +315,10 @@ impl Evaluator<'_> {
         ctx: &[Value],
         op: CmpOp,
     ) -> Result<Collection, EvalError> {
-        // A lone null placeholder is empty, as in singleton evaluation.
+        // A lone item without a value (a primitive with only extensions) is
+        // empty, as in singleton evaluation.
         let without_lone_null = |col: Collection| match col.as_slice() {
-            [Value::Null] => vec![],
+            [v] if matches!(v.primitive_value(), Value::Null) => vec![],
             _ => col,
         };
         let lc = without_lone_null(self.eval(l, ctx)?);

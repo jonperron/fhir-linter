@@ -100,6 +100,39 @@ impl Registry {
             .is_some_and(|suffixes| suffixes.contains(suffix))
     }
 
+    /// The child `name` of the element at definition path `parent` (a type name
+    /// such as `Patient` or `HumanName`, or a backbone path such as
+    /// `Patient.contact`), as its definition path and its type code for this
+    /// instance (a choice suffix picks the type: `valueDate` gives `date`).
+    ///
+    /// The definition path is the element's own path for `BackboneElement` and
+    /// `Element`, otherwise the type code. `None` when the element is unknown
+    /// or has no type (shortcut: `contentReference` elements are not followed;
+    /// read the reference when the loader keeps it).
+    pub fn child_element(&self, parent: &str, name: &str) -> Option<(Arc<str>, Arc<str>)> {
+        let type_name = parent.split('.').next()?;
+        let sd = self.structure_definition(&format!(
+            "http://hl7.org/fhir/StructureDefinition/{type_name}"
+        ))?;
+        let (element, ty) = match sd.element(&format!("{parent}.{name}")) {
+            Some(element) => (element, element.types.first()?),
+            // A type suffix is capitalised, so a choice can only split before an uppercase letter.
+            None => (1..name.len())
+                .filter(|&i| name.as_bytes()[i].is_ascii_uppercase())
+                .find_map(|i| {
+                    let (base, suffix) = name.split_at(i);
+                    let element = sd.element(&format!("{parent}.{base}[x]"))?;
+                    let ty = element.types.iter().find(|t| capitalise(t) == suffix)?;
+                    Some((element, ty))
+                })?,
+        };
+        let definition = match ty.as_ref() {
+            "BackboneElement" | "Element" => Arc::clone(&element.path),
+            _ => Arc::clone(ty),
+        };
+        Some((definition, Arc::clone(ty)))
+    }
+
     /// Look up a `ValueSet` by its canonical URL.
     pub fn value_set(&self, url: &str) -> Option<&ValueSet> {
         self.value_sets.get(url)
@@ -267,6 +300,32 @@ mod tests {
         assert!(!REGISTRY.is_choice_variant("value", "Element"));
         // Suffixes are case-sensitive: `valuequantity` is not a variant.
         assert!(!REGISTRY.is_choice_variant("value", "quantity"));
+    }
+
+    #[test]
+    fn child_element_gives_definition_path_and_type() {
+        let child = |parent: &str, name: &str| {
+            REGISTRY
+                .child_element(parent, name)
+                .map(|(definition, ty)| (definition.to_string(), ty.to_string()))
+        };
+        let pair = |definition: &str, ty: &str| Some((definition.to_owned(), ty.to_owned()));
+        assert_eq!(child("Patient", "birthDate"), pair("date", "date"));
+        assert_eq!(
+            child("Patient", "contact"),
+            pair("Patient.contact", "BackboneElement")
+        );
+        assert_eq!(
+            child("Patient.contact", "name"),
+            pair("HumanName", "HumanName")
+        );
+        assert_eq!(child("Period", "start"), pair("dateTime", "dateTime"));
+        assert_eq!(child("Appointment", "start"), pair("instant", "instant"));
+        // A choice variant takes the type its suffix names.
+        assert_eq!(child("Observation", "valueTime"), pair("time", "time"));
+        assert_eq!(child("Observation", "valueBogus"), None);
+        assert_eq!(child("Patient", "unknown"), None);
+        assert_eq!(child("NoSuchType", "id"), None);
     }
 
     #[test]

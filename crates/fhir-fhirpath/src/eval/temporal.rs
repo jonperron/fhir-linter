@@ -2,8 +2,8 @@
 //! precision by precision, with seconds and milliseconds as one precision,
 //! and time zones normalised to UTC.
 //!
-//! shortcut: values are parsed from their literal text on each comparison;
-//! move to typed temporal values when F10 lands.
+//! shortcut: values keep their text and are parsed on each comparison; store
+//! the parsed parts if profiling shows the cost.
 use std::cmp::Ordering;
 
 /// Components from year (or hour for a Time) down to seconds, and the
