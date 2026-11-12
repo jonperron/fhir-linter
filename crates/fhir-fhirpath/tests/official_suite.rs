@@ -31,8 +31,9 @@ use quick_xml::events::{BytesStart, Event};
 /// passing cases for the wrong reason; this suite runs without choice navigation.
 /// Raised to 817 by the operator semantics fixes, then to 839 by the N1
 /// empty-input rules for string functions (F8), then to 865 by the N1
-/// conversion rules (F9).
-const MIN_PASSED: u32 = 865;
+/// conversion rules (F9), then to 877 by the FHIR data model mapping (F10:
+/// typed inputs, primitive extensions, hasValue).
+const MIN_PASSED: u32 = 877;
 
 /// (run, skipped) case counts on the pinned fixtures, so loader drift or a
 /// broken skip filter cannot hide behind the floor.

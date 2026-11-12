@@ -9,7 +9,7 @@ FHIRPath saw FHIR primitives as plain strings and could not see primitive extens
 - `hasValue()` true / empty / false semantics (deviation from R5 text, documented).
 - `children()`/`descendants()` exclude `resourceType`; JSON nulls are not items.
 - `=` between a complex value and a primitive is `false`.
-- The validator evaluates invariants on typed values; the official suite floor rises from 817 to 829.
+- The validator evaluates invariants on typed values; the official suite floor rises from 865 to 877.
 
 ## Capabilities
 

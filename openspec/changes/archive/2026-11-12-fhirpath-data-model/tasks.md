@@ -8,7 +8,7 @@
 - [x] 2.2 Add `Value::Primitive`, merge JSON `_x` and XML primitives with children
 - [x] 2.3 Unwrap primitives in operators and functions; fix `hasValue()`
 - [x] 2.4 Exclude `resourceType` and JSON nulls from items; complex `=` primitive is false
-- [x] 2.5 Type official suite inputs with the Registry; raise floor to 829
+- [x] 2.5 Type official suite inputs with the Registry; raise floor to 877
 
 ## 3. Validator
 
