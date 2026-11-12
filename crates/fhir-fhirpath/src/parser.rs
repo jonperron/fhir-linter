@@ -401,8 +401,14 @@ fn parse_quantity(pair: Pair<Rule>) -> Result<Expr, ParseError> {
     let value = num_str
         .parse::<f64>()
         .map_err(|_| ParseError::Syntax(format!("invalid quantity number: {num_str}")))?;
-    let unit = strip_quotes(rest.trim()).to_owned();
-    Ok(Expr::Quantity(value, unit))
+    let rest = rest.trim();
+    // A calendar keyword is represented by its singular form (N1 §4.1.8).
+    let unit = match rest.strip_prefix('\'') {
+        Some(_) => strip_quotes(rest),
+        None => crate::value::calendar_unit(rest)
+            .ok_or_else(|| ParseError::Syntax(format!("invalid quantity unit: {rest}")))?,
+    };
+    Ok(Expr::Quantity(value, unit.to_owned()))
 }
 
 /// Remove the leading `@` from a date/dateTime literal.

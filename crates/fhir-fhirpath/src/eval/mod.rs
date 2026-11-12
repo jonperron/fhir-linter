@@ -263,7 +263,7 @@ impl Evaluator<'_> {
         if let Some(r) = self.call_math_function(name, args, &values, ctx) {
             return r;
         }
-        if let Some(r) = self.call_type_function(name, args, &values) {
+        if let Some(r) = self.call_type_function(name, args, &values, ctx) {
             return r;
         }
         if let Some(r) = self.call_misc_function(name, args, focus, ctx) {

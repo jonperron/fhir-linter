@@ -106,8 +106,18 @@ date_part = @{ ASCII_DIGIT{4} ~ ("-" ~ ASCII_DIGIT{2} ~ ("-" ~ ASCII_DIGIT{2})?)
 time_part = @{ ASCII_DIGIT{2} ~ ":" ~ ASCII_DIGIT{2} ~ (":" ~ ASCII_DIGIT{2} ~ ("." ~ ASCII_DIGIT+)?)? }
 timezone  = @{ "Z" | ("+" | "-") ~ ASCII_DIGIT{2} ~ ":" ~ ASCII_DIGIT{2} }
 
-// Quantity: number followed by unit string — try before decimal/integer
-quantity_lit = @{ (decimal_num | integer_num) ~ " "+ ~ "'" ~ string_char* ~ "'" }
+// Quantity: number followed by a unit string or a calendar duration keyword
+// (N1 `unit : dateTimePrecision | pluralDateTimePrecision | STRING`) — try
+// before decimal/integer. Each plural comes before its singular prefix.
+quantity_lit = @{
+    (decimal_num | integer_num) ~ " "+
+  ~ ("'" ~ string_char* ~ "'" | calendar_kw ~ !(ASCII_ALPHANUMERIC | "_"))
+}
+calendar_kw = @{
+    "years" | "year" | "months" | "month" | "weeks" | "week" | "days" | "day"
+  | "hours" | "hour" | "minutes" | "minute" | "seconds" | "second"
+  | "milliseconds" | "millisecond"
+}
 
 decimal_lit  = { decimal_num }
 // long_lit must come before integer_lit so that '45L' is not consumed as integer '45'.

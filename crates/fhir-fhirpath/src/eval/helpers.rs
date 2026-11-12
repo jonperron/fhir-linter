@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::ArithOp;
 use crate::ast::Expr;
 use crate::error::EvalError;
-use crate::value::{Collection, Value};
+use crate::value::{Collection, Value, same_quantity_unit};
 
 /// Check that a function received the expected number of arguments.
 pub(super) fn check_arity(name: &str, args: &[Expr], expected: usize) -> Result<(), EvalError> {
@@ -87,7 +87,9 @@ pub(super) fn values_equal(a: &Value, b: &Value) -> Option<bool> {
         (Value::Long(x), Value::Decimal(y)) => Some(*x as f64 == *y),
         (Value::Decimal(x), Value::Long(y)) => Some(*x == *y as f64),
         (Value::String(x), Value::String(y)) => Some(x == y),
-        (Value::Quantity(xv, xu), Value::Quantity(yv, yu)) => Some(xv == yv && xu == yu),
+        (Value::Quantity(xv, xu), Value::Quantity(yv, yu)) => {
+            Some(xv == yv && same_quantity_unit(xu, yu, false))
+        }
         // N1 §6.1.1: complex values are equal when all their properties are.
         (Value::Object(x), Value::Object(y)) => objects_match(x, y, false),
         // A complex value never equals a primitive. Without type knowledge an XML
@@ -238,6 +240,9 @@ pub(super) fn values_equivalent(a: &Value, b: &Value) -> bool {
             _ => false,
         },
         (Value::Object(x), Value::Object(y)) => objects_match(x, y, true) == Some(true),
+        (Value::Quantity(xv, xu), Value::Quantity(yv, yu)) => {
+            xv == yv && same_quantity_unit(xu, yu, true)
+        }
         _ => values_equal(a, b).unwrap_or(false),
     }
 }
@@ -270,7 +275,7 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
         | (Value::DateTime(x), Value::DateTime(y))
         | (Value::Time(x), Value::Time(y)) => Ok(x.cmp(y)),
         (Value::Quantity(xv, xu), Value::Quantity(yv, yu)) => {
-            if xu != yu {
+            if !same_quantity_unit(xu, yu, false) {
                 return Err(EvalError::Type(format!(
                     "cannot compare quantities with different units: '{xu}' vs '{yu}'"
                 )));

@@ -22,7 +22,8 @@ pub enum Value {
     Date(Arc<str>),
     DateTime(Arc<str>),
     Time(Arc<str>),
-    /// Quantity with a UCUM unit.
+    /// Quantity with a UCUM unit, or a calendar duration unit given by its
+    /// singular keyword (N1 §4.1.8: `4 days` has the unit `'day'`).
     Quantity(f64, Arc<str>),
     /// An object node (maps field name → collection).
     Object(Arc<IndexMap<Arc<str>, Collection>>),
@@ -128,6 +129,38 @@ impl fmt::Display for Value {
             Value::Primitive(value, _) => write!(f, "{value}"),
         }
     }
+}
+
+/// N1 §4.1.8 calendar durations: (singular keyword, definite UCUM unit).
+const CALENDAR_DURATIONS: [(&str, &str); 8] = [
+    ("year", "a"),
+    ("month", "mo"),
+    ("week", "wk"),
+    ("day", "d"),
+    ("hour", "h"),
+    ("minute", "min"),
+    ("second", "s"),
+    ("millisecond", "ms"),
+];
+
+/// The unit a calendar duration keyword (singular or plural) stands for.
+pub(crate) fn calendar_unit(keyword: &str) -> Option<&'static str> {
+    let singular = keyword.strip_suffix('s').unwrap_or(keyword);
+    CALENDAR_DURATIONS
+        .iter()
+        .find(|(unit, _)| *unit == singular)
+        .map(|(unit, _)| *unit)
+}
+
+/// Whether two quantity units match (N1 §6.1.1, §6.1.2): the same unit, or
+/// a calendar duration and its UCUM unit. Under `=` that pairing holds only
+/// for seconds and below; under `~` it always holds.
+pub(crate) fn same_quantity_unit(a: &str, b: &str, equivalent: bool) -> bool {
+    a == b
+        || CALENDAR_DURATIONS.iter().any(|(calendar, ucum)| {
+            (equivalent || matches!(*calendar, "second" | "millisecond"))
+                && ((a, b) == (*calendar, *ucum) || (b, a) == (*calendar, *ucum))
+        })
 }
 
 /// FHIR type knowledge for building values: for the child `name` of the

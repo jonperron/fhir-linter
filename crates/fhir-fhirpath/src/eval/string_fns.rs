@@ -34,13 +34,6 @@ impl Evaluator<'_> {
         ctx: &[Value],
     ) -> Result<Option<Collection>, EvalError> {
         let col: Collection = match name {
-            "toString" => {
-                check_arity(name, args, 0)?;
-                focus
-                    .iter()
-                    .map(|v| Value::String(Arc::from(v.to_string().as_str())))
-                    .collect()
-            }
             "length" => {
                 check_arity(name, args, 0)?;
                 string_input(focus, name)?
