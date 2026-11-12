@@ -119,7 +119,8 @@ pub struct Slicing {
 /// One `slicing.discriminator` entry.
 #[derive(Debug, Clone)]
 pub struct Discriminator {
-    /// `discriminator.type`: `value`, `exists`, `type`, `profile` or `position`.
+    /// `discriminator.type`: `value`, `exists`, `pattern` (deprecated), `type`, `profile` or
+    /// `position`.
     pub kind: Arc<str>,
     /// FHIRPath (restricted) from the sliced element to the discriminating value.
     pub path: Arc<str>,

@@ -265,6 +265,8 @@ fn strip_version(s: &str) -> Arc<str> {
 fn parse_binding(b: &Value) -> Option<Binding> {
     let strength: Arc<str> = b["strength"].as_str()?.into();
     let value_set = b["valueSet"].as_str().map(strip_version);
+    // Like a binding without strength, an entry without purpose or valueSet (both 1..1)
+    // cannot be applied, so it is skipped rather than failing the whole load.
     let additional = b["additional"]
         .as_array()
         .into_iter()
