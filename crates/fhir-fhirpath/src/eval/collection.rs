@@ -50,8 +50,8 @@ impl Evaluator<'_> {
                 }
                 check_arity(name, args, 1)?;
                 let mut result = false;
-                for item in focus {
-                    let col = self.eval(&args[0], std::slice::from_ref(item))?;
+                for (index, item) in focus.iter().enumerate() {
+                    let col = self.eval_item(&args[0], item, index)?;
                     if criteria_bool(&col, name)? == Some(true) {
                         result = true;
                         break;
@@ -65,8 +65,8 @@ impl Evaluator<'_> {
                     return Ok(Some(vec![Value::Bool(true)]));
                 }
                 let mut result = true;
-                for item in focus {
-                    let col = self.eval(&args[0], std::slice::from_ref(item))?;
+                for (index, item) in focus.iter().enumerate() {
+                    let col = self.eval_item(&args[0], item, index)?;
                     if criteria_bool(&col, name)? != Some(true) {
                         result = false;
                         break;
@@ -100,8 +100,8 @@ impl Evaluator<'_> {
             "where" => {
                 check_arity(name, args, 1)?;
                 let mut out = Vec::new();
-                for item in focus {
-                    let col = self.eval(&args[0], std::slice::from_ref(item))?;
+                for (index, item) in focus.iter().enumerate() {
+                    let col = self.eval_item(&args[0], item, index)?;
                     if criteria_bool(&col, name)? == Some(true) {
                         out.push(item.clone());
                     }
@@ -111,9 +111,8 @@ impl Evaluator<'_> {
             "select" => {
                 check_arity(name, args, 1)?;
                 let mut out = Vec::new();
-                for item in focus {
-                    let col = self.eval(&args[0], std::slice::from_ref(item))?;
-                    out.extend(col);
+                for (index, item) in focus.iter().enumerate() {
+                    out.extend(self.eval_item(&args[0], item, index)?);
                 }
                 out
             }
@@ -124,9 +123,10 @@ impl Evaluator<'_> {
                 let mut frontier = focus.to_vec();
                 loop {
                     let mut next = Vec::new();
-                    for item in &frontier {
-                        let col = self.eval(&args[0], std::slice::from_ref(item))?;
-                        for v in col {
+                    // shortcut: N1 does not say what $index is in repeat(); each
+                    // round indexes its own items. Revisit if a later release defines it.
+                    for (index, item) in frontier.iter().enumerate() {
+                        for v in self.eval_item(&args[0], item, index)? {
                             if !contains_value(&seen, &v) {
                                 seen.push(v.clone());
                                 next.push(v);
@@ -267,12 +267,12 @@ impl Evaluator<'_> {
                 } else {
                     vec![]
                 };
-                for item in focus {
+                for (index, item) in focus.iter().enumerate() {
                     let step = Evaluator {
-                        is_choice_variant: self.is_choice_variant,
                         total: Some(&total),
+                        ..*self
                     };
-                    total = step.eval(&args[0], std::slice::from_ref(item))?;
+                    total = step.eval_item(&args[0], item, index)?;
                 }
                 total
             }

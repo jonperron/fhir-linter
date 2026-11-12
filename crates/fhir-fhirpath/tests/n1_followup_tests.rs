@@ -286,6 +286,63 @@ fn aggregate_carries_total_through_each_iteration() {
     );
 }
 
+// ── $index ───────────────────────────────────────────────────────────────────
+
+fn strings(values: &[&str]) -> Vec<Value> {
+    values.iter().map(|s| Value::String((*s).into())).collect()
+}
+
+// N1 §5: expression parameters "may refer to the special $this and $index
+// elements, which represent the item from the input collection currently
+// under evaluation, and its index in the collection".
+#[test]
+fn index_is_the_position_of_the_item_under_evaluation() {
+    assert_eq!(
+        eval("('a' | 'b' | 'c').select($index)"),
+        integers(&[0, 1, 2])
+    );
+    assert_eq!(
+        eval("('a' | 'b' | 'c').where($index > 0)"),
+        strings(&["b", "c"])
+    );
+    assert_eq!(eval("('a' | 'b').all($index < 2)"), boolean(true));
+    assert_eq!(eval("('a' | 'b').all($index < 1)"), boolean(false));
+    assert_eq!(eval("('a' | 'b').exists($index = 1)"), boolean(true));
+    assert_eq!(eval("('a' | 'b').exists($index = 2)"), boolean(false));
+    assert_eq!(
+        eval("(5 | 6 | 7).aggregate($total + $index, 0)"),
+        integers(&[3])
+    );
+    // repeat: each round's items are indexed within that round.
+    assert_eq!(
+        eval("(1).repeat(iif($index = 0 and $this < 3, $this + 1, {}))"),
+        integers(&[2, 3])
+    );
+    // testIndex shape: iif inside select sees the select's $index.
+    assert_eq!(
+        eval("('x' | 'y' | 'z').select(iif($this = 'z', $index, {}))"),
+        integers(&[2])
+    );
+}
+
+#[test]
+fn index_is_scoped_to_the_innermost_iteration() {
+    assert_eq!(
+        eval("(1 | 2).select((10 | 20 | 30).where($index = 2))"),
+        integers(&[30, 30])
+    );
+    assert_eq!(
+        eval("(1 | 2).select((10 | 20).count() + $index)"),
+        integers(&[2, 3])
+    );
+}
+
+#[test]
+fn index_outside_an_iteration_is_an_error() {
+    assert!(evaluate("$index", &[]).is_err());
+    assert!(evaluate("(1 | 2).first() + $index", &[]).is_err());
+}
+
 #[test]
 fn total_outside_aggregate_is_an_error() {
     assert!(evaluate("$total", &[]).is_err());

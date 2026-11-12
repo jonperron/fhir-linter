@@ -38,6 +38,7 @@ pub fn eval(
     Evaluator {
         is_choice_variant,
         total: None,
+        index: None,
     }
     .eval(expr, context)
 }
@@ -46,9 +47,26 @@ pub(super) struct Evaluator<'a> {
     is_choice_variant: &'a dyn Fn(&str, &str) -> bool,
     /// `$total` while an `aggregate()` expression is evaluated.
     total: Option<&'a [Value]>,
+    /// `$index` while an expression parameter is evaluated for one item.
+    index: Option<usize>,
 }
 
 impl Evaluator<'_> {
+    /// Evaluate an expression parameter for the input item at `index`, which
+    /// becomes `$this` and `$index` (N1 §5).
+    pub(super) fn eval_item(
+        &self,
+        expr: &Expr,
+        item: &Value,
+        index: usize,
+    ) -> Result<Collection, EvalError> {
+        Evaluator {
+            index: Some(index),
+            ..*self
+        }
+        .eval(expr, std::slice::from_ref(item))
+    }
+
     pub(super) fn eval(&self, expr: &Expr, ctx: &[Value]) -> Result<Collection, EvalError> {
         match expr {
             // ── Literals ────────────────────────────────────────────────────
@@ -70,9 +88,10 @@ impl Evaluator<'_> {
 
             // ── Context / root ──────────────────────────────────────────────
             Expr::DollarThis => Ok(ctx.to_vec()),
-            Expr::DollarIndex => Err(EvalError::UndefinedFunction(
-                "$index is not supported outside of iteration context".to_owned(),
-            )),
+            Expr::DollarIndex => self
+                .index
+                .map(|i| vec![Value::Integer(i as i64)])
+                .ok_or_else(|| EvalError::Type("$index outside an iteration".to_owned())),
             Expr::DollarTotal => self
                 .total
                 .map(<[Value]>::to_vec)
