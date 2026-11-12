@@ -15,6 +15,8 @@ struct Walk<'a> {
     json: bool,
     /// Ids of the root's contained resources, for `#id` references.
     contained_ids: Vec<&'a str>,
+    /// The root `id`, which the parser lifts out of `fields`; it pairs with a root `_id`.
+    root_id: Option<Value>,
 }
 
 /// Validate the resource's elements at every depth, starting at the top level.
@@ -24,12 +26,15 @@ struct Walk<'a> {
 /// (`TERMINOLOGY_*`), reference (`REFERENCE_*`) and invariant (`INVARIANT_*`) checks
 /// recursively into backbone elements and complex types. Each node gets the constraints of
 /// its element and of its type's root element (`qty-3` on every Quantity), once per key.
-/// The root's own invariants and the profile layer run outside the walk.
+/// The root's own invariants and the profile layer run outside the walk. `root` is the
+/// resource's FHIRPath value (`resource_to_typed_value`); each object's part of it is handed
+/// down the walk, so the tree is converted once.
 ///
 /// shortcut: `contentReference` elements (skipped silently) and contained/embedded resources are
 /// not descended into; upgrade when recursive structures need validating.
 pub fn validate(
     resource: &Resource,
+    root: &FhirPathValue,
     sd: &StructureDefinition,
     registry: &Registry,
     json: bool,
@@ -58,14 +63,11 @@ pub fn validate(
         registry,
         json,
         contained_ids: references::contained_ids(resource, registry),
+        root_id: resource.id.clone().map(Value::Str),
     };
-    // Converted once; each object's FHIRPath value is handed down the walk (see `descend`).
-    let root = fhir_fhirpath::resource_to_typed_value(resource, &|parent, name| {
-        registry.child_element(parent, name)
-    });
     walk(
         &resource.fields,
-        typed_fields(std::slice::from_ref(&root)),
+        typed_fields(std::slice::from_ref(root)),
         sd,
         resource_type,
         &context,
@@ -239,8 +241,16 @@ fn walk(
                 // A primitive with a value is checked with its `_name` when the value is reached.
                 if !fields.contains_key(bare) {
                     let bare_path = format!("{path}.{bare}");
+                    // Only the root path has no '.', and only its `id` is lifted.
+                    let lifted = (bare == "id" && !path.contains('.'))
+                        .then(|| context.root_id.clone())
+                        .flatten();
+                    let value = lifted.map(|value| Node {
+                        value,
+                        span: node.span,
+                    });
                     check_primitive(
-                        None,
+                        value.as_ref(),
                         Some(node),
                         elem,
                         &ty,

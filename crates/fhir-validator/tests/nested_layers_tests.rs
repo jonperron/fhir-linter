@@ -315,14 +315,28 @@ fn reference_choice_variant_in_an_extension_is_checked() -> TestResult {
 
 #[test]
 fn nested_skipped_constraint_names_the_node_path() -> TestResult {
-    // Every INVARIANT_SKIPPED stays Information and points at a node in the instance.
-    let found = diagnostics(r#"{"resourceType":"Patient","contact":[{"name":{"family":"A"}}]}"#)?;
-    for d in found
+    // ref-1 needs %rootResource, so it is skipped on the nested Reference, at its path.
+    let found = diagnostics(
+        r#"{"resourceType":"Patient","contact":[{"organization":
+        {"reference":"Organization/1"}}]}"#,
+    )?;
+    let ref_1 = found
         .iter()
-        .filter(|d| d.code.as_ref() == "INVARIANT_SKIPPED")
-    {
-        assert_eq!(d.severity, Severity::Information);
-        assert!(d.path.starts_with("Patient"), "{d:?}");
-    }
+        .find(|d| d.message.starts_with("constraint ref-1 not checked"))
+        .ok_or_else(|| format!("no ref-1 skip: {found:?}"))?;
+    assert_eq!(ref_1.code.as_ref(), "INVARIANT_SKIPPED");
+    assert_eq!(ref_1.severity, Severity::Information);
+    assert_eq!(ref_1.path, "Patient.contact[0].organization");
+    assert!(ref_1.location.is_some(), "{ref_1:?}");
+    Ok(())
+}
+
+#[test]
+fn root_id_extension_pairs_with_the_lifted_id() -> TestResult {
+    // The parser lifts `id` out of the fields; `_id` must still see its value.
+    let found = errors(r#"{"resourceType":"Patient","id":"p1","_id":{}}"#)?;
+    assert!(found.is_empty(), "{found:?}");
+    let alone = findings(r#"{"resourceType":"Patient","_id":{}}"#)?;
+    assert!(has(&alone, "INVARIANT_ele-1", "Patient.id"), "{alone:?}");
     Ok(())
 }

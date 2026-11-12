@@ -58,12 +58,16 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
         resource
     };
 
-    nested::validate(resource, sd, registry, json, &mut diagnostics);
+    // The FHIRPath value of the resource, converted once for the walk and the root invariants.
+    let root = fhir_fhirpath::resource_to_typed_value(resource, &|parent, name| {
+        registry.child_element(parent, name)
+    });
+    nested::validate(resource, &root, sd, registry, json, &mut diagnostics);
     invariants::validate(
         resource,
         sd,
         &|base, suffix| registry.is_choice_variant(base, suffix),
-        &|parent, name| registry.child_element(parent, name),
+        &root,
         &mut diagnostics,
     );
     profile::validate(resource, sd, registry, &mut diagnostics);
