@@ -260,6 +260,8 @@ Le système SHALL implémenter `toString()`, `length()`, `startsWith(s)`, `endsW
 Le paramètre optionnel `flags` accepte `i` (insensible à la casse) et `m` (multiligne).
 `escape`/`unescape` supportent les cibles `'html'` et `'json'`.
 
+Pour `startsWith`, `endsWith`, `contains`, `indexOf`, `lastIndexOf`, `matches`, `matchesFull`, `replace`, `replaceMatches` et `substring`, une entrée vide ou un argument vide (motif, sous-chaîne, substitution, début) SHALL donner une collection vide ; un argument non `String` (ou non `Integer` pour `substring`) SHALL rester une erreur. Pour `substring`, un début hors de `0..length-1` SHALL donner une collection vide, une longueur vide SHALL se comporter comme une longueur absente et une longueur `<= 0` SHALL donner `''`. `join` sur une entrée vide SHALL donner une collection vide.
+
 #### Scenario: length sur une chaîne
 
 - **WHEN** `'hello'.length()` est évalué
@@ -305,6 +307,31 @@ Le paramètre optionnel `flags` accepte `i` (insensible à la casse) et `m` (mul
 - **WHEN** `'hello'.substring(0, -1)` ou `'hello'.substring(0, 0)` est évalué
 - **THEN** le résultat SHALL être `[String('')]` (chaîne vide, pas collection vide)
 
+#### Scenario: Entrée ou argument vide d'une fonction de chaîne
+
+- **WHEN** `{}.startsWith('a')`, `'abc'.startsWith({})`, `'abc'.replace({}, 'x')` ou `'abc'.replace('a', {})` est évalué
+- **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: Argument non chaîne d'une fonction de chaîne
+
+- **WHEN** `'abc'.startsWith(1)` est évalué
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))`
+
+#### Scenario: substring avec début hors limites
+
+- **WHEN** `'hello'.substring(5)` ou `'hello'.substring(-1)` est évalué
+- **THEN** le résultat SHALL être une collection vide (pas `''`)
+
+#### Scenario: substring avec longueur vide
+
+- **WHEN** `'hello'.substring(1, {})` est évalué
+- **THEN** le résultat SHALL être `[String('ello')]`
+
+#### Scenario: join sur une entrée vide
+
+- **WHEN** `{}.join(',')` est évalué
+- **THEN** le résultat SHALL être une collection vide
+
 ---
 
 ### Requirement: Fonctions mathématiques
@@ -339,6 +366,17 @@ Le système SHALL implémenter `toInteger()`, `toLong()`, `toDecimal()`, `toBool
 
 `toLong()` retourne une valeur `Long` (type distinct d'`Integer`).
 
+Pour `toX()` et `convertsToX()` avec X parmi `Boolean`, `Integer`, `Decimal`, `Date`, `DateTime`, `Time` : une entrée vide (ou un seul `Null` de substitution) SHALL donner une collection vide ; plus d'un élément SHALL être une erreur ; un élément non convertible SHALL donner une collection vide (`toX`) ou `false` (`convertsToX`), jamais une erreur. Sources convertibles :
+
+- `toBoolean` : `Boolean` ; `Integer` `1`/`0` ; `Decimal` `1.0`/`0.0` ; `String` `true`/`t`/`yes`/`y`/`1`/`1.0` et `false`/`f`/`no`/`n`/`0`/`0.0`, sans tenir compte de la casse.
+- `toInteger` : `Integer`, `Boolean`, `String` `(+|-)?\d+` ; un `Decimal` SHALL donner une collection vide.
+- `toDecimal` : `Decimal`, `Integer`, `Boolean`, `String` `(+|-)?\d+(\.\d+)?` uniquement (`NaN`, `inf`, `1e5` donnent une collection vide).
+- `toDate` : `Date`, la partie date d'une `DateTime`, `String` `YYYY[-MM[-DD]]`.
+- `toDateTime` : `DateTime`, `Date`, `String` `YYYY[-MM[-DD]][Thh[:mm[:ss[.fff]]][Z|(+|-)hh:mm]]` avec un décalage d'au plus `14:00`.
+- `toTime` : `Time`, `String` `hh[:mm[:ss[.fff]]]`.
+
+Une date en `String` SHALL être une date calendaire réelle (année `0001` à `9999`, jour valide pour son mois, années bissextiles comprises). `convertsToString`, `convertsToLong`, `convertsToQuantity`, `toLong` et `toQuantity` ne suivent pas ces règles et restent inchangés.
+
 #### Scenario: toInteger depuis une chaîne
 
 - **WHEN** `'42'.toInteger()` est évalué
@@ -353,6 +391,41 @@ Le système SHALL implémenter `toInteger()`, `toLong()`, `toDecimal()`, `toBool
 
 - **WHEN** `'abc'.convertsToInteger()` est évalué
 - **THEN** le résultat SHALL être `[Bool(false)]`
+
+#### Scenario: Conversion sur une entrée vide
+
+- **WHEN** `{}.toInteger()` ou `{}.convertsToBoolean()` est évalué
+- **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: Conversion sur plusieurs éléments
+
+- **WHEN** `(1 | 2).toInteger()` ou `(1 | 2).convertsToInteger()` est évalué
+- **THEN** l'évaluateur SHALL retourner une erreur
+
+#### Scenario: toBoolean depuis une chaîne
+
+- **WHEN** `'Yes'.toBoolean()` ou `'0.0'.toBoolean()` est évalué
+- **THEN** le résultat SHALL être respectivement `[Bool(true)]` et `[Bool(false)]`
+
+#### Scenario: toInteger depuis un Decimal
+
+- **WHEN** `1.5.toInteger()` est évalué
+- **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: toDecimal refuse la notation scientifique
+
+- **WHEN** `'1e5'.toDecimal()` ou `'NaN'.toDecimal()` est évalué
+- **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: toDate depuis une DateTime
+
+- **WHEN** `@2020-01-02T10:00:00.toDate()` est évalué
+- **THEN** le résultat SHALL être `[Date('2020-01-02')]`
+
+#### Scenario: Date calendaire invalide
+
+- **WHEN** `'2023-02-29'.convertsToDate()` ou `'2020-01-01T10:00+14:30'.convertsToDateTime()` est évalué
+- **THEN** le résultat SHALL être `[Bool(false)]`, et `'2024-02-29'.convertsToDate()` SHALL valoir `[Bool(true)]`
 
 ---
 
@@ -510,11 +583,11 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 
-Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate` sur son `inputfile` (un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_value`) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 817 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
+Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate` sur son `inputfile` (un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_value`) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 865 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
 
 #### Scenario: Réussites sous le plancher
 
-- **WHEN** moins de 817 cas de la suite réussissent
+- **WHEN** moins de 865 cas de la suite réussissent
 - **THEN** le test SHALL échouer
 
 #### Scenario: Dérive du nombre de cas
