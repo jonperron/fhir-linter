@@ -5,7 +5,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::model::{
-    Binding, CodeSystem, Constraint, ElementDefinition, Include, StructureDefinition, ValueSet,
+    Binding, CodeSystem, Constraint, ElementDefinition, Include, StructureDefinition, TypeProfiles,
+    ValueSet,
 };
 use crate::{Error, Result};
 
@@ -139,6 +140,12 @@ fn parse_element_definition(
     let content_reference = elem["contentReference"]
         .as_str()
         .map(|r| Arc::from(r.strip_prefix('#').unwrap_or(r)));
+    let type_profiles = elem["type"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(parse_type_profiles)
+        .collect();
 
     Ok(ElementDefinition {
         path,
@@ -150,7 +157,28 @@ fn parse_element_definition(
         slice_name,
         xml_attr,
         content_reference,
+        type_profiles,
     })
+}
+
+/// The profiles of one `ElementDefinition.type`; `None` when it declares none.
+fn parse_type_profiles(t: &Value) -> Option<TypeProfiles> {
+    let code = type_code(t)?;
+    let profiles = canonicals(&t["profile"]);
+    (!profiles.is_empty()).then(|| TypeProfiles {
+        code: code.into(),
+        profiles,
+    })
+}
+
+/// A JSON array of canonical URLs, version suffixes stripped.
+fn canonicals(list: &Value) -> Vec<Arc<str>> {
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(strip_version)
+        .collect()
 }
 
 /// The FHIR type code of an `ElementDefinition.type`. FHIRPath system types
@@ -225,15 +253,7 @@ fn parse_include(inc: &Value) -> Include {
         version: inc["version"].as_str().map(Arc::from),
         codes: strings(&inc["concept"], "code"),
         has_filter: inc["filter"].as_array().is_some_and(|f| !f.is_empty()),
-        value_sets: inc["valueSet"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|x| x.as_str())
-                    .map(strip_version)
-                    .collect()
-            })
-            .unwrap_or_default(),
+        value_sets: canonicals(&inc["valueSet"]),
     }
 }
 

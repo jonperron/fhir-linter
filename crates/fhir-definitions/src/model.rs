@@ -88,6 +88,18 @@ pub struct ElementDefinition {
     /// `#Questionnaire.item` is kept as the bare path `Questionnaire.item`; a reference into
     /// another definition (`http://...#Observation.referenceRange`) is kept whole.
     pub content_reference: Option<Arc<str>>,
+    /// Profiles declared on the element's types, one entry per type code that has any
+    /// (type codes are unique per element, eld-13). Types without profiles have no entry.
+    pub type_profiles: Vec<TypeProfiles>,
+}
+
+/// The profiles an `ElementDefinition.type` entry declares (canonical URLs, version stripped).
+#[derive(Debug, Clone)]
+pub struct TypeProfiles {
+    /// The type code, resolved like the entries of `ElementDefinition::types`.
+    pub code: Arc<str>,
+    /// `type.profile`: the value must conform to at least one of these.
+    pub profiles: Vec<Arc<str>>,
 }
 
 /// A FHIRPath constraint expression on an element.
@@ -190,6 +202,7 @@ mod tests {
             slice_name: None,
             xml_attr: false,
             content_reference: None,
+            type_profiles: vec![],
         }
     }
 

@@ -27,6 +27,30 @@ fn count(predicate: impl Fn(&ElementDefinition) -> bool) -> usize {
 }
 
 #[test]
+fn type_profiles_are_loaded_per_type() {
+    let has_profile =
+        |e: &ElementDefinition| e.type_profiles.iter().any(|t| !t.profiles.is_empty());
+    assert_eq!(count(has_profile), 188);
+    let quantity = element("Claim", "Claim.item.quantity");
+    let [simple] = quantity.type_profiles.as_slice() else {
+        panic!("one profiled type expected: {:?}", quantity.type_profiles);
+    };
+    assert_eq!(simple.code.as_ref(), "Quantity");
+    assert_eq!(
+        simple.profiles,
+        [Arc::from(
+            "http://hl7.org/fhir/StructureDefinition/SimpleQuantity"
+        )],
+    );
+    // Types without a profile take no entry.
+    assert!(
+        element("Patient", "Patient.birthDate")
+            .type_profiles
+            .is_empty()
+    );
+}
+
+#[test]
 fn content_reference_is_loaded_without_the_local_hash() {
     assert_eq!(count(|e| e.content_reference.is_some()), 153);
     assert_eq!(

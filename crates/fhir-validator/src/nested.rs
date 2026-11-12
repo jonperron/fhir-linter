@@ -501,6 +501,7 @@ mod tests {
             slice_name: None,
             xml_attr: false,
             content_reference: None,
+            type_profiles: vec![],
         }
     }
 
