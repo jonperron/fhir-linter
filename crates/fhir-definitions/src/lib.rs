@@ -4,12 +4,15 @@
 //! Loads and indexes StructureDefinitions, ValueSets, and CodeSystems from
 //! the bundled FHIR R5 artifact files.
 
+#[cfg(test)]
+mod loaded_fields_tests;
 mod loader;
 mod model;
 mod registry;
 
 pub use model::{
-    Binding, CodeSystem, Constraint, ElementDefinition, Include, StructureDefinition, ValueSet,
+    AdditionalBinding, Binding, ChoiceValue, CodeSystem, Constraint, Discriminator,
+    ElementDefinition, Include, Slicing, StructureDefinition, TypeProfiles, ValueSet,
 };
 pub use registry::Registry;
 

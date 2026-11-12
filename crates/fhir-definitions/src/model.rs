@@ -84,6 +84,65 @@ pub struct ElementDefinition {
     pub slice_name: Option<Arc<str>>,
     /// `representation` holds `xmlAttr`: the XML form is an attribute, not a child element.
     pub xml_attr: bool,
+    /// `contentReference`: the element whose content rules apply here. A local
+    /// `#Questionnaire.item` is kept as the bare path `Questionnaire.item`; a reference into
+    /// another definition (`http://...#Observation.referenceRange`) is kept whole.
+    pub content_reference: Option<Arc<str>>,
+    /// Profiles and target profiles declared on the element's types, one entry per type code
+    /// that has any (type codes are unique per element, eld-13). Other types have no entry.
+    pub type_profiles: Vec<TypeProfiles>,
+    /// `fixed[x]`: the value SHALL be exactly this one.
+    pub fixed: Option<Box<ChoiceValue>>,
+    /// `pattern[x]`: the value SHALL contain at least these parts.
+    pub pattern: Option<Box<ChoiceValue>>,
+    /// `slicing`: how repetitions of this element divide into the slices that follow it.
+    pub slicing: Option<Box<Slicing>>,
+    /// `maxLength`: the most characters a string-like value may hold.
+    pub max_length: Option<u32>,
+    /// `minValue[x]`: the lowest allowed value.
+    pub min_value: Option<Box<ChoiceValue>>,
+    /// `maxValue[x]`: the highest allowed value.
+    pub max_value: Option<Box<ChoiceValue>>,
+}
+
+/// `ElementDefinition.slicing`.
+#[derive(Debug, Clone)]
+pub struct Slicing {
+    /// How a repetition is matched to a slice; in declaration order.
+    pub discriminators: Vec<Discriminator>,
+    /// `closed`, `open` or `openAtEnd`.
+    pub rules: Arc<str>,
+    /// Whether slices must appear in the order they are declared (absent means false).
+    pub ordered: bool,
+}
+
+/// One `slicing.discriminator` entry.
+#[derive(Debug, Clone)]
+pub struct Discriminator {
+    /// `discriminator.type`: `value`, `exists`, `pattern` (deprecated), `type`, `profile` or
+    /// `position`.
+    pub kind: Arc<str>,
+    /// FHIRPath (restricted) from the sliced element to the discriminating value.
+    pub path: Arc<str>,
+}
+
+/// A `[x]` property of an ElementDefinition (`fixedCode`, `patternCodeableConcept`, ...),
+/// kept raw: its key names the type, its value is the JSON as written in the definition.
+#[derive(Debug, Clone)]
+pub struct ChoiceValue {
+    pub key: Arc<str>,
+    pub value: serde_json::Value,
+}
+
+/// The profiles an `ElementDefinition.type` entry declares (canonical URLs, version stripped).
+#[derive(Debug, Clone)]
+pub struct TypeProfiles {
+    /// The type code, resolved like the entries of `ElementDefinition::types`.
+    pub code: Arc<str>,
+    /// `type.profile`: the value must conform to at least one of these.
+    pub profiles: Vec<Arc<str>>,
+    /// `type.targetProfile`: a `Reference`/`canonical` must point to one of these.
+    pub target_profiles: Vec<Arc<str>>,
 }
 
 /// A FHIRPath constraint expression on an element.
@@ -130,6 +189,20 @@ impl Constraint {
 pub struct Binding {
     pub strength: Arc<str>,
     pub value_set: Option<Arc<str>>,
+    /// `binding.additional`: further ValueSets with their own purpose (`maximum`, ...).
+    pub additional: Vec<AdditionalBinding>,
+}
+
+/// One `binding.additional` entry.
+#[derive(Debug, Clone)]
+pub struct AdditionalBinding {
+    /// `required`, `extensible`, `maximum`, `minimum`, `candidate`, `current`, `preferred`,
+    /// `ui`, `starter` or `component`.
+    pub purpose: Arc<str>,
+    /// Canonical URL, version suffix stripped.
+    pub value_set: Arc<str>,
+    /// `any`: the binding is met when any repetition conforms, not each one.
+    pub any: bool,
 }
 
 /// A lightweight ValueSet: identity plus the `compose.include` entries needed
@@ -185,6 +258,14 @@ mod tests {
             binding: None,
             slice_name: None,
             xml_attr: false,
+            content_reference: None,
+            type_profiles: vec![],
+            fixed: None,
+            pattern: None,
+            slicing: None,
+            max_length: None,
+            min_value: None,
+            max_value: None,
         }
     }
 

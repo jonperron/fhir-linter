@@ -5,7 +5,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::model::{
-    Binding, CodeSystem, Constraint, ElementDefinition, Include, StructureDefinition, ValueSet,
+    AdditionalBinding, Binding, ChoiceValue, CodeSystem, Constraint, Discriminator,
+    ElementDefinition, Include, Slicing, StructureDefinition, TypeProfiles, ValueSet,
 };
 use crate::{Error, Result};
 
@@ -136,6 +137,23 @@ fn parse_element_definition(
     let xml_attr = elem["representation"]
         .as_array()
         .is_some_and(|r| r.iter().any(|v| v == "xmlAttr"));
+    let content_reference = elem["contentReference"]
+        .as_str()
+        .map(|r| Arc::from(r.strip_prefix('#').unwrap_or(r)));
+    let type_profiles = elem["type"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(parse_type_profiles)
+        .collect();
+    let slicing = match &elem["slicing"] {
+        Value::Null => None,
+        slicing => Some(Box::new(parse_slicing(slicing).ok_or_else(|| {
+            format!(
+                "snapshot element {path} has a slicing without rules or discriminator type/path"
+            )
+        })?)),
+    };
 
     Ok(ElementDefinition {
         path,
@@ -146,7 +164,71 @@ fn parse_element_definition(
         binding,
         slice_name,
         xml_attr,
+        content_reference,
+        type_profiles,
+        fixed: choice_value(elem, "fixed"),
+        pattern: choice_value(elem, "pattern"),
+        slicing,
+        max_length: elem["maxLength"]
+            .as_u64()
+            .and_then(|n| u32::try_from(n).ok()),
+        min_value: choice_value(elem, "minValue"),
+        max_value: choice_value(elem, "maxValue"),
     })
+}
+
+/// `None` when a required part (`rules`, a discriminator's `type` or `path`) is missing.
+fn parse_slicing(slicing: &Value) -> Option<Slicing> {
+    let discriminators = slicing["discriminator"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|d| {
+            Some(Discriminator {
+                kind: d["type"].as_str()?.into(),
+                path: d["path"].as_str()?.into(),
+            })
+        })
+        .collect::<Option<_>>()?;
+    Some(Slicing {
+        discriminators,
+        rules: slicing["rules"].as_str()?.into(),
+        ordered: slicing["ordered"].as_bool().unwrap_or(false),
+    })
+}
+
+/// The `<prefix>[x]` property of `elem` (`fixedCode` for `fixed`), if any.
+fn choice_value(elem: &Value, prefix: &str) -> Option<Box<ChoiceValue>> {
+    let (key, value) = elem.as_object()?.iter().find(|(key, _)| {
+        key.strip_prefix(prefix)
+            .is_some_and(|suffix| suffix.starts_with(|c: char| c.is_ascii_uppercase()))
+    })?;
+    Some(Box::new(ChoiceValue {
+        key: key.as_str().into(),
+        value: value.clone(),
+    }))
+}
+
+/// The profiles of one `ElementDefinition.type`; `None` when it declares none.
+fn parse_type_profiles(t: &Value) -> Option<TypeProfiles> {
+    let code = type_code(t)?;
+    let profiles = canonicals(&t["profile"]);
+    let target_profiles = canonicals(&t["targetProfile"]);
+    (!profiles.is_empty() || !target_profiles.is_empty()).then(|| TypeProfiles {
+        code: code.into(),
+        profiles,
+        target_profiles,
+    })
+}
+
+/// A JSON array of canonical URLs, version suffixes stripped.
+fn canonicals(list: &Value) -> Vec<Arc<str>> {
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(strip_version)
+        .collect()
 }
 
 /// The FHIR type code of an `ElementDefinition.type`. FHIRPath system types
@@ -183,9 +265,24 @@ fn strip_version(s: &str) -> Arc<str> {
 fn parse_binding(b: &Value) -> Option<Binding> {
     let strength: Arc<str> = b["strength"].as_str()?.into();
     let value_set = b["valueSet"].as_str().map(strip_version);
+    // Like a binding without strength, an entry without purpose or valueSet (both 1..1)
+    // cannot be applied, so it is skipped rather than failing the whole load.
+    let additional = b["additional"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|a| {
+            Some(AdditionalBinding {
+                purpose: a["purpose"].as_str()?.into(),
+                value_set: strip_version(a["valueSet"].as_str()?),
+                any: a["any"].as_bool().unwrap_or(false),
+            })
+        })
+        .collect();
     Some(Binding {
         strength,
         value_set,
+        additional,
     })
 }
 
@@ -221,15 +318,7 @@ fn parse_include(inc: &Value) -> Include {
         version: inc["version"].as_str().map(Arc::from),
         codes: strings(&inc["concept"], "code"),
         has_filter: inc["filter"].as_array().is_some_and(|f| !f.is_empty()),
-        value_sets: inc["valueSet"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|x| x.as_str())
-                    .map(strip_version)
-                    .collect()
-            })
-            .unwrap_or_default(),
+        value_sets: canonicals(&inc["valueSet"]),
     }
 }
 
@@ -470,8 +559,74 @@ mod tests {
     }
 
     #[test]
-    fn load_bundle_rejects_snapshot_element_without_path_or_max() {
+    fn choice_value_needs_the_prefix_then_a_type_name() -> std::result::Result<(), &'static str> {
+        let elem = serde_json::json!({
+            "_fixedCode": {"id": "x"}, "fixedness": 1, "patternCoding": {"code": "a"}
+        });
+        assert!(choice_value(&elem, "fixed").is_none());
+        let pattern = choice_value(&elem, "pattern").ok_or("patternCoding is a pattern")?;
+        assert_eq!(pattern.key.as_ref(), "patternCoding");
+        assert_eq!(pattern.value, serde_json::json!({"code": "a"}));
+        Ok(())
+    }
+
+    #[test]
+    fn slicing_keeps_ordered_and_every_discriminator() -> std::result::Result<(), &'static str> {
+        let slicing = parse_slicing(&serde_json::json!({
+            "rules": "closed", "ordered": true,
+            "discriminator": [{"type": "type", "path": "$this"}, {"type": "exists", "path": "x"}]
+        }))
+        .ok_or("slicing is complete")?;
+        assert!(slicing.ordered);
+        assert_eq!(slicing.rules.as_ref(), "closed");
+        let kinds: Vec<_> = slicing
+            .discriminators
+            .iter()
+            .map(|d| d.kind.as_ref())
+            .collect();
+        assert_eq!(kinds, ["type", "exists"]);
+        Ok(())
+    }
+
+    #[test]
+    fn additional_binding_keeps_any_and_skips_incomplete_entries()
+    -> std::result::Result<(), &'static str> {
+        let binding = parse_binding(&serde_json::json!({
+            "strength": "required",
+            "additional": [
+                {"purpose": "maximum", "valueSet": "http://x/vs|1.0", "any": true},
+                {"purpose": "ui"}
+            ]
+        }))
+        .ok_or("binding has a strength")?;
+        let [maximum] = binding.additional.as_slice() else {
+            return Err("only the complete entry is kept");
+        };
+        assert!(maximum.any);
+        assert_eq!(maximum.value_set.as_ref(), "http://x/vs");
+        Ok(())
+    }
+
+    #[test]
+    fn load_bundle_rejects_malformed_snapshot_element() {
         for (name, element, expected) in [
+            (
+                "slicing_no_rules",
+                r#"{"path": "TestSD2.id", "min": 0, "max": "1", "slicing": {}}"#,
+                "TestSD2.id has a slicing without",
+            ),
+            (
+                "discriminator_no_type",
+                r#"{"path": "TestSD2.id", "min": 0, "max": "1",
+                    "slicing": {"rules": "open", "discriminator": [{"path": "code"}]}}"#,
+                "TestSD2.id has a slicing without",
+            ),
+            (
+                "discriminator_no_path",
+                r#"{"path": "TestSD2.id", "min": 0, "max": "1",
+                    "slicing": {"rules": "open", "discriminator": [{"type": "value"}]}}"#,
+                "TestSD2.id has a slicing without",
+            ),
             (
                 "no_path",
                 r#"{"min": 0, "max": "1"}"#,

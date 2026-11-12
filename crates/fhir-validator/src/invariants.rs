@@ -127,6 +127,14 @@ mod tests {
                 binding: None,
                 slice_name: None,
                 xml_attr: false,
+                content_reference: None,
+                type_profiles: vec![],
+                fixed: None,
+                pattern: None,
+                slicing: None,
+                max_length: None,
+                min_value: None,
+                max_value: None,
             }],
         )
     }

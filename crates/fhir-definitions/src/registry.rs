@@ -230,6 +230,16 @@ impl Registry {
         self.structure_definitions.len()
     }
 
+    /// Every snapshot element of every indexed `StructureDefinition`.
+    #[cfg(test)]
+    pub(crate) fn snapshot_elements(
+        &self,
+    ) -> impl Iterator<Item = &crate::model::ElementDefinition> {
+        self.structure_definitions
+            .values()
+            .flat_map(|sd| sd.snapshot.iter())
+    }
+
     /// Total number of indexed `ValueSet` entries.
     #[cfg(test)]
     pub(crate) fn value_set_count(&self) -> usize {
