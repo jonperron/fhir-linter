@@ -1,22 +1,40 @@
 use fhir_definitions::{ElementDefinition, Registry, StructureDefinition};
-use fhir_parser::{Node, Resource, Value};
+use fhir_fhirpath::{Collection, Value as FhirPathValue};
+use fhir_parser::{Node, Resource, Span, Value};
 use indexmap::IndexMap;
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
 use crate::type_check::{check_type, is_valid_id};
+use crate::{invariants, references, terminology};
+
+/// What every level of the walk shares.
+struct Walk<'a> {
+    registry: &'a Registry,
+    /// JSON input: array shapes are meaningful (`STRUCTURE_002`).
+    json: bool,
+    /// Ids of the root's contained resources, for `#id` references.
+    contained_ids: Vec<&'a str>,
+    /// The root `id`, which the parser lifts out of `fields`; it pairs with a root `_id`.
+    root_id: Option<Value>,
+}
 
 /// Validate the resource's elements at every depth, starting at the top level.
 ///
 /// Applies the structural (`STRUCTURE_001`, and `STRUCTURE_002` array shape when `json`),
-/// cardinality (`CARDINALITY_001/002/003`) and primitive type (`TYPE_*`) checks recursively
-/// into backbone elements and complex types. Terminology, invariants, references and
-/// profile layers remain top-level only.
+/// cardinality (`CARDINALITY_001/002/003`), primitive type (`TYPE_*`), terminology
+/// (`TERMINOLOGY_*`), reference (`REFERENCE_*`) and invariant (`INVARIANT_*`) checks
+/// recursively into backbone elements and complex types. Each node gets the constraints of
+/// its element and of its type's root element (`qty-3` on every Quantity), once per key.
+/// The root's own invariants and the profile layer run outside the walk. `root` is the
+/// resource's FHIRPath value (`resource_to_typed_value`); each object's part of it is handed
+/// down the walk, so the tree is converted once.
 ///
 /// shortcut: `contentReference` elements (skipped silently) and contained/embedded resources are
 /// not descended into; upgrade when recursive structures need validating.
 pub fn validate(
     resource: &Resource,
+    root: &FhirPathValue,
     sd: &StructureDefinition,
     registry: &Registry,
     json: bool,
@@ -41,15 +59,29 @@ pub fn validate(
         diagnostics.push(warning);
     }
 
+    let context = Walk {
+        registry,
+        json,
+        contained_ids: references::contained_ids(resource, registry),
+        root_id: resource.id.clone().map(Value::Str),
+    };
     walk(
         &resource.fields,
+        typed_fields(std::slice::from_ref(root)),
         sd,
         resource_type,
-        registry,
+        &context,
         resource_type,
-        json,
         diagnostics,
     );
+}
+
+/// The FHIRPath children of a single object value.
+fn typed_fields(value: &[FhirPathValue]) -> Option<&IndexMap<Arc<str>, Collection>> {
+    match value {
+        [FhirPathValue::Object(fields)] => Some(fields),
+        _ => None,
+    }
 }
 
 /// Names with path punctuation are never valid element names.
@@ -91,45 +123,73 @@ fn capitalise(s: &str) -> String {
 }
 
 /// Check the value of `elem` (instance `path`), recursing into objects.
+///
+/// `typed` is the node's FHIRPath value as converted with its parent, when known: an object
+/// converts to exactly one value, so an array of objects aligns item by item. Anything else
+/// (nulls, a stray `_name`) is converted here instead, so each subtree is converted once.
 #[allow(clippy::too_many_arguments)] // recursion state threaded through walk/descend
 fn descend(
     node: &Node,
+    typed: Option<&[FhirPathValue]>,
     elem: &ElementDefinition,
     ty: &str,
     sd: &StructureDefinition,
-    registry: &Registry,
+    context: &Walk<'_>,
     path: &str,
-    json: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    let registry = context.registry;
     match &node.value {
         Value::Array(items) => {
+            let aligned = typed.filter(|typed| {
+                typed.len() == items.len()
+                    && items.iter().all(|n| matches!(n.value, Value::Object(_)))
+            });
             for (i, item) in items.iter().enumerate() {
                 descend(
                     item,
+                    aligned.map(|typed| &typed[i..=i]),
                     elem,
                     ty,
                     sd,
-                    registry,
+                    context,
                     &format!("{path}[{i}]"),
-                    json,
                     diagnostics,
                 );
             }
         }
         Value::Object(fields) => {
-            if ty == "BackboneElement" || ty == "Element" {
-                walk(fields, sd, &elem.path, registry, path, json, diagnostics);
-            } else if let Some(type_sd) = complex_type(ty, registry) {
-                walk(
+            let backbone = ty == "BackboneElement" || ty == "Element";
+            let type_sd = complex_type(ty, registry);
+            if !backbone && type_sd.is_none() {
+                return;
+            }
+            let converted;
+            let value = match typed.filter(|typed| typed.len() == 1) {
+                Some(typed) => typed,
+                None => {
+                    // Same definition path as `Registry::child_element`, so both conversions agree.
+                    let definition = if backbone { &elem.path } else { ty };
+                    converted = node_value(Some(node), None, definition, ty, registry);
+                    &converted
+                }
+            };
+            check_invariants(value, elem, ty, path, node.span, registry, diagnostics);
+            if ty == "Reference" {
+                references::check(node, path, &context.contained_ids, registry, diagnostics);
+            }
+            let typed = typed_fields(value);
+            match type_sd.filter(|_| !backbone) {
+                Some(type_sd) => walk(
                     fields,
+                    typed,
                     type_sd,
                     &type_sd.name,
-                    registry,
+                    context,
                     path,
-                    json,
                     diagnostics,
-                );
+                ),
+                None => walk(fields, typed, sd, &elem.path, context, path, diagnostics),
             }
         }
         _ if ty == "BackboneElement" || ty == "Element" || complex_type(ty, registry).is_some() => {
@@ -159,11 +219,11 @@ pub(crate) fn complex_type<'a>(
 /// Validate the children of one object against the elements under `def_path`.
 fn walk(
     fields: &IndexMap<Arc<str>, Node>,
+    typed: Option<&IndexMap<Arc<str>, Collection>>,
     sd: &StructureDefinition,
     def_path: &str,
-    registry: &Registry,
+    context: &Walk<'_>,
     path: &str,
-    json: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     check_children_cardinality(fields, sd, def_path, path, diagnostics);
@@ -176,9 +236,30 @@ fn walk(
         // `_name` carries the id/extensions of primitive `name`, so it must name a primitive.
         if let Some(bare) = name.strip_prefix('_') {
             let primitive = resolve(sd, &format!("{prefix}{bare}"), bare)
-                .is_some_and(|(_, ty)| ty.as_deref().is_some_and(is_primitive));
-            if primitive {
-                walk_primitive_extension(node, registry, &child_path, json, diagnostics);
+                .and_then(|(elem, ty)| Some((elem, ty.filter(|t| is_primitive(t))?)));
+            if let Some((elem, ty)) = primitive {
+                // A primitive with a value is checked with its `_name` when the value is reached.
+                if !fields.contains_key(bare) {
+                    let bare_path = format!("{path}.{bare}");
+                    // Only the root path has no '.', and only its `id` is lifted.
+                    let lifted = (bare == "id" && !path.contains('.'))
+                        .then(|| context.root_id.clone())
+                        .flatten();
+                    let value = lifted.map(|value| Node {
+                        value,
+                        span: node.span,
+                    });
+                    check_primitive(
+                        value.as_ref(),
+                        Some(node),
+                        elem,
+                        &ty,
+                        &bare_path,
+                        context,
+                        diagnostics,
+                    );
+                }
+                walk_primitive_extension(node, context, &child_path, diagnostics);
                 continue;
             }
         }
@@ -193,7 +274,7 @@ fn walk(
             );
             continue;
         };
-        if json {
+        if context.json {
             check_array_shape(node, elem, &child_path, diagnostics);
         }
         // contentReference element: no type to check here.
@@ -202,14 +283,124 @@ fn walk(
         // Element.id is a `string`; R5 snapshots label many as `id` in the fhir-type extension.
         let check_as = if name == "id" { "string" } else { ty.as_ref() };
         check_type(&node.value, check_as, &child_path, node.span, diagnostics);
+        terminology::check(node, elem, &ty, &child_path, context.registry, diagnostics);
+        if is_primitive(&ty) {
+            let extension = fields.get(format!("_{name}").as_str());
+            check_primitive(
+                Some(node),
+                extension,
+                elem,
+                &ty,
+                &child_path,
+                context,
+                diagnostics,
+            );
+        }
+        let typed = typed.and_then(|typed| typed.get(name)).map(Vec::as_slice);
         descend(
             node,
+            typed,
             elem,
             &ty,
             sd,
-            registry,
+            context,
             &child_path,
-            json,
+            diagnostics,
+        );
+    }
+}
+
+/// Evaluate the invariants of primitive element `elem` (type `ty`, instance `path`) on each
+/// value, paired by index with its `_name` element (R5 json.html: the two arrays align).
+fn check_primitive(
+    value: Option<&Node>,
+    extension: Option<&Node>,
+    elem: &ElementDefinition,
+    ty: &str,
+    path: &str,
+    context: &Walk<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    fn items(node: Option<&Node>) -> Vec<&Node> {
+        match node.map(|n| &n.value) {
+            Some(Value::Array(items)) => items.iter().collect(),
+            _ => node.into_iter().collect(),
+        }
+    }
+    let repeats = [value, extension]
+        .into_iter()
+        .flatten()
+        .any(|n| matches!(n.value, Value::Array(_)));
+    let (values, extensions) = (items(value), items(extension));
+    for i in 0..values.len().max(extensions.len()) {
+        let (value, extension) = (values.get(i).copied(), extensions.get(i).copied());
+        let Some(span) = value.or(extension).map(|n| n.span) else {
+            continue;
+        };
+        let typed = node_value(value, extension, ty, ty, context.registry);
+        let item_path = match repeats {
+            true => format!("{path}[{i}]"),
+            false => path.to_owned(),
+        };
+        check_invariants(
+            &typed,
+            elem,
+            ty,
+            &item_path,
+            span,
+            context.registry,
+            diagnostics,
+        );
+    }
+}
+
+/// The FHIRPath value of one node (and its `_name` element) whose element has definition
+/// path `definition` and type `ty`.
+fn node_value(
+    value: Option<&Node>,
+    extension: Option<&Node>,
+    definition: &str,
+    ty: &str,
+    registry: &Registry,
+) -> Collection {
+    fhir_fhirpath::node_to_typed_value(
+        value.map(|n| &n.value),
+        extension.map(|n| &n.value),
+        Some(&(Arc::from(definition), Arc::from(ty))),
+        &|parent, name| registry.child_element(parent, name),
+    )
+}
+
+/// Evaluate on one node (instance `path`) the constraints of its element and of its type's
+/// root element, each key once: a snapshot element repeats `ele-1` but not `qty-3`.
+fn check_invariants(
+    value: &[FhirPathValue],
+    elem: &ElementDefinition,
+    ty: &str,
+    path: &str,
+    span: Span,
+    registry: &Registry,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    // A JSON null or a value-less, extension-less item is no node to constrain.
+    if value.is_empty() {
+        return;
+    }
+    let type_constraints = registry
+        .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{ty}"))
+        .and_then(|type_sd| type_sd.element(ty))
+        .map(|root| root.constraints.as_slice())
+        .unwrap_or_default();
+    let inherited = type_constraints
+        .iter()
+        .filter(|c| !elem.constraints.iter().any(|own| own.key == c.key));
+    for constraint in elem.constraints.iter().chain(inherited) {
+        invariants::check(
+            constraint,
+            value,
+            &|base, suffix| registry.is_choice_variant(base, suffix),
+            path,
+            Some(span),
             diagnostics,
         );
     }
@@ -219,22 +410,22 @@ fn walk(
 /// for a repeating primitive), so its `id` and `extension` are validated.
 fn walk_primitive_extension(
     node: &Node,
-    registry: &Registry,
+    context: &Walk<'_>,
     path: &str,
-    json: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some(element_sd) = complex_type("Element", registry) else {
+    let Some(element_sd) = complex_type("Element", context.registry) else {
         return;
     };
     match &node.value {
+        // Small subtrees (`id`, `extension`): their children convert where they are checked.
         Value::Object(fields) => walk(
             fields,
+            None,
             element_sd,
             "Element",
-            registry,
+            context,
             path,
-            json,
             diagnostics,
         ),
         Value::Array(items) => {
@@ -243,11 +434,11 @@ fn walk_primitive_extension(
                 match &item.value {
                     Value::Object(fields) => walk(
                         fields,
+                        None,
                         element_sd,
                         "Element",
-                        registry,
+                        context,
                         &item_path,
-                        json,
                         diagnostics,
                     ),
                     Value::Null => {}

@@ -1,80 +1,83 @@
-use fhir_definitions::{Registry, StructureDefinition};
+use fhir_definitions::Registry;
 use fhir_parser::{Node, Resource, Value};
 
 use crate::diagnostic::Diagnostic;
 
-/// Validate `Reference.reference` strings on top-level elements.
+/// The ids of the root resource's `contained` resources, which `#id` references resolve to.
+/// A single XML `<contained>` stays an object (the reshape keeps XML grouping).
+pub(crate) fn contained_ids<'a>(resource: &'a Resource, registry: &Registry) -> Vec<&'a str> {
+    let id = |node| contained_id(node, registry);
+    match resource.fields.get("contained") {
+        Some(Node {
+            value: Value::Array(items),
+            ..
+        }) => items.iter().filter_map(id).collect(),
+        Some(single) => id(single).into_iter().collect(),
+        None => Vec::new(),
+    }
+}
+
+/// The id of one contained resource: JSON `{"resourceType", "id"}`, or XML
+/// `<contained><Type><id value=""/></Type></contained>`, where the type element wraps it.
+fn contained_id<'a>(node: &'a Node, registry: &Registry) -> Option<&'a str> {
+    string_field(node, "id").or_else(|| match &node.value {
+        Value::Object(fields) => match fields.iter().collect::<Vec<_>>().as_slice() {
+            [(type_name, inner)] if is_resource_type(registry, type_name) => {
+                string_field(inner, "id")
+            }
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+/// Validate the `reference` string of one `Reference` value `item` (instance
+/// `path`). The walk in `nested.rs` calls it for every Reference, at every depth.
 ///
 /// Emits `REFERENCE_001` for a relative reference whose type is not a known
 /// resource type, and `REFERENCE_002` for a `#id` reference with no matching
-/// entry in `contained` or a bare `#` (only the root resource is validated).
-/// Absolute URLs and `urn:` references are not resolved.
-/// `REFERENCE_003` reports a `Reference.type` that disagrees with the type of a
-/// FHIR URL reference, and `REFERENCE_004` (warning) a malformed relative reference.
-pub fn validate(
-    resource: &Resource,
-    sd: &StructureDefinition,
+/// entry in the root's `contained` or a bare `#` (contained resources are not
+/// walked, so every reference belongs to the root). Absolute URLs and `urn:`
+/// references are not resolved. `REFERENCE_003` reports a `Reference.type` that
+/// disagrees with the type of a FHIR URL reference, and `REFERENCE_004`
+/// (warning) a malformed relative reference.
+pub(crate) fn check(
+    item: &Node,
+    path: &str,
+    contained_ids: &[&str],
     registry: &Registry,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let resource_type = resource.resource_type.as_ref();
-    let contained_ids: Vec<&str> = match resource.fields.get("contained").map(|n| &n.value) {
-        Some(Value::Array(items)) => items.iter().filter_map(|n| string_field(n, "id")).collect(),
-        _ => Vec::new(),
+    let Some(reference) = string_field(item, "reference") else {
+        return;
     };
-
-    for (field_name, node) in &resource.fields {
-        let path = format!("{resource_type}.{field_name}");
-        let is_reference = sd
-            .element(&path)
-            .is_some_and(|e| e.types.iter().any(|t| t.as_ref() == "Reference"));
-        if !is_reference {
-            continue;
-        }
-        let items: Vec<(&Node, String)> = match &node.value {
-            Value::Array(a) => a
-                .iter()
-                .enumerate()
-                .map(|(i, n)| (n, format!("{path}[{i}].reference")))
-                .collect(),
-            _ => vec![(node, format!("{path}.reference"))],
-        };
-        for (item, ref_path) in items {
-            let Some(reference) = string_field(item, "reference") else {
-                continue;
-            };
-            if let Some(problem) = check(reference, &contained_ids, registry) {
-                diagnostics.push(
-                    Diagnostic::error(problem.0, problem.1, ref_path.clone())
-                        .with_location(item.span),
-                );
-            }
-            // references.html 2.1.3.0.1: type and a FHIR URL reference SHALL be consistent.
-            let declared = string_field(item, "type");
-            if let (Some(declared), Some(url_type)) = (declared, fhir_url_type(reference, registry))
-                && declared.strip_prefix(CORE_SD).unwrap_or(declared) != url_type
-            {
-                let message = format!(
-                    "Reference.type '{declared}' does not match type '{url_type}' \
-                     of reference '{reference}'"
-                );
-                diagnostics.push(
-                    Diagnostic::error("REFERENCE_003", message, ref_path.clone())
-                        .with_location(item.span),
-                );
-            }
-            // The R5 literal reference regex is not worded as a SHALL: a warning.
-            if malformed_relative(reference, registry) {
-                let message = format!(
-                    "Relative reference '{reference}' does not match 'Type/id' or \
-                     'Type/id/_history/version'"
-                );
-                diagnostics.push(
-                    Diagnostic::warning("REFERENCE_004", message, ref_path)
-                        .with_location(item.span),
-                );
-            }
-        }
+    let ref_path = format!("{path}.reference");
+    if let Some(problem) = check_target(reference, contained_ids, registry) {
+        diagnostics.push(
+            Diagnostic::error(problem.0, problem.1, ref_path.clone()).with_location(item.span),
+        );
+    }
+    // references.html 2.1.3.0.1: type and a FHIR URL reference SHALL be consistent.
+    let declared = string_field(item, "type");
+    if let (Some(declared), Some(url_type)) = (declared, fhir_url_type(reference, registry))
+        && declared.strip_prefix(CORE_SD).unwrap_or(declared) != url_type
+    {
+        let message = format!(
+            "Reference.type '{declared}' does not match type '{url_type}' \
+             of reference '{reference}'"
+        );
+        diagnostics.push(
+            Diagnostic::error("REFERENCE_003", message, ref_path.clone()).with_location(item.span),
+        );
+    }
+    // The R5 literal reference regex is not worded as a SHALL: a warning.
+    if malformed_relative(reference, registry) {
+        let message = format!(
+            "Relative reference '{reference}' does not match 'Type/id' or \
+             'Type/id/_history/version'"
+        );
+        diagnostics
+            .push(Diagnostic::warning("REFERENCE_004", message, ref_path).with_location(item.span));
     }
 }
 
@@ -153,7 +156,7 @@ fn string_field<'a>(node: &'a Node, key: &str) -> Option<&'a str> {
     }
 }
 
-fn check(
+fn check_target(
     reference: &str,
     contained: &[&str],
     registry: &Registry,

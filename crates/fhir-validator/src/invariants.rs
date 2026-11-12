@@ -1,26 +1,21 @@
 use std::sync::Arc;
 
-use fhir_definitions::StructureDefinition;
-use fhir_parser::Resource;
+use fhir_definitions::{Constraint, StructureDefinition};
+use fhir_parser::{Resource, Span};
 
 use crate::diagnostic::{Diagnostic, Severity};
 
-/// Evaluate FHIRPath `constraint.expression` invariants from the root element.
+/// Evaluate FHIRPath `constraint.expression` invariants of the root element.
 ///
-/// Emits `INVARIANT_<key>` for every constraint whose expression evaluates to
-/// anything other than `[true]`. Expressions that fail to parse or evaluate
-/// emit one `Information` `INVARIANT_SKIPPED` naming the key and the reason, so
-/// a clean result never hides an unchecked constraint (shortcut: the parser
-/// lacks `%` environment variables such as `%resource`, so `dom-3` is always
-/// skipped; add them, with a real `resolve()`, to check contained references).
-/// `is_choice_variant(base, suffix)` makes choice elements navigable (`value`
-/// finds `valueQuantity`); `child_element` types primitives by their declared
-/// FHIR type (see [`fhir_fhirpath::resource_to_typed_value`]).
+/// Constraints below the root run in the single walk (`nested.rs`) through
+/// [`check`]. `is_choice_variant(base, suffix)` makes choice elements navigable
+/// (`value` finds `valueQuantity`); `root` is the resource's FHIRPath value, typed
+/// by [`fhir_fhirpath::resource_to_typed_value`] and shared with the walk.
 pub fn validate(
     resource: &Resource,
     sd: &StructureDefinition,
     is_choice_variant: &dyn Fn(&str, &str) -> bool,
-    child_element: &fhir_fhirpath::ChildElement<'_>,
+    root: &fhir_fhirpath::Value,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let resource_type = resource.resource_type.as_ref();
@@ -30,63 +25,79 @@ pub fn validate(
         return;
     };
 
-    let context_value = fhir_fhirpath::resource_to_typed_value(resource, child_element);
-    let context = vec![context_value];
-
     for constraint in &root_elem.constraints {
-        let Some(parsed) = constraint.parsed_expression() else {
-            continue;
-        };
+        check(
+            constraint,
+            std::slice::from_ref(root),
+            is_choice_variant,
+            resource_type,
+            None,
+            diagnostics,
+        );
+    }
+}
 
-        let result = match parsed
-            .as_ref()
-            .map_err(|e| fhir_fhirpath::EvalError::from(e.clone()))
-            .and_then(|expr| {
-                fhir_fhirpath::evaluate_parsed_with_choices(expr, &context, is_choice_variant)
-            }) {
-            Ok(r) => r,
-            // Parse/evaluation errors are non-fatal: report the skip, then move on.
-            Err(e) => {
-                diagnostics.push(Diagnostic {
-                    severity: Severity::Information,
-                    code: Arc::from("INVARIANT_SKIPPED"),
-                    message: format!("constraint {} not checked: {e}", constraint.key),
-                    path: resource_type.to_owned(),
-                    location: None,
-                    rule: None,
-                });
-                continue;
-            }
-        };
-
-        // A constraint is satisfied when the expression returns exactly [true].
-        // An empty collection or [false] counts as a violation.
-        let satisfied = matches!(result.as_slice(), [value] if value.is_truthy());
-
-        if !satisfied {
-            // R5 constraint-severity is error | warning (required binding):
-            // only "warning" downgrades, any other code stays an error.
-            let severity = match constraint.severity.as_ref() {
+/// Evaluate one constraint on `context`, the node at instance `path`.
+///
+/// Emits `INVARIANT_<key>` when the expression gives anything other than
+/// `[true]`. An expression that fails to parse or evaluate emits one
+/// `Information` `INVARIANT_SKIPPED` naming the key and the reason, so a clean
+/// result never hides an unchecked constraint (shortcut: the parser lacks `%`
+/// environment variables such as `%resource`, so `dom-3` is always skipped; add
+/// them, with a real `resolve()`, to check contained references). The
+/// expression is parsed once and cached on the constraint.
+pub(crate) fn check(
+    constraint: &Constraint,
+    context: &[fhir_fhirpath::Value],
+    is_choice_variant: &dyn Fn(&str, &str) -> bool,
+    path: &str,
+    location: Option<Span>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some(parsed) = constraint.parsed_expression() else {
+        return;
+    };
+    let result = parsed
+        .as_ref()
+        .map_err(|e| fhir_fhirpath::EvalError::from(e.clone()))
+        .and_then(|expr| {
+            fhir_fhirpath::evaluate_parsed_with_choices(expr, context, is_choice_variant)
+        });
+    let (severity, code, message) = match result {
+        // Satisfied only by exactly [true]; an empty collection or [false] is a violation.
+        Ok(r) if matches!(r.as_slice(), [value] if value.is_truthy()) => return,
+        // R5 constraint-severity is error | warning (required binding):
+        // only "warning" downgrades, any other code stays an error.
+        Ok(_) => (
+            match constraint.severity.as_ref() {
                 "warning" => Severity::Warning,
                 _ => Severity::Error,
-            };
-            diagnostics.push(Diagnostic {
-                severity,
-                code: Arc::from(format!("INVARIANT_{}", constraint.key)),
-                message: constraint.human.to_string(),
-                path: resource_type.to_owned(),
-                location: None,
-                rule: None,
-            });
-        }
-    }
+            },
+            format!("INVARIANT_{}", constraint.key),
+            constraint.human.to_string(),
+        ),
+        // Parse/evaluation errors are non-fatal: report the skip, then move on.
+        Err(e) => (
+            Severity::Information,
+            "INVARIANT_SKIPPED".to_owned(),
+            format!("constraint {} not checked: {e}", constraint.key),
+        ),
+    };
+    diagnostics.push(Diagnostic {
+        severity,
+        code: Arc::from(code),
+        message,
+        path: path.to_owned(),
+        location,
+        rule: None,
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use fhir_definitions::{Constraint, ElementDefinition, StructureDefinition};
+    use fhir_definitions::ElementDefinition;
     use indexmap::IndexMap;
 
     fn make_constraint(key: &str, severity: &str, expression: &str) -> Constraint {
@@ -131,6 +142,11 @@ mod tests {
         }
     }
 
+    /// The FHIRPath value of the empty Patient every test validates.
+    fn empty_root() -> fhir_fhirpath::Value {
+        fhir_fhirpath::resource_to_value(&make_empty_resource("Patient"))
+    }
+
     #[test]
     fn satisfied_constraint_produces_no_diagnostic() {
         // "true" always evaluates to [true]
@@ -138,7 +154,7 @@ mod tests {
             make_sd_with_constraints("Patient", vec![make_constraint("test-1", "error", "true")]);
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
-        validate(&resource, &sd, &|_, _| false, &|_, _| None, &mut d);
+        validate(&resource, &sd, &|_, _| false, &empty_root(), &mut d);
         assert!(d.is_empty());
     }
 
@@ -149,7 +165,7 @@ mod tests {
             make_sd_with_constraints("Patient", vec![make_constraint("test-2", "error", "false")]);
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
-        validate(&resource, &sd, &|_, _| false, &|_, _| None, &mut d);
+        validate(&resource, &sd, &|_, _| false, &empty_root(), &mut d);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "INVARIANT_test-2");
         assert_eq!(d[0].severity, Severity::Error);
@@ -163,7 +179,7 @@ mod tests {
         );
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
-        validate(&resource, &sd, &|_, _| false, &|_, _| None, &mut d);
+        validate(&resource, &sd, &|_, _| false, &empty_root(), &mut d);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].severity, Severity::Warning);
     }
@@ -181,7 +197,7 @@ mod tests {
         );
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
-        validate(&resource, &sd, &|_, _| false, &|_, _| None, &mut d);
+        validate(&resource, &sd, &|_, _| false, &empty_root(), &mut d);
         assert!(d.is_empty());
     }
 
@@ -198,7 +214,7 @@ mod tests {
         );
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
-        validate(&resource, &sd, &|_, _| false, &|_, _| None, &mut d);
+        validate(&resource, &sd, &|_, _| false, &empty_root(), &mut d);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].code.as_ref(), "INVARIANT_SKIPPED");
         assert_eq!(d[0].severity, Severity::Information);
@@ -216,7 +232,7 @@ mod tests {
             &make_empty_resource("Patient"),
             &sd,
             &|_, _| false,
-            &|_, _| None,
+            &empty_root(),
             &mut d,
         );
         assert_eq!(d.len(), 1);
@@ -240,7 +256,7 @@ mod tests {
         // Empty resource: no contained → contained.contained → [] → .exists() → [false]
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
-        validate(&resource, &sd, &|_, _| false, &|_, _| None, &mut d);
+        validate(&resource, &sd, &|_, _| false, &empty_root(), &mut d);
         // [false] → violated
         assert_eq!(d.len(), 1);
     }
@@ -258,7 +274,7 @@ mod tests {
         );
         let resource = make_empty_resource("Patient");
         let mut d = vec![];
-        validate(&resource, &sd, &|_, _| false, &|_, _| None, &mut d);
+        validate(&resource, &sd, &|_, _| false, &empty_root(), &mut d);
         assert_eq!(d.len(), 2);
         let codes: Vec<&str> = d.iter().map(|x| x.code.as_ref()).collect();
         assert!(codes.contains(&"INVARIANT_fail-1"));
@@ -279,7 +295,7 @@ mod tests {
                 &make_empty_resource("Patient"),
                 &sd,
                 &|_, _| false,
-                &|_, _| None,
+                &empty_root(),
                 &mut d,
             );
             assert_eq!(d[0].severity, Severity::Error, "{code}");
