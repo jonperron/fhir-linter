@@ -48,7 +48,7 @@ fn check_limits(input: &str) -> Result<(), ParseError> {
     while let Some(c) = chars.next() {
         match c {
             // Quoted spans: skip to the closing delimiter, honouring backslash escapes.
-            '\'' | '`' => {
+            '\'' | '"' | '`' => {
                 while let Some(d) = chars.next() {
                     if d == '\\' {
                         chars.next();
@@ -422,9 +422,13 @@ fn strip_quotes(raw: &str) -> &str {
         .unwrap_or(raw)
 }
 
-/// Unescape a FHIRPath string literal (strips surrounding `'`).
+/// Unescape a FHIRPath string literal (strips the surrounding `'` or `"`).
 fn unescape_string(raw: &str) -> String {
-    unescape(strip_quotes(raw))
+    let inner = raw
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or_else(|| strip_quotes(raw));
+    unescape(inner)
 }
 
 /// Name of an `ident` pair; a backtick-delimited identifier is unescaped.
@@ -489,6 +493,37 @@ mod tests {
     fn string_with_escaped_quote_at_end() {
         assert_eq!(parse(r"'it\''").unwrap(), Expr::String("it'".into()));
         assert_eq!(parse(r"'\''").unwrap(), Expr::String("'".into()));
+    }
+
+    #[test]
+    fn double_quoted_string_is_a_string_literal() -> Result<(), ParseError> {
+        // User decision (PLAN 11.7): R5 eld-11 writes `contains(":")`.
+        assert_eq!(parse(r#""a:b""#)?, Expr::String("a:b".into()));
+        assert_eq!(parse(r#""it\"s""#)?, Expr::String("it\"s".into()));
+        assert_eq!(parse(r#""it's""#)?, Expr::String("it's".into()));
+        assert_eq!(parse(r#""*\n""#)?, Expr::String("*\n".into()));
+        assert_eq!(parse(r#""""#)?, Expr::String(String::new()));
+        assert!(parse(r#""unterminated"#).is_err());
+        assert!(parse(r#"'mixed""#).is_err());
+        assert!(parse(r#""\q""#).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn brackets_inside_double_quotes_do_not_count_as_nesting() -> Result<(), ParseError> {
+        let deep = "(".repeat(MAX_NESTING + 1);
+        assert_eq!(parse(&format!("\"{deep}\""))?, Expr::String(deep.clone()));
+        // An escaped `\"` does not close the span.
+        assert_eq!(
+            parse(&format!(r#""\"{deep}""#))?,
+            Expr::String(format!("\"{deep}")),
+        );
+        // A `"` inside a single-quoted string does not open a span.
+        assert_eq!(
+            parse(&format!("'\"{deep}'"))?,
+            Expr::String(format!("\"{deep}"))
+        );
+        Ok(())
     }
 
     #[test]
