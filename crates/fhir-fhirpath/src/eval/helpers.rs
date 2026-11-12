@@ -411,14 +411,28 @@ pub(super) fn string_or_empty(col: &[Value]) -> Arc<str> {
         .unwrap_or_else(|| Arc::from(""))
 }
 
+/// N1 §5.6 input of a string function: `None` when empty; several items or
+/// an item that is not a String are an error.
+pub(super) fn string_input(focus: &[Value], name: &str) -> Result<Option<Arc<str>>, EvalError> {
+    match singleton(focus, name)? {
+        None => Ok(None),
+        Some(Value::String(s)) => Ok(Some(Arc::clone(s))),
+        Some(v) => Err(EvalError::Type(format!(
+            "{name}() requires a String input, got {}",
+            v.type_name()
+        ))),
+    }
+}
+
 pub(super) fn string_transform(
     focus: &[Value],
+    name: &str,
     f: impl Fn(&str) -> String,
 ) -> Result<Collection, EvalError> {
-    match focus.first().and_then(|v| v.as_string()) {
-        Some(s) => Ok(vec![Value::String(Arc::from(f(&s)))]),
-        None => Ok(vec![]),
-    }
+    Ok(string_input(focus, name)?
+        .map(|s| Value::String(Arc::from(f(&s))))
+        .into_iter()
+        .collect())
 }
 
 /// Single-pass JSON string unescape (FHIRPath 3.0 `unescape('json')`).

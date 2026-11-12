@@ -33,8 +33,8 @@ use quick_xml::events::{BytesStart, Event};
 /// empty-input rules for string functions (F8), then to 865 by the N1
 /// conversion rules (F9), then to 877 by the FHIR data model mapping (F10:
 /// typed inputs, primitive extensions, hasValue), then to 881 by skip/take
-/// with an empty count.
-const MIN_PASSED: u32 = 881;
+/// with an empty count, then to 884 by the string function singleton rule.
+const MIN_PASSED: u32 = 884;
 
 /// (run, skipped) case counts on the pinned fixtures, so loader drift or a
 /// broken skip filter cannot hide behind the floor.
