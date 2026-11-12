@@ -348,3 +348,17 @@ fn total_outside_aggregate_is_an_error() {
     assert!(evaluate("$total", &[]).is_err());
     assert!(evaluate("(1 | 2).select($total)", &[]).is_err());
 }
+
+// A digit string beyond f64 is not a Decimal (N1 §4.1.4 Decimal is finite).
+#[test]
+fn digit_strings_beyond_f64_do_not_convert() {
+    let huge = format!("'1{}'", "0".repeat(400));
+    for function in ["toQuantity()", "toDecimal()"] {
+        let expr = format!("{huge}.{function}");
+        assert_eq!(eval(&expr), vec![], "{expr}");
+    }
+    assert_eq!(
+        eval(&format!("{huge}.convertsToQuantity()")),
+        boolean(false)
+    );
+}

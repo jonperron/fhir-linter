@@ -165,7 +165,7 @@ fn to_quantity(item: &Value) -> Option<Value> {
                 (None, Some(keyword)) => calendar_unit(keyword.as_str())?,
                 (None, None) => "1",
             };
-            (captures.get(1)?.as_str().parse().ok()?, unit)
+            (finite(captures.get(1)?.as_str())?, unit)
         }
         _ => return None,
     };
@@ -185,6 +185,11 @@ fn to_string(item: &Value) -> Option<Value> {
         _ => return None,
     };
     Some(Value::String(Arc::from(text)))
+}
+
+/// A digit string as a Decimal; `None` beyond f64 instead of infinity.
+fn finite(digits: &str) -> Option<f64> {
+    digits.parse::<f64>().ok().filter(|d| d.is_finite())
 }
 
 /// A Decimal as `(\+|-)?\d+(.\d+)?`, always with a fraction so it stays
@@ -207,7 +212,7 @@ fn to_decimal(item: &Value) -> Option<Value> {
         Value::Decimal(d) => Some(Value::Decimal(*d)),
         Value::Integer(n) => Some(Value::Decimal(*n as f64)),
         Value::Bool(b) => Some(Value::Decimal(if *b { 1.0 } else { 0.0 })),
-        Value::String(s) if full_match(&DECIMAL, s) => s.parse().ok().map(Value::Decimal),
+        Value::String(s) if full_match(&DECIMAL, s) => finite(s).map(Value::Decimal),
         _ => None,
     }
 }
