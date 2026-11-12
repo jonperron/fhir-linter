@@ -91,6 +91,18 @@ pub struct ElementDefinition {
     /// Profiles and target profiles declared on the element's types, one entry per type code
     /// that has any (type codes are unique per element, eld-13). Other types have no entry.
     pub type_profiles: Vec<TypeProfiles>,
+    /// `fixed[x]`: the value SHALL be exactly this one.
+    pub fixed: Option<Box<ChoiceValue>>,
+    /// `pattern[x]`: the value SHALL contain at least these parts.
+    pub pattern: Option<Box<ChoiceValue>>,
+}
+
+/// A `[x]` property of an ElementDefinition (`fixedCode`, `patternCodeableConcept`, ...),
+/// kept raw: its key names the type, its value is the JSON as written in the definition.
+#[derive(Debug, Clone)]
+pub struct ChoiceValue {
+    pub key: Arc<str>,
+    pub value: serde_json::Value,
 }
 
 /// The profiles an `ElementDefinition.type` entry declares (canonical URLs, version stripped).
@@ -205,6 +217,8 @@ mod tests {
             xml_attr: false,
             content_reference: None,
             type_profiles: vec![],
+            fixed: None,
+            pattern: None,
         }
     }
 

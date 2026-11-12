@@ -5,8 +5,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::model::{
-    Binding, CodeSystem, Constraint, ElementDefinition, Include, StructureDefinition, TypeProfiles,
-    ValueSet,
+    Binding, ChoiceValue, CodeSystem, Constraint, ElementDefinition, Include, StructureDefinition,
+    TypeProfiles, ValueSet,
 };
 use crate::{Error, Result};
 
@@ -158,7 +158,21 @@ fn parse_element_definition(
         xml_attr,
         content_reference,
         type_profiles,
+        fixed: choice_value(elem, "fixed"),
+        pattern: choice_value(elem, "pattern"),
     })
+}
+
+/// The `<prefix>[x]` property of `elem` (`fixedCode` for `fixed`), if any.
+fn choice_value(elem: &Value, prefix: &str) -> Option<Box<ChoiceValue>> {
+    let (key, value) = elem.as_object()?.iter().find(|(key, _)| {
+        key.strip_prefix(prefix)
+            .is_some_and(|suffix| suffix.starts_with(|c: char| c.is_ascii_uppercase()))
+    })?;
+    Some(Box::new(ChoiceValue {
+        key: key.as_str().into(),
+        value: value.clone(),
+    }))
 }
 
 /// The profiles of one `ElementDefinition.type`; `None` when it declares none.
@@ -493,6 +507,17 @@ mod tests {
             let parsed = parse_element_definition(&elem, 0).expect("element should be parsed");
             assert_eq!(parsed.types[0].as_ref(), code);
         }
+    }
+
+    #[test]
+    fn choice_value_needs_the_prefix_then_a_type_name() {
+        let elem = serde_json::json!({
+            "_fixedCode": {"id": "x"}, "fixedness": 1, "patternCoding": {"code": "a"}
+        });
+        assert!(choice_value(&elem, "fixed").is_none());
+        let pattern = choice_value(&elem, "pattern").expect("patternCoding is a pattern");
+        assert_eq!(pattern.key.as_ref(), "patternCoding");
+        assert_eq!(pattern.value, serde_json::json!({"code": "a"}));
     }
 
     #[test]

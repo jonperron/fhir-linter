@@ -502,6 +502,8 @@ mod tests {
             xml_attr: false,
             content_reference: None,
             type_profiles: vec![],
+            fixed: None,
+            pattern: None,
         }
     }
 

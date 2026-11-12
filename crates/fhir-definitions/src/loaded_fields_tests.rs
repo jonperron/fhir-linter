@@ -74,6 +74,29 @@ fn target_profiles_are_loaded_per_type() {
 }
 
 #[test]
+fn fixed_and_pattern_values_are_loaded_with_their_key() {
+    assert_eq!(count(|e| e.fixed.is_some()), 87);
+    assert_eq!(count(|e| e.pattern.is_some()), 33);
+    assert_eq!(count(|e| e.fixed.is_some() || e.pattern.is_some()), 120);
+    let vital_signs = REGISTRY
+        .structure_definition("http://hl7.org/fhir/StructureDefinition/vitalsigns")
+        .expect("vitalsigns is loaded");
+    let category_code = vital_signs
+        .snapshot
+        .iter()
+        .filter(|e| e.path.as_ref() == "Observation.category.coding.code")
+        .find_map(|e| e.fixed.as_deref())
+        .expect("the VSCat slice fixes its code");
+    assert_eq!(category_code.key.as_ref(), "fixedCode");
+    assert_eq!(category_code.value, serde_json::json!("vital-signs"));
+    let pattern = REGISTRY
+        .snapshot_elements()
+        .find_map(|e| e.pattern.as_deref())
+        .expect("some element has a pattern");
+    assert!(pattern.key.starts_with("pattern"));
+}
+
+#[test]
 fn content_reference_is_loaded_without_the_local_hash() {
     assert_eq!(count(|e| e.content_reference.is_some()), 153);
     assert_eq!(
