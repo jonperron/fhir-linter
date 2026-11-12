@@ -90,7 +90,8 @@ literal = _{ bool_lit | quantity_lit | decimal_lit | long_lit | integer_lit | da
 null_lit    = { "{}" }
 bool_lit    = @{ ("true" | "false") ~ !(ASCII_ALPHANUMERIC | "_") }
 
-string_lit  = @{ "'" ~ string_char* ~ "'" }
+// Double quotes are an extension (PLAN 11.7): the R5 eld-11 constraint writes `contains(":")`.
+string_lit  = @{ "'" ~ string_char* ~ "'" | "\"" ~ (!("\"" | "\\") ~ ANY | escape)* ~ "\"" }
 string_char = _{ !("'" | "\\") ~ ANY | escape }
 // ESC from the FHIRPath grammar, shared by strings and delimited identifiers.
 escape      = _{ "\\" ~ ("`" | "'" | "\"" | "\\" | "/" | "f" | "n" | "r" | "t" | "u" ~ ASCII_HEX_DIGIT{4}) }
