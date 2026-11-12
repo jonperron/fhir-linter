@@ -5,8 +5,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::model::{
-    Binding, ChoiceValue, CodeSystem, Constraint, ElementDefinition, Include, StructureDefinition,
-    TypeProfiles, ValueSet,
+    Binding, ChoiceValue, CodeSystem, Constraint, Discriminator, ElementDefinition, Include,
+    Slicing, StructureDefinition, TypeProfiles, ValueSet,
 };
 use crate::{Error, Result};
 
@@ -146,6 +146,14 @@ fn parse_element_definition(
         .flatten()
         .filter_map(parse_type_profiles)
         .collect();
+    let slicing = match &elem["slicing"] {
+        Value::Null => None,
+        slicing => Some(Box::new(parse_slicing(slicing).ok_or_else(|| {
+            format!(
+                "snapshot element {path} has a slicing without rules or discriminator type/path"
+            )
+        })?)),
+    };
 
     Ok(ElementDefinition {
         path,
@@ -160,6 +168,27 @@ fn parse_element_definition(
         type_profiles,
         fixed: choice_value(elem, "fixed"),
         pattern: choice_value(elem, "pattern"),
+        slicing,
+    })
+}
+
+/// `None` when a required part (`rules`, a discriminator's `type` or `path`) is missing.
+fn parse_slicing(slicing: &Value) -> Option<Slicing> {
+    let discriminators = slicing["discriminator"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|d| {
+            Some(Discriminator {
+                kind: d["type"].as_str()?.into(),
+                path: d["path"].as_str()?.into(),
+            })
+        })
+        .collect::<Option<_>>()?;
+    Some(Slicing {
+        discriminators,
+        rules: slicing["rules"].as_str()?.into(),
+        ordered: slicing["ordered"].as_bool().unwrap_or(false),
     })
 }
 
@@ -521,8 +550,19 @@ mod tests {
     }
 
     #[test]
-    fn load_bundle_rejects_snapshot_element_without_path_or_max() {
+    fn load_bundle_rejects_malformed_snapshot_element() {
         for (name, element, expected) in [
+            (
+                "slicing_no_rules",
+                r#"{"path": "TestSD2.id", "min": 0, "max": "1", "slicing": {}}"#,
+                "TestSD2.id has a slicing without",
+            ),
+            (
+                "discriminator_no_path",
+                r#"{"path": "TestSD2.id", "min": 0, "max": "1",
+                    "slicing": {"rules": "open", "discriminator": [{"type": "value"}]}}"#,
+                "TestSD2.id has a slicing without",
+            ),
             (
                 "no_path",
                 r#"{"min": 0, "max": "1"}"#,

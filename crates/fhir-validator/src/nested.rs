@@ -504,6 +504,7 @@ mod tests {
             type_profiles: vec![],
             fixed: None,
             pattern: None,
+            slicing: None,
         }
     }
 

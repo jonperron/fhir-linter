@@ -11,8 +11,8 @@ mod model;
 mod registry;
 
 pub use model::{
-    Binding, ChoiceValue, CodeSystem, Constraint, ElementDefinition, Include, StructureDefinition,
-    TypeProfiles, ValueSet,
+    Binding, ChoiceValue, CodeSystem, Constraint, Discriminator, ElementDefinition, Include,
+    Slicing, StructureDefinition, TypeProfiles, ValueSet,
 };
 pub use registry::Registry;
 

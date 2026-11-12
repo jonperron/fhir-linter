@@ -95,6 +95,28 @@ pub struct ElementDefinition {
     pub fixed: Option<Box<ChoiceValue>>,
     /// `pattern[x]`: the value SHALL contain at least these parts.
     pub pattern: Option<Box<ChoiceValue>>,
+    /// `slicing`: how repetitions of this element divide into the slices that follow it.
+    pub slicing: Option<Box<Slicing>>,
+}
+
+/// `ElementDefinition.slicing`.
+#[derive(Debug, Clone)]
+pub struct Slicing {
+    /// How a repetition is matched to a slice; in declaration order.
+    pub discriminators: Vec<Discriminator>,
+    /// `closed`, `open` or `openAtEnd`.
+    pub rules: Arc<str>,
+    /// Whether slices must appear in the order they are declared (absent means false).
+    pub ordered: bool,
+}
+
+/// One `slicing.discriminator` entry.
+#[derive(Debug, Clone)]
+pub struct Discriminator {
+    /// `discriminator.type`: `value`, `exists`, `type`, `profile` or `position`.
+    pub kind: Arc<str>,
+    /// FHIRPath (restricted) from the sliced element to the discriminating value.
+    pub path: Arc<str>,
 }
 
 /// A `[x]` property of an ElementDefinition (`fixedCode`, `patternCodeableConcept`, ...),
@@ -219,6 +241,7 @@ mod tests {
             type_profiles: vec![],
             fixed: None,
             pattern: None,
+            slicing: None,
         }
     }
 

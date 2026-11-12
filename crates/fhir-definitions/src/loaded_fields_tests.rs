@@ -97,6 +97,36 @@ fn fixed_and_pattern_values_are_loaded_with_their_key() {
 }
 
 #[test]
+fn slicing_and_slice_names_are_loaded() {
+    assert_eq!(count(|e| e.slicing.is_some()), 255);
+    assert_eq!(count(|e| e.slice_name.is_some()), 174);
+    let vital_signs = REGISTRY
+        .structure_definition("http://hl7.org/fhir/StructureDefinition/vitalsigns")
+        .expect("vitalsigns is loaded");
+    let category = vital_signs
+        .element("Observation.category")
+        .and_then(|e| e.slicing.as_deref())
+        .expect("vitalsigns slices Observation.category");
+    let discriminators: Vec<_> = category
+        .discriminators
+        .iter()
+        .map(|d| (d.kind.as_ref(), d.path.as_ref()))
+        .collect();
+    assert_eq!(
+        discriminators,
+        [("value", "coding.code"), ("value", "coding.system")],
+    );
+    assert_eq!(category.rules.as_ref(), "open");
+    assert!(!category.ordered);
+    let vs_cat = vital_signs
+        .descendants("Observation.category")
+        .iter()
+        .find(|e| e.slice_name.as_deref() == Some("VSCat"))
+        .expect("VSCat slice");
+    assert_eq!(vs_cat.min, 1);
+}
+
+#[test]
 fn content_reference_is_loaded_without_the_local_hash() {
     assert_eq!(count(|e| e.content_reference.is_some()), 153);
     assert_eq!(
