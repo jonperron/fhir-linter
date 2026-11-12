@@ -127,6 +127,53 @@ fn slicing_and_slice_names_are_loaded() {
 }
 
 #[test]
+fn additional_bindings_are_loaded() {
+    let additional = |e: &ElementDefinition| e.binding.as_ref().map_or(0, |b| b.additional.len());
+    assert_eq!(count(|e| additional(e) > 0), 267);
+    let maximum: Vec<_> = REGISTRY
+        .snapshot_elements()
+        .flat_map(|e| e.binding.iter().flat_map(|b| &b.additional))
+        .filter(|a| a.purpose.as_ref() == "maximum")
+        .map(|a| a.value_set.as_ref())
+        .collect();
+    assert_eq!(maximum.len(), 4);
+    let language = element("Expression", "Expression.language");
+    let [mimetypes] = language
+        .binding
+        .as_ref()
+        .expect("bound")
+        .additional
+        .as_slice()
+    else {
+        panic!("one additional binding expected");
+    };
+    assert_eq!(mimetypes.purpose.as_ref(), "maximum");
+    assert_eq!(
+        mimetypes.value_set.as_ref(),
+        "http://hl7.org/fhir/ValueSet/mimetypes"
+    );
+    assert!(!mimetypes.any);
+}
+
+#[test]
+fn max_length_and_value_limits_are_loaded() {
+    assert_eq!(count(|e| e.max_length.is_some()), 1);
+    assert_eq!(
+        element("string", "string.value").max_length,
+        Some(1_048_576)
+    );
+    assert_eq!(count(|e| e.min_value.is_some()), 2);
+    assert_eq!(count(|e| e.max_value.is_some()), 2);
+    let integer = element("integer", "integer.value");
+    let min = integer.min_value.as_deref().expect("integer has a minimum");
+    let max = integer.max_value.as_deref().expect("integer has a maximum");
+    assert_eq!(min.key.as_ref(), "minValueInteger");
+    assert_eq!(min.value, serde_json::json!(-2_147_483_648_i64));
+    assert_eq!(max.key.as_ref(), "maxValueInteger");
+    assert_eq!(max.value, serde_json::json!(2_147_483_647));
+}
+
+#[test]
 fn content_reference_is_loaded_without_the_local_hash() {
     assert_eq!(count(|e| e.content_reference.is_some()), 153);
     assert_eq!(

@@ -97,6 +97,12 @@ pub struct ElementDefinition {
     pub pattern: Option<Box<ChoiceValue>>,
     /// `slicing`: how repetitions of this element divide into the slices that follow it.
     pub slicing: Option<Box<Slicing>>,
+    /// `maxLength`: the most characters a string-like value may hold.
+    pub max_length: Option<u32>,
+    /// `minValue[x]`: the lowest allowed value.
+    pub min_value: Option<Box<ChoiceValue>>,
+    /// `maxValue[x]`: the highest allowed value.
+    pub max_value: Option<Box<ChoiceValue>>,
 }
 
 /// `ElementDefinition.slicing`.
@@ -182,6 +188,20 @@ impl Constraint {
 pub struct Binding {
     pub strength: Arc<str>,
     pub value_set: Option<Arc<str>>,
+    /// `binding.additional`: further ValueSets with their own purpose (`maximum`, ...).
+    pub additional: Vec<AdditionalBinding>,
+}
+
+/// One `binding.additional` entry.
+#[derive(Debug, Clone)]
+pub struct AdditionalBinding {
+    /// `required`, `extensible`, `maximum`, `minimum`, `candidate`, `current`, `preferred`,
+    /// `ui`, `starter` or `component`.
+    pub purpose: Arc<str>,
+    /// Canonical URL, version suffix stripped.
+    pub value_set: Arc<str>,
+    /// `any`: the binding is met when any repetition conforms, not each one.
+    pub any: bool,
 }
 
 /// A lightweight ValueSet: identity plus the `compose.include` entries needed
@@ -242,6 +262,9 @@ mod tests {
             fixed: None,
             pattern: None,
             slicing: None,
+            max_length: None,
+            min_value: None,
+            max_value: None,
         }
     }
 

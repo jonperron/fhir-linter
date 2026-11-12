@@ -5,8 +5,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::model::{
-    Binding, ChoiceValue, CodeSystem, Constraint, Discriminator, ElementDefinition, Include,
-    Slicing, StructureDefinition, TypeProfiles, ValueSet,
+    AdditionalBinding, Binding, ChoiceValue, CodeSystem, Constraint, Discriminator,
+    ElementDefinition, Include, Slicing, StructureDefinition, TypeProfiles, ValueSet,
 };
 use crate::{Error, Result};
 
@@ -169,6 +169,11 @@ fn parse_element_definition(
         fixed: choice_value(elem, "fixed"),
         pattern: choice_value(elem, "pattern"),
         slicing,
+        max_length: elem["maxLength"]
+            .as_u64()
+            .and_then(|n| u32::try_from(n).ok()),
+        min_value: choice_value(elem, "minValue"),
+        max_value: choice_value(elem, "maxValue"),
     })
 }
 
@@ -260,9 +265,22 @@ fn strip_version(s: &str) -> Arc<str> {
 fn parse_binding(b: &Value) -> Option<Binding> {
     let strength: Arc<str> = b["strength"].as_str()?.into();
     let value_set = b["valueSet"].as_str().map(strip_version);
+    let additional = b["additional"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|a| {
+            Some(AdditionalBinding {
+                purpose: a["purpose"].as_str()?.into(),
+                value_set: strip_version(a["valueSet"].as_str()?),
+                any: a["any"].as_bool().unwrap_or(false),
+            })
+        })
+        .collect();
     Some(Binding {
         strength,
         value_set,
+        additional,
     })
 }
 

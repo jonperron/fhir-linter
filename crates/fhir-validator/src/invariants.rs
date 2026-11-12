@@ -121,6 +121,9 @@ mod tests {
                 fixed: None,
                 pattern: None,
                 slicing: None,
+                max_length: None,
+                min_value: None,
+                max_value: None,
             }],
         )
     }
