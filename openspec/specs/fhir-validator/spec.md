@@ -390,7 +390,7 @@ Les enfants `id` des éléments imbriqués SHALL être vérifiés comme `string`
 
 ### Requirement: Validation des invariants FHIRPath (INVARIANT_<key>)
 
-Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur l'élément racine du snapshot. La ressource SHALL être convertie par `fhir_fhirpath::resource_to_typed_value` avec `Registry::child_element`, de sorte que les primitives `date`, `dateTime`, `instant` et `time` soient comparées comme des valeurs temporelles. Pour chaque contrainte dont l'expression ne retourne pas `[true]` (une seule valeur vraie, y compris un booléen FHIR portant des extensions), il SHALL émettre un `Diagnostic` avec code `INVARIANT_<key>` où `<key>` est la valeur du champ `key` de la contrainte. Le code `INVARIANT_SKIPPED` est réservé : il signale une contrainte non vérifiée et n'est jamais une violation. La severity R5 d'une contrainte est liée (binding required) à constraint-severity (`error | warning`) : seule la valeur exacte `warning` SHALL donner `Severity::Warning` ; toute autre valeur (`error`, mais aussi `information`, `Warning` ou un code inconnu) SHALL donner `Severity::Error`.
+Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur l'élément du snapshot de chaque nœud d'instance, ainsi que sur l'élément racine de son type, à toute profondeur (par ex. `qty-3` sur toute `Quantity`, `ext-1` sur toute `Extension`) ; chaque clé SHALL être évaluée une seule fois par nœud. Le `path` du Diagnostic SHALL être le chemin d'instance du nœud (ex. `Patient.contact[0]`) et sa localisation le span du nœud ; les contraintes de la ressource racine restent signalées au chemin du type de ressource, sans span. Un primitif SHALL être évalué avec son élément JSON `_nom`, appariés par indice ; un `_nom` sans valeur SHALL être évalué au chemin nu de l'élément (ex. `Patient.name[0].family`) ; un item JSON `null` n'est pas évalué. Chaque expression SHALL être analysée une seule fois par contrainte (cache). La ressource SHALL être convertie par `fhir_fhirpath::resource_to_typed_value` (racine) ou `fhir_fhirpath::node_to_typed_value` (nœuds imbriqués, même typage) avec `Registry::child_element`, de sorte que les primitives `date`, `dateTime`, `instant` et `time` soient comparées comme des valeurs temporelles. Pour chaque contrainte dont l'expression ne retourne pas `[true]` (une seule valeur vraie, y compris un booléen FHIR portant des extensions), il SHALL émettre un `Diagnostic` avec code `INVARIANT_<key>` où `<key>` est la valeur du champ `key` de la contrainte. Le code `INVARIANT_SKIPPED` est réservé : il signale une contrainte non vérifiée et n'est jamais une violation. La severity R5 d'une contrainte est liée (binding required) à constraint-severity (`error | warning`) : seule la valeur exacte `warning` SHALL donner `Severity::Warning` ; toute autre valeur (`error`, mais aussi `information`, `Warning` ou un code inconnu) SHALL donner `Severity::Error`.
 
 #### Scenario: Contrainte violée émet INVARIANT_<key>
 
@@ -461,9 +461,34 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 - **WHEN** une Bundle `document` n'a que `_timestamp` (extension data-absent-reason) (`bdl-10`)
 - **THEN** un Diagnostic `INVARIANT_bdl-10` SHALL être émis
 
+#### Scenario: Invariant évalué sur un nœud imbriqué
+
+- **WHEN** un `Patient.contact[0]` viole une contrainte de son élément de snapshot, ou une `Quantity` viole `qty-3`
+- **THEN** un Diagnostic `INVARIANT_<key>` SHALL être émis avec pour `path` le chemin d'instance du nœud (ex. `Patient.contact[0]`) et pour localisation le span du nœud
+
+#### Scenario: Clé évaluée une fois par nœud
+
+- **WHEN** un nœud porte une contrainte à la fois sur son élément de snapshot et sur la racine de son type avec la même clé
+- **THEN** cette clé SHALL être évaluée une seule fois pour ce nœud
+
+#### Scenario: Contrainte racine sans span
+
+- **WHEN** une contrainte de la ressource racine est violée
+- **THEN** le Diagnostic SHALL avoir pour `path` le type de ressource et aucun span
+
+#### Scenario: Primitive avec _nom sans valeur
+
+- **WHEN** `Patient.name[0]` n'a que `_family` sans `family`
+- **THEN** les contraintes de `family` SHALL être évaluées au chemin `Patient.name[0].family`, et un item JSON `null` ne SHALL pas être évalué
+
+#### Scenario: INVARIANT_SKIPPED au chemin du nœud
+
+- **WHEN** l'expression d'une contrainte d'un nœud imbriqué ne s'analyse pas ou échoue
+- **THEN** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` SHALL être émis par nœud, au chemin de ce nœud
+
 ### Requirement: Validation terminologique — binding required (TERMINOLOGY_001)
 
-Le système SHALL émettre `TERMINOLOGY_001` lorsqu'un élément de premier niveau, à type unique `code`, `Coding` ou `CodeableConcept`, possède un binding de force `required` (Diagnostic d'erreur) ou `extensible` (Diagnostic de sévérité warning) dont le ValueSet est connu et que le code est prouvé hors du ValueSet. Les éléments imbriqués, les éléments à types multiples et les autres forces de binding (`preferred`, `example`) SHALL être ignorés. Un `Coding` sans `system` NE DOIT JAMAIS être considéré comme membre du ValueSet : il compte comme hors du ValueSet, même lorsque l'appartenance serait autrement indécidable. Hors de ce cas, une appartenance indécidable (`Registry::value_set_contains` retourne `None`) NE DOIT JAMAIS être signalée. Pour un `CodeableConcept`, un seul `coding` appartenant au ValueSet suffit ; le Diagnostic n'est émis que si tous les `coding` portant un code sont hors du ValueSet. Sous un binding `required`, un `CodeableConcept` sans aucun `coding` portant un code (texte seul) SHALL être signalé avec un message commençant par `CodeableConcept with no coded Coding at` (terminologies.html 4.1.4.2.1) ; sous un binding `extensible`, le texte seul SHALL être accepté (4.1.4.2.2). Un `coding` unique non encapsulé dans un tableau (un seul `<coding>` en XML) SHALL être lu comme un tableau d'un élément.
+Le système SHALL émettre `TERMINOLOGY_001` lorsqu'un élément, à toute profondeur (y compris dans un datatype, ex. `HumanName.use`, et pour une variante de choix dont le binding s'applique au type résolu de la variante, ex. `versionAlgorithmCoding`), de type `code`, `Coding` ou `CodeableConcept`, possède un binding de force `required` (Diagnostic d'erreur) ou `extensible` (Diagnostic de sévérité warning) dont le ValueSet est connu et que le code est prouvé hors du ValueSet. Les contentReference, les ressources contenues et les autres forces de binding (`preferred`, `example`) SHALL être ignorés. Un `Coding` sans `system` NE DOIT JAMAIS être considéré comme membre du ValueSet : il compte comme hors du ValueSet, même lorsque l'appartenance serait autrement indécidable. Hors de ce cas, une appartenance indécidable (`Registry::value_set_contains` retourne `None`) NE DOIT JAMAIS être signalée. Pour un `CodeableConcept`, un seul `coding` appartenant au ValueSet suffit ; le Diagnostic n'est émis que si tous les `coding` portant un code sont hors du ValueSet. Sous un binding `required`, un `CodeableConcept` sans aucun `coding` portant un code (texte seul) SHALL être signalé avec un message commençant par `CodeableConcept with no coded Coding at` (terminologies.html 4.1.4.2.1) ; sous un binding `extensible`, le texte seul SHALL être accepté (4.1.4.2.2). Un `coding` unique non encapsulé dans un tableau (un seul `<coding>` en XML) SHALL être lu comme un tableau d'un élément.
 
 #### Scenario: Code hors du ValueSet requis
 
@@ -515,9 +540,19 @@ Le système SHALL émettre `TERMINOLOGY_001` lorsqu'un élément de premier nive
 - **WHEN** un `CodeableConcept` XML lié en `required` contient un seul `<coding>` hors du ValueSet (objet et non tableau)
 - **THEN** un Diagnostic `TERMINOLOGY_001` SHALL être émis comme pour un tableau d'un élément
 
+#### Scenario: Élément imbriqué dans un datatype
+
+- **WHEN** `Patient.name[0].use` contient un code hors du ValueSet requis
+- **THEN** un Diagnostic `TERMINOLOGY_001` SHALL être émis au `path` `Patient.name[0].use`
+
+#### Scenario: Variante de choix liée
+
+- **WHEN** une variante de choix typée `Coding` (ex. `versionAlgorithmCoding`) est hors du ValueSet lié
+- **THEN** un Diagnostic `TERMINOLOGY_001` SHALL être émis, le binding s'appliquant au type résolu de la variante
+
 ### Requirement: Validation des références — type inconnu (REFERENCE_001)
 
-Le système SHALL émettre `REFERENCE_001` (erreur) lorsque `Reference.reference` d'un élément de premier niveau de type `Reference` est une référence relative (sans schéma URI au sens de RFC 3986 ; un `:` hors schéma de tête, comme dans `Foo/a:b`, ne rend pas la référence absolue) dont le type n'est pas un type de ressource concret connu du Registry (type inconnu ou abstrait). Les références conditionnelles (`Patient?identifier=...`) SHALL être acceptées si le type est valide. Les références absolues et `urn:` SHALL être ignorées par cette règle (non résolues) ; les références absolues ne sont vérifiées que par `REFERENCE_003`.
+Le système SHALL émettre `REFERENCE_001` (erreur) lorsque `Reference.reference` de toute valeur de type `Reference`, à toute profondeur (y compris variantes de choix comme `valueReference`), est une référence relative (sans schéma URI au sens de RFC 3986 ; un `:` hors schéma de tête, comme dans `Foo/a:b`, ne rend pas la référence absolue) dont le type n'est pas un type de ressource concret connu du Registry (type inconnu ou abstrait). Les références conditionnelles (`Patient?identifier=...`) SHALL être acceptées si le type est valide. Les références absolues et `urn:` SHALL être ignorées par cette règle (non résolues) ; les références absolues ne sont vérifiées que par `REFERENCE_003`.
 
 #### Scenario: Type de ressource inconnu
 
@@ -534,9 +569,14 @@ Le système SHALL émettre `REFERENCE_001` (erreur) lorsque `Reference.reference
 - **WHEN** `reference` vaut `Patient?identifier=x`, `http://example.org/Patient/1` ou `urn:uuid:...`
 - **THEN** aucun Diagnostic `REFERENCE_001` SHALL être émis
 
+#### Scenario: Référence imbriquée ou variante de choix
+
+- **WHEN** une `Reference` imbriquée ou une variante de choix (ex. `valueReference`) a une référence invalide
+- **THEN** les Diagnostics `REFERENCE_*` SHALL être émis au chemin d'instance de cette valeur
+
 ### Requirement: Validation des références — ressource contenue absente (REFERENCE_002)
 
-Le système SHALL émettre `REFERENCE_002` (erreur) lorsqu'une référence `#id` ne correspond à aucun `id` dans `contained`, ou lorsque la référence est `#` seule : ref-1 n'autorise `#` que si `%rootResource != %resource`, et le validateur ne valide que la ressource racine.
+Le système SHALL émettre `REFERENCE_002` (erreur) lorsqu'une référence `#id` ne correspond à aucun `id` dans `contained`, ou lorsque la référence est `#` seule : ref-1 n'autorise `#` que si `%rootResource != %resource`, et le validateur ne valide que la ressource racine. `#id` SHALL être résolu contre les `id` contenus de la ressource racine, quelle que soit la profondeur de la référence. En XML, un `<contained>` unique SHALL être accepté non encapsulé et l'`id` de chaque ressource contenue SHALL être lu à l'intérieur de son élément de type de ressource.
 
 #### Scenario: Contained introuvable
 
@@ -552,6 +592,16 @@ Le système SHALL émettre `REFERENCE_002` (erreur) lorsqu'une référence `#id`
 
 - **WHEN** `reference` vaut `#` dans la ressource racine
 - **THEN** un Diagnostic `REFERENCE_002` SHALL être émis
+
+#### Scenario: Contained résolu depuis un nœud imbriqué
+
+- **WHEN** une `Reference` imbriquée vaut `#p1` et la racine contient `p1`
+- **THEN** aucun Diagnostic `REFERENCE_002` SHALL être émis
+
+#### Scenario: Contained XML unique
+
+- **WHEN** un seul élément `contained` XML contenant une ressource d'`id` `p1` est présent
+- **THEN** `#p1` SHALL être résolu
 
 ### Requirement: Validation de profil — profil inconnu (PROFILE_001)
 
@@ -619,7 +669,7 @@ Le système SHALL appliquer les vérifications de type à chaque élément d'un 
 
 ### Requirement: Validation des éléments imbriqués
 
-Un seul parcours récursif SHALL appliquer ces vérifications, en partant du premier niveau de la ressource ; il s'exécute avant les couches terminologie, invariants, références et profil. À toute profondeur, un champ `_nom` SHALL être accepté seulement si `nom` résout un élément (ou une variante de choix) de type primitif, sinon `STRUCTURE_001` au chemin de `_nom` (ex. `Patient.name[0]._bogus`). Un `_nom` accepté SHALL être parcouru via la StructureDefinition du type complexe `Element` (contrôle de `id` et `extension`) ; un tableau SHALL être parcouru élément par élément (index dans le `path`, éléments `null` ignorés) ; une valeur non objet, ou un élément de tableau ni objet ni `null`, SHALL produire `TYPE_001` (ex. `"_birthDate": "x"` → `Patient._birthDate`, `"_given": [1]` → `Patient.name[0]._given[0]`). Le champ `_nom` lui-même n'est pas soumis à STRUCTURE_002 ; son contenu l'est pour une entrée JSON. Les champs `extension` et `modifierExtension` SHALL être traités comme tout autre élément de type `Extension`, à toute profondeur : résolus dans le snapshot (STRUCTURE_001 s'ils n'y figurent pas, ex. `Patient.name[0].modifierExtension`), puis parcourus via la StructureDefinition `Extension` (cardinalité de `url`, type de `value[x]`, extensions imbriquées). Un élément `[x]` SHALL être vérifié comme un tout, au premier niveau comme en profondeur : requis sans variante → `CARDINALITY_001` (au chemin `…[x]`), deux variantes → `CARDINALITY_002`, une variante présente soumise à `CARDINALITY_002` selon son `max`. Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001, et STRUCTURE_002 pour les entrées JSON), de cardinalité (CARDINALITY_001/002/003) et de type (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants, références et profil restent limitées au premier niveau ; les `contentReference` (ignorés sans erreur, jamais signalés STRUCTURE_001) et les ressources contenues ne sont pas parcourus. La règle `_nom` s'applique à toute profondeur : un enfant requis présent uniquement sous la forme `_nom` SHALL être considéré présent seulement si son type est primitif et si `_nom` est un objet ou un tableau d'objets et de `null` contenant au moins un objet, et un `_nom` en tableau au-delà du maximum fini SHALL produire `CARDINALITY_002`.
+Un seul parcours récursif SHALL appliquer ces vérifications, en partant du premier niveau de la ressource ; il s'exécute avant les invariants de la ressource racine et la couche profil. À toute profondeur, un champ `_nom` SHALL être accepté seulement si `nom` résout un élément (ou une variante de choix) de type primitif, sinon `STRUCTURE_001` au chemin de `_nom` (ex. `Patient.name[0]._bogus`). Un `_nom` accepté SHALL être parcouru via la StructureDefinition du type complexe `Element` (contrôle de `id` et `extension`) ; un tableau SHALL être parcouru élément par élément (index dans le `path`, éléments `null` ignorés) ; une valeur non objet, ou un élément de tableau ni objet ni `null`, SHALL produire `TYPE_001` (ex. `"_birthDate": "x"` → `Patient._birthDate`, `"_given": [1]` → `Patient.name[0]._given[0]`). Le champ `_nom` lui-même n'est pas soumis à STRUCTURE_002 ; son contenu l'est pour une entrée JSON. Les champs `extension` et `modifierExtension` SHALL être traités comme tout autre élément de type `Extension`, à toute profondeur : résolus dans le snapshot (STRUCTURE_001 s'ils n'y figurent pas, ex. `Patient.name[0].modifierExtension`), puis parcourus via la StructureDefinition `Extension` (cardinalité de `url`, type de `value[x]`, extensions imbriquées). Un élément `[x]` SHALL être vérifié comme un tout, au premier niveau comme en profondeur : requis sans variante → `CARDINALITY_001` (au chemin `…[x]`), deux variantes → `CARDINALITY_002`, une variante présente soumise à `CARDINALITY_002` selon son `max`. Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001, et STRUCTURE_002 pour les entrées JSON), de cardinalité (CARDINALITY_001/002/003) et de type (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants et références s'exécutent à toute profondeur sur ce même parcours ; seule la couche profil reste limitée au premier niveau ; les `contentReference` (ignorés sans erreur, jamais signalés STRUCTURE_001) et les ressources contenues ne sont pas parcourus. La règle `_nom` s'applique à toute profondeur : un enfant requis présent uniquement sous la forme `_nom` SHALL être considéré présent seulement si son type est primitif et si `_nom` est un objet ou un tableau d'objets et de `null` contenant au moins un objet, et un `_nom` en tableau au-delà du maximum fini SHALL produire `CARDINALITY_002`.
 
 #### Scenario: Choix [x] en tableau au-delà du maximum
 
@@ -670,6 +720,11 @@ Un seul parcours récursif SHALL appliquer ces vérifications, en partant du pre
 
 - **WHEN** un Patient contient `"_birthDate": "x"` ou `Patient.name[0]` contient `"_given": [1]`
 - **THEN** un Diagnostic TYPE_001 SHALL être émis avec `path` = `Patient._birthDate`, respectivement `Patient.name[0]._given[0]`
+
+#### Scenario: Couches sémantiques à toute profondeur
+
+- **WHEN** un nœud imbriqué viole un invariant, un binding ou une référence
+- **THEN** les Diagnostics correspondants SHALL être émis ; les ressources contenues et les entrées de Bundle ne SHALL pas être parcourues
 
 ### Requirement: Nom textuel de Severity
 
@@ -747,7 +802,7 @@ Une valeur d'attribut épurée par le parseur (`Resource::trimmed_attributes`) s
 
 ### Requirement: Validation terminologique — Coding sans system (TERMINOLOGY_002)
 
-Le système SHALL émettre un Diagnostic de sévérité warning `TERMINOLOGY_002` pour chaque `Coding` portant un `code` mais pas de `system`, lorsqu'il appartient à un élément de premier niveau, à type unique `Coding` ou `CodeableConcept`, lié en `required` ou `extensible` à un ValueSet déclaré. Le `path` SHALL être celui du Coding (ex. `Observation.code.coding[0]`, ou le chemin de l'élément pour un type `Coding`). Un Coding sans `code` SHALL être ignoré.
+Le système SHALL émettre un Diagnostic de sévérité warning `TERMINOLOGY_002` pour chaque `Coding` portant un `code` mais pas de `system`, lorsqu'il appartient à un élément, à toute profondeur (y compris variantes de choix), de type `Coding` ou `CodeableConcept`, lié en `required` ou `extensible` à un ValueSet déclaré. Le `path` SHALL être celui du Coding (ex. `Observation.code.coding[0]`, ou le chemin de l'élément pour un type `Coding`). Un Coding sans `code` SHALL être ignoré.
 
 #### Scenario: Coding lié sans system
 
@@ -759,9 +814,14 @@ Le système SHALL émettre un Diagnostic de sévérité warning `TERMINOLOGY_002
 - **WHEN** chaque `coding` lié porte un `system`
 - **THEN** aucun Diagnostic `TERMINOLOGY_002` SHALL être émis
 
+#### Scenario: Coding sans system imbriqué
+
+- **WHEN** un `Coding` lié sans `system` se trouve dans un élément imbriqué
+- **THEN** un Diagnostic `TERMINOLOGY_002` SHALL être émis au chemin d'instance de ce Coding
+
 ### Requirement: Validation des références — type déclaré incohérent (REFERENCE_003)
 
-Le système SHALL émettre `REFERENCE_003` (erreur), au `path` `<élément>.reference`, lorsque `Reference.type` (nom de type nu ou `http://hl7.org/fhir/StructureDefinition/<Type>`) diffère du type d'une référence URL FHIR (references.html 2.1.3.0.1). Une URL FHIR est une référence qui correspond entièrement à l'expression régulière de référence littérale R5 `((http|https)://([A-Za-z0-9\-\\\.\:\%\$]*\/)+)?(Type)\/[A-Za-z0-9\-\.]{1,64}(\/_history\/[A-Za-z0-9\-\.]{1,64})?`, où `Type` est un type de ressource concret connu du Registry. Les références conditionnelles, `urn:`, `#id` et les URL absolues non conformes ne sont pas des URL FHIR et SHALL être ignorées par cette règle.
+Le système SHALL émettre `REFERENCE_003` (erreur), au `path` `<élément>.reference`, lorsque, à toute profondeur, `Reference.type` (nom de type nu ou `http://hl7.org/fhir/StructureDefinition/<Type>`) diffère du type d'une référence URL FHIR (references.html 2.1.3.0.1). Une URL FHIR est une référence qui correspond entièrement à l'expression régulière de référence littérale R5 `((http|https)://([A-Za-z0-9\-\\\.\:\%\$]*\/)+)?(Type)\/[A-Za-z0-9\-\.]{1,64}(\/_history\/[A-Za-z0-9\-\.]{1,64})?`, où `Type` est un type de ressource concret connu du Registry. Les références conditionnelles, `urn:`, `#id` et les URL absolues non conformes ne sont pas des URL FHIR et SHALL être ignorées par cette règle.
 
 #### Scenario: Type déclaré différent
 
@@ -780,7 +840,7 @@ Le système SHALL émettre `REFERENCE_003` (erreur), au `path` `<élément>.refe
 
 ### Requirement: Validation des références — référence relative mal formée (REFERENCE_004)
 
-Le système SHALL émettre un Diagnostic de sévérité warning `REFERENCE_004` lorsqu'une référence relative (sans schéma URI (RFC 3986), sans `?`, ne commençant pas par `#`) dont le premier segment est un type de ressource concret connu ne correspond pas à `Type/id` ou `Type/id/_history/version`, avec id et version de la forme `[A-Za-z0-9\-\.]{1,64}`. L'expression régulière n'étant pas énoncée comme un SHALL par la spécification FHIR, la sévérité est warning. Une référence relative à un type inconnu ou abstrait SHALL relever uniquement de `REFERENCE_001`.
+Le système SHALL émettre un Diagnostic de sévérité warning `REFERENCE_004` lorsqu'une référence relative, à toute profondeur, (sans schéma URI (RFC 3986), sans `?`, ne commençant pas par `#`) dont le premier segment est un type de ressource concret connu ne correspond pas à `Type/id` ou `Type/id/_history/version`, avec id et version de la forme `[A-Za-z0-9\-\.]{1,64}`. L'expression régulière n'étant pas énoncée comme un SHALL par la spécification FHIR, la sévérité est warning. Une référence relative à un type inconnu ou abstrait SHALL relever uniquement de `REFERENCE_001`.
 
 #### Scenario: Référence relative mal formée
 
