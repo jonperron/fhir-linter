@@ -366,3 +366,27 @@ fn digit_strings_beyond_f64_do_not_convert() {
         boolean(false)
     );
 }
+
+// Gaps found in review: malformed units and arguments of the conversions.
+#[test]
+fn calendar_unit_with_trailing_garbage_is_a_parse_error() {
+    for expr in ["5 daysx", "5 days days"] {
+        assert!(
+            matches!(evaluate(expr, &[]), Err(fhir_fhirpath::EvalError::Parse(_))),
+            "{expr}"
+        );
+    }
+}
+
+#[test]
+fn to_quantity_with_a_bad_unit_argument() {
+    assert_eq!(eval("4 'mg'.toQuantity({})"), vec![]);
+    assert!(evaluate("4 'mg'.toQuantity(1)", &[]).is_err());
+    assert!(evaluate("4 'mg'.convertsToQuantity(1)", &[]).is_err());
+}
+
+#[test]
+fn index_inside_iif_or_sort_outside_an_iteration_is_an_error() {
+    assert!(evaluate("iif(true, $index, 0)", &[]).is_err());
+    assert!(evaluate("(2 | 1).sort($index)", &[]).is_err());
+}
