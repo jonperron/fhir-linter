@@ -68,7 +68,7 @@ Le système SHALL implémenter une grammaire PEG via `pest` couvrant la syntaxe 
 
 #### Scenario: Limites de taille et d'imbrication
 
-- **WHEN** l'expression dépasse 1 KiB ou plus de 16 niveaux d'imbrication de `(` / `[` (hors chaînes, backticks et commentaires)
+- **WHEN** l'expression dépasse 1 KiB ou plus de 16 niveaux d'imbrication de `(` / `[` (hors chaînes simples ou doubles, backticks et commentaires)
 - **THEN** `parse` SHALL retourner `Err(ParseError::Syntax(...))` sans dépasser la pile ; toute expression acceptée au maximum de ces limites (chaînes `a.a.a…`, `1+1+…`, parenthèses imbriquées) SHALL pouvoir être parsée, évaluée et libérée dans un thread de 2 Mo en debug
 
 #### Scenario: Identifiants délimités par backticks
@@ -80,6 +80,11 @@ Le système SHALL implémenter une grammaire PEG via `pest` couvrant la syntaxe 
 
 - **WHEN** une chaîne littérale ou un identifiant délimité contient une séquence d'échappement
 - **THEN** le parser SHALL accepter l'ensemble ESC de la spécification : `` \` ``, `\'`, `\"`, `\\`, `\/`, `\f`, `\n`, `\r`, `\t`, `\uXXXX`
+
+#### Scenario: Chaîne entre guillemets doubles (extension hors N1)
+
+- **WHEN** l'expression contient un littéral `"..."` (ex. `type.code.contains(":")`, contrainte R5 eld-11)
+- **THEN** le parser SHALL l'accepter comme chaîne, avec les mêmes séquences d'échappement que `'...'` ; il s'agit d'une extension délibérée de la grammaire FHIRPath N1 (chaînes simples uniquement), les identifiants à backticks sont inchangés et les unités de quantité restent entre guillemets simples uniquement
 
 #### Scenario: Identifiants débutant par true/false
 
