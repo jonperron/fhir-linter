@@ -160,7 +160,8 @@ fn to_quantity_converts_numbers_booleans_and_quantity_strings() {
         quantity(10.0, "mg[Hg]")
     );
     assert_eq!(eval("4 'mg'.toQuantity()"), quantity(4.0, "mg"));
-    assert_eq!(eval("'1.0'.toQuantity() ~ 1 '1'"), boolean(true)); // testStringDecimalLiteralToQuantity
+    // testStringDecimalLiteralToQuantity
+    assert_eq!(eval("'1.0'.toQuantity() ~ 1 '1'"), boolean(true));
     for expr in [
         "'abc'.toQuantity()",
         "'1 foo'.toQuantity()",
@@ -209,7 +210,8 @@ fn calendar_duration_quantity_literals_parse() {
     assert_eq!(eval("4 days"), quantity(4.0, "day"));
     assert_eq!(eval("1 year"), quantity(1.0, "year"));
     assert_eq!(eval("2.5 milliseconds"), quantity(2.5, "millisecond"));
-    assert_eq!(eval("'1 day'.toQuantity() = 1 day"), boolean(true)); // testStringQuantityLiteralToQuantity
+    // testStringQuantityLiteralToQuantity
+    assert_eq!(eval("'1 day'.toQuantity() = 1 day"), boolean(true));
     assert_eq!(eval("'1 month'.toQuantity() ~ 1 month"), boolean(true));
     assert!(evaluate("1 fortnight", &[]).is_err());
     assert!(evaluate("1 dayz", &[]).is_err());
@@ -272,8 +274,10 @@ fn aggregate_carries_total_through_each_iteration() {
         "(1|2|3|4|5|6|7|8|9).aggregate($this+$total, 0) = 45", // testAggregate1
         "(1|2|3|4|5|6|7|8|9).aggregate($this+$total, 2) = 47", // testAggregate2
         // testAggregate3, testAggregate4
-        "(1|2|3|4|5|6|7|8|9).aggregate(iif($total.empty(), $this, iif($this < $total, $this, $total))) = 1",
-        "(1|2|3|4|5|6|7|8|9).aggregate(iif($total.empty(), $this, iif($this > $total, $this, $total))) = 9",
+        "(1|2|3|4|5|6|7|8|9).aggregate(iif($total.empty(), $this, \
+         iif($this < $total, $this, $total))) = 1",
+        "(1|2|3|4|5|6|7|8|9).aggregate(iif($total.empty(), $this, \
+         iif($this > $total, $this, $total))) = 9",
     ] {
         assert_eq!(eval(expr), boolean(true), "{expr}");
     }

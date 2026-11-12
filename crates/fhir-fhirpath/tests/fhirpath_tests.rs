@@ -1373,12 +1373,13 @@ fn converts_to_string_true_for_non_empty_focus() {
 }
 
 #[test]
-fn converts_to_string_empty_for_empty_collection() {
+fn converts_to_string_empty_for_empty_collection() -> Result<(), fhir_fhirpath::EvalError> {
     // N1 §5.5: "If the input collection is empty, the result is empty."
     assert_eq!(
-        fhir_fhirpath::evaluate("{}.convertsToString()", &[]).unwrap(),
+        fhir_fhirpath::evaluate("{}.convertsToString()", &[])?,
         vec![]
     );
+    Ok(())
 }
 
 #[test]
