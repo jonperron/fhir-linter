@@ -230,6 +230,33 @@ mod tests {
     }
 
     #[test]
+    fn oversized_collection_reports_invariant_skipped_information() {
+        // 2^20 items: past the evaluator's collection cap.
+        let doubling = format!("1{}", ".select($this.combine($this))".repeat(20));
+        let expression = format!("{doubling}.exists()");
+        let sd = make_sd_with_constraints(
+            "Patient",
+            vec![make_constraint("test-8", "error", &expression)],
+        );
+        let mut d = vec![];
+        validate(
+            &make_empty_resource("Patient"),
+            &sd,
+            &|_, _| false,
+            &empty_root(),
+            &mut d,
+        );
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].code.as_ref(), "INVARIANT_SKIPPED");
+        assert_eq!(d[0].severity, Severity::Information);
+        assert!(
+            d[0].message.contains("collection larger than"),
+            "{}",
+            d[0].message
+        );
+    }
+
+    #[test]
     fn unparsable_expression_reports_invariant_skipped_information() {
         let sd = make_sd_with_constraints(
             "Patient",
