@@ -165,9 +165,11 @@ fn parse_element_definition(
 fn parse_type_profiles(t: &Value) -> Option<TypeProfiles> {
     let code = type_code(t)?;
     let profiles = canonicals(&t["profile"]);
-    (!profiles.is_empty()).then(|| TypeProfiles {
+    let target_profiles = canonicals(&t["targetProfile"]);
+    (!profiles.is_empty() || !target_profiles.is_empty()).then(|| TypeProfiles {
         code: code.into(),
         profiles,
+        target_profiles,
     })
 }
 

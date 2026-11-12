@@ -51,6 +51,29 @@ fn type_profiles_are_loaded_per_type() {
 }
 
 #[test]
+fn target_profiles_are_loaded_per_type() {
+    let targeted: usize = REGISTRY
+        .snapshot_elements()
+        .flat_map(|e| &e.type_profiles)
+        .filter(|t| !t.target_profiles.is_empty())
+        .count();
+    assert_eq!(targeted, 1543);
+    let subject = element("Observation", "Observation.subject");
+    let [reference] = subject.type_profiles.as_slice() else {
+        panic!("one targeted type expected: {:?}", subject.type_profiles);
+    };
+    assert_eq!(reference.code.as_ref(), "Reference");
+    assert!(reference.profiles.is_empty());
+    let targets: Vec<_> = reference
+        .target_profiles
+        .iter()
+        .map(AsRef::as_ref)
+        .collect();
+    assert!(targets.contains(&"http://hl7.org/fhir/StructureDefinition/Patient"));
+    assert!(targets.contains(&"http://hl7.org/fhir/StructureDefinition/Group"));
+}
+
+#[test]
 fn content_reference_is_loaded_without_the_local_hash() {
     assert_eq!(count(|e| e.content_reference.is_some()), 153);
     assert_eq!(
