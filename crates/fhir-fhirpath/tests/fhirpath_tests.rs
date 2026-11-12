@@ -1394,8 +1394,8 @@ fn converts_to_date_true_for_date_value() {
 }
 
 #[test]
-fn converts_to_date_false_for_string_value() {
-    assert!(!eval_bool("'2024-01-01'.convertsToDate()"));
+fn converts_to_date_false_for_non_date_string() {
+    assert!(!eval_bool("'hello'.convertsToDate()"));
 }
 
 #[test]
