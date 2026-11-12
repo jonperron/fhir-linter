@@ -68,7 +68,7 @@ re-graded; unknown rules or keys are a tool error.
 
 ```toml
 [rules.narrative-absent]
-severity = "error"      # error | warning | information | hint
+severity = "error"      # fatal | error | warning | information (hint = information)
 
 [rules.missing-identifier]
 enabled = false
@@ -100,7 +100,8 @@ escaped and multi-line messages are folded onto one line.
 `rule` is `null` for validator findings; `col` counts UTF-8 bytes.
 
 **sarif**: SARIF 2.1.0, one run with tool `fhir-lint`. `ruleId` is the
-diagnostic code; `information` and `hint` map to SARIF level `note`.
+diagnostic code; `fatal` and `error` map to SARIF level `error`, `warning`
+to `warning` and `information` to `note`.
 Absolute paths become `file://` URIs; relative paths stay relative.
 
 Nothing is printed when there are no findings.
@@ -110,8 +111,8 @@ Nothing is printed when there are no findings.
 | Code | Meaning |
 |------|---------|
 | `0` | No errors (warnings allowed unless `--strict`) |
-| `1` | At least one `error`, or a `warning` with `--strict` |
+| `1` | At least one `fatal` or `error`, or a `warning` with `--strict` |
 | `2` | Tool error: bad arguments, missing or unreadable path, invalid config, definitions not loadable |
 
-`information` and `hint` never fail the run. On a tool error, `fhir-lint`
+`information` never fails the run. On a tool error, `fhir-lint`
 prints `fhir-lint: <message>` to stderr and no report.

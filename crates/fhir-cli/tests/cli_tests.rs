@@ -84,6 +84,25 @@ fn warnings_alone_exit_zero() {
 }
 
 #[test]
+fn fatal_severity_fails_the_run_and_maps_to_sarif_error() {
+    fhir_lint()
+        .arg("--config")
+        .arg(fixture("fatal-meta-profile.toml"))
+        .arg(fixture("warnings.json"))
+        .assert()
+        .code(1);
+    let log = stdout_json(
+        fhir_lint()
+            .args(["--format", "sarif", "--config"])
+            .arg(fixture("fatal-meta-profile.toml"))
+            .arg(fixture("warnings.json")),
+    );
+    let results = log["runs"][0]["results"].as_array().unwrap();
+    let lint = results.iter().find(|r| r["ruleId"] == "LINT_003").unwrap();
+    assert_eq!(lint["level"], "error");
+}
+
+#[test]
 fn strict_turns_warnings_into_failure() {
     fhir_lint()
         .arg("--strict")
