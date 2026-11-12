@@ -5,7 +5,8 @@ use crate::value::{Collection, Value};
 use super::Evaluator;
 use super::helpers::{
     as_type, check_arity, check_arity_range, collect_descendants, compare_values, contains_value,
-    criteria_bool, distinct, eval_type_name, is_type, single_integer, value_is_type,
+    criteria_bool, distinct, eval_type_name, is_type, primitive_values, single_integer,
+    value_is_type,
 };
 
 impl Evaluator<'_> {
@@ -28,6 +29,15 @@ impl Evaluator<'_> {
         focus: &[Value],
         ctx: &[Value],
     ) -> Result<Option<Collection>, EvalError> {
+        // Aggregates read values: a primitive without one is not an input item.
+        let values;
+        let focus = match name {
+            "allTrue" | "anyTrue" | "allFalse" | "anyFalse" | "sum" | "min" | "max" | "avg" => {
+                values = primitive_values(focus);
+                &*values
+            }
+            _ => focus,
+        };
         let col: Collection = match name {
             // ── Existence ────────────────────────────────────────────────
             "empty" => {

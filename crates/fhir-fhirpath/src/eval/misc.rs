@@ -102,7 +102,7 @@ impl Evaluator<'_> {
                 focus
                     .iter()
                     .map(Value::primitive_value)
-                    .filter(|v| !matches!(v, Value::Null))
+                    .filter(|v| !matches!(v, Value::Null | Value::Object(_)))
                     .cloned()
                     .collect()
             }

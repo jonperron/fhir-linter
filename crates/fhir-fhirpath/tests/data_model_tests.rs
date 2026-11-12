@@ -324,3 +324,29 @@ fn aggregates_see_the_value_of_primitives_with_extensions() {
     // Math functions see the value (primitive_values, owned path).
     assert_eq!(bools(&one("multipleBirthInteger.abs() = 4")), [true]);
 }
+
+#[test]
+fn aggregates_skip_primitives_without_a_value() {
+    // A primitive with only extensions has no value: it is not an input item
+    // for aggregates (official suite, primitivesWithoutValue).
+    let ctx = untyped(
+        r#"{"resourceType":"Patient","x":[true,null],"n":[2,null],
+        "_x":[null,{"extension":[{"url":"u","valueString":"a"}]}],
+        "_n":[null,{"extension":[{"url":"u","valueString":"a"}]}]}"#,
+    );
+    let one = |expr: &str| evaluate(expr, &ctx).unwrap();
+    assert_eq!(bools(&one("x.allTrue()")), [true]);
+    assert_eq!(bools(&one("x.anyFalse()")), [false]);
+    assert_eq!(one("n.sum()"), vec![Value::Integer(2)]);
+    assert_eq!(one("n.avg()"), vec![Value::Decimal(2.0)]);
+    assert_eq!(one("n.min()"), vec![Value::Integer(2)]);
+    assert_eq!(one("n.max()"), vec![Value::Integer(2)]);
+}
+
+#[test]
+fn get_value_gives_only_primitive_values() {
+    let ctx = untyped(r#"{"resourceType":"Patient","name":[{"family":"F"}]}"#);
+    assert!(evaluate("name.getValue()", &ctx).unwrap().is_empty());
+    let family = evaluate("name.family.getValue()", &ctx).unwrap();
+    assert_eq!(family, vec![Value::String(Arc::from("F"))]);
+}
