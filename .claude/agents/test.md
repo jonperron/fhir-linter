@@ -2,6 +2,7 @@
 name: test
 description: "Use when writing tests, adding test coverage, implementing TDD red-green-refactor cycles, or verifying coverage targets for any Rust crate in the workspace."
 tools: Read, Grep, Glob, Edit, Write, Bash, TodoWrite
+model: sonnet
 ---
 # Testing Agent
 ## TDD Workflow

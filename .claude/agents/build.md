@@ -2,6 +2,7 @@
 name: build
 description: "Use when building crates, implementing new features, or fixing bugs. Covers build process, dependency management, and release workflow."
 tools: Read, Grep, Glob, Bash
+model: haiku
 ---
 # Build Agent
 

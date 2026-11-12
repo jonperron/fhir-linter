@@ -2,6 +2,7 @@
 name: linter
 description: "Use when checking Rust code style, formatting, clippy warnings, or lint rules. Invoke after writing or modifying any .rs file to catch issues before commit."
 tools: Read, Grep, Glob, Bash
+model: haiku
 ---
 # Linting Agent
 

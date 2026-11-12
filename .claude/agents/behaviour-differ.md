@@ -2,6 +2,7 @@
 name: behaviour-differ
 description: "Use to prove a refactor, merge or rebase changed only what it meant to: runs the project's behaviour baseline (corpus + harness from the factory profile) on two git refs and reports every added or removed output line, grouped and explained. Read-only towards the repo. Give it: base ref, head ref, and the differences you expect."
 tools: Read, Grep, Glob, Write, Bash
+model: sonnet
 ---
 # Behaviour differ
 

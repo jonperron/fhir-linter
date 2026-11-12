@@ -2,6 +2,7 @@
 name: security
 description: "Use when reviewing code that handles user input, file parsing, external data. Invoke before committing security-sensitive changes."
 tools: Read, Grep, Glob, Bash
+model: sonnet
 ---
 # Security Agent
 
