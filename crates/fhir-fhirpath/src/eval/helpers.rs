@@ -450,7 +450,7 @@ pub(super) fn json_unescape(s: &str) -> String {
 // ── Argument extraction ───────────────────────────────────────────────────────
 
 pub(super) fn single_integer(col: &Collection, context: &str) -> Result<i64, EvalError> {
-    match col.first() {
+    match col.first().map(Value::primitive_value) {
         Some(Value::Integer(n)) => Ok(*n),
         Some(v) => Err(EvalError::Type(format!(
             "{context}: expected Integer, got {}",

@@ -116,7 +116,8 @@ fn bdl_10_needs_a_timestamp_value_not_only_extensions() {
     let with_value = bundle(r#","timestamp":"2020-01-01T10:00:00Z""#);
     assert!(json_about(&with_value, "bdl-10").is_empty());
     let extension_only = bundle(
-        r#","_timestamp":{"extension":[{"url":"http://hl7.org/fhir/StructureDefinition/data-absent-reason",
+        r#","_timestamp":{"extension":[{
+        "url":"http://hl7.org/fhir/StructureDefinition/data-absent-reason",
         "valueCode":"unknown"}]}"#,
     );
     let fired = json_about(&extension_only, "bdl-10");

@@ -176,7 +176,9 @@ fn extensions_without_a_value_still_make_the_element_present() {
 fn xml_primitives_with_extensions_behave_as_primitives() {
     let xml = r#"<Patient xmlns="http://hl7.org/fhir">
         <gender value="male"><extension url="u"><valueString value="x"/></extension></gender>
-        <birthDate value="1974-12-25"><extension url="u"><valueString value="y"/></extension></birthDate>
+        <birthDate value="1974-12-25">
+          <extension url="u"><valueString value="y"/></extension>
+        </birthDate>
         </Patient>"#;
     let ctx = vec![resource_to_typed_value(
         &parse_xml(xml).unwrap(),
@@ -207,7 +209,8 @@ fn complex_value_never_equals_a_primitive() {
 fn has_value_is_true_only_for_one_primitive_with_a_value() {
     // R5 fhirpath.html hasValue(): "Returns true if the input collection
     // contains a single value which is a FHIR primitive, and it has a primitive
-    // value ... Otherwise, the return value is empty."
+    // value ... Otherwise, the return value is empty." Empty for a complex
+    // value; false for no value, as the R5 constraints and official suite expect.
     let ctx = typed(
         r#"{"resourceType":"Patient","birthDate":"1970-01-01",
         "_birthDate":{"extension":[{"url":"u","valueString":"x"}]},
@@ -217,12 +220,12 @@ fn has_value_is_true_only_for_one_primitive_with_a_value() {
     let one = |expr: &str| evaluate(expr, &ctx).unwrap();
     assert_eq!(bools(&one("name.given[0].hasValue()")), [true]);
     assert_eq!(bools(&one("birthDate.hasValue()")), [true]);
-    // A primitive with extensions and no value.
-    assert!(one("name.given[1].hasValue()").is_empty());
-    // A complex value, several items, no item.
+    // A primitive with extensions and no value, several items, no item.
+    assert_eq!(bools(&one("name.given[1].hasValue()")), [false]);
+    assert_eq!(bools(&one("name.given.hasValue()")), [false]);
+    assert_eq!(bools(&one("{}.hasValue()")), [false]);
+    // A complex value.
     assert!(one("name.first().hasValue()").is_empty());
-    assert!(one("name.given.hasValue()").is_empty());
-    assert!(one("{}.hasValue()").is_empty());
     assert!(one("birthDate.extension.hasValue()").is_empty());
 }
 
@@ -256,4 +259,68 @@ fn null_placeholders_are_not_items() {
     assert_eq!(bools(&one("name.given[1] = 'c'")), [true]);
     assert_eq!(bools(&one("gender.exists()")), [false]);
     assert_eq!(bools(&one("name.children().count() = 2")), [true]);
+}
+
+#[test]
+fn an_integer_with_extensions_still_indexes() {
+    let ctx = untyped(
+        r#"{"resourceType":"Patient","multipleBirthInteger":2,
+        "_multipleBirthInteger":{"extension":[{"url":"u","valueString":"x"}]}}"#,
+    );
+    let third = evaluate("(1 | 2 | 3)[multipleBirthInteger]", &ctx).unwrap();
+    assert_eq!(third, vec![Value::Integer(3)]);
+    let two = evaluate("(1 | 2 | 3).take(multipleBirthInteger).count() = 2", &ctx).unwrap();
+    assert_eq!(bools(&two), [true]);
+}
+
+#[test]
+fn split_arrays_of_different_lengths_pair_by_index() {
+    // More `_given` entries than values, and more values than `_given` entries.
+    let ctx = untyped(
+        r#"{"resourceType":"Patient","name":[
+        {"given":["a"],"_given":[null,{"extension":[{"url":"u","valueString":"x"}]}]},
+        {"given":["b","c"],"_given":[{"id":"g1"}]}]}"#,
+    );
+    let one = |expr: &str| evaluate(expr, &ctx).unwrap();
+    assert_eq!(bools(&one("name[0].given.count() = 2")), [true]);
+    assert_eq!(bools(&one("name[0].given[1].extension.exists()")), [true]);
+    assert_eq!(bools(&one("name[1].given.count() = 2")), [true]);
+    assert_eq!(bools(&one("name[1].given[0].id = 'g1'")), [true]);
+    assert_eq!(bools(&one("name[1].given[1] = 'c'")), [true]);
+}
+
+#[test]
+fn a_non_object_split_element_carries_no_extensions() {
+    let ctx = untyped(r#"{"resourceType":"Patient","active":true,"_active":5,"_gender":7}"#);
+    let one = |expr: &str| evaluate(expr, &ctx).unwrap();
+    assert_eq!(bools(&one("active")), [true]);
+    assert_eq!(bools(&one("active.extension.exists()")), [false]);
+    assert_eq!(bools(&one("gender.exists()")), [false]);
+}
+
+#[test]
+fn root_id_extensions_keep_the_id_value() {
+    let ctx = untyped(
+        r#"{"resourceType":"Patient","id":"p1",
+        "_id":{"extension":[{"url":"u","valueString":"x"}]}}"#,
+    );
+    let one = |expr: &str| evaluate(expr, &ctx).unwrap();
+    assert_eq!(bools(&one("id = 'p1'")), [true]);
+    assert_eq!(bools(&one("id.extension('u').exists()")), [true]);
+}
+
+#[test]
+fn aggregates_see_the_value_of_primitives_with_extensions() {
+    let ctx = untyped(
+        r#"{"resourceType":"Patient","active":true,
+        "_active":{"extension":[{"url":"u","valueString":"x"}]},
+        "multipleBirthInteger":4,
+        "_multipleBirthInteger":{"extension":[{"url":"u","valueString":"x"}]}}"#,
+    );
+    let one = |expr: &str| evaluate(expr, &ctx).unwrap();
+    assert_eq!(bools(&one("active.allTrue()")), [true]);
+    assert_eq!(bools(&one("multipleBirthInteger.sum() = 4")), [true]);
+    assert_eq!(bools(&one("multipleBirthInteger.avg() = 4.0")), [true]);
+    // Math functions see the value (primitive_values, owned path).
+    assert_eq!(bools(&one("multipleBirthInteger.abs() = 4")), [true]);
 }

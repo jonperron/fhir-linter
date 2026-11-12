@@ -87,13 +87,14 @@ impl Evaluator<'_> {
             }
             "hasValue" => {
                 check_arity(name, args, 0)?;
-                // R5: true for one primitive that has a value; "otherwise, the
-                // return value is empty" (complex values, no value, several items).
+                // R5: true for one primitive that has a value. A complex value
+                // gives empty ("otherwise, the return value is empty"); no item,
+                // several items or a primitive without a value give false, as the
+                // R5 constraints (exp-2, per-1) and the official suite expect.
                 match focus {
-                    [item] if !matches!(item.primitive_value(), Value::Null | Value::Object(_)) => {
-                        vec![Value::Bool(true)]
-                    }
-                    _ => vec![],
+                    [item] if matches!(item.primitive_value(), Value::Object(_)) => vec![],
+                    [item] => vec![Value::Bool(!matches!(item.primitive_value(), Value::Null))],
+                    _ => vec![Value::Bool(false)],
                 }
             }
             "getValue" => {
