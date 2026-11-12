@@ -1,5 +1,78 @@
 # Changelog
 
+## [1.0.0](https://github.com/jonperron/fhir-linter/compare/fhir-linter-v0.5.2...fhir-linter-v1.0.0) (2026-11-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **linter:** diagnostics from the Python and Node bindings now report severity "information" where they reported "hint", and "fatal" is a new possible severity value. "hint" is still accepted in the lint configuration.
+
+### Features
+
+* **cli:** implement the fhir-lint command-line interface ([2e01e53](https://github.com/jonperron/fhir-linter/commit/2e01e53adb59e2156fa082b06281025e3fef58bd))
+* **cli:** implement the fhir-lint command-line interface ([#58](https://github.com/jonperron/fhir-linter/issues/58)) ([fd4d7d2](https://github.com/jonperron/fhir-linter/commit/fd4d7d2fcacfa61cb7099a903bc5bd2928e98261))
+* **definitions:** load additional bindings and value limits ([4d62589](https://github.com/jonperron/fhir-linter/commit/4d625898b694c31aae80599f7ab9745ca88ba0f5))
+* **definitions:** load contentReference on snapshot elements ([46a4818](https://github.com/jonperron/fhir-linter/commit/46a481843cc0f1bf6961b6bc51c96a5349fcfb64))
+* **definitions:** load contentReference, type profiles, fixed/pattern, slicing and value limits ([#82](https://github.com/jonperron/fhir-linter/issues/82)) ([4f0dbcc](https://github.com/jonperron/fhir-linter/commit/4f0dbcc2a046a3957f8d1221a04ce56ddfda9e12))
+* **definitions:** load element slicing definitions ([85e07de](https://github.com/jonperron/fhir-linter/commit/85e07deb94d0b340c802a6e753ca764763cf2e23))
+* **definitions:** load fixed[x] and pattern[x] values ([6b6e1dd](https://github.com/jonperron/fhir-linter/commit/6b6e1ddb2fffed1ffb9735911da85e7c751ce7e1))
+* **definitions:** load type.profile per element type ([219c200](https://github.com/jonperron/fhir-linter/commit/219c200d36392388aced6881b8dca0e6509370f9))
+* **definitions:** load type.targetProfile per element type ([dbe6aff](https://github.com/jonperron/fhir-linter/commit/dbe6aff4147dfa6b46668dfa8cb15c0685124d44))
+
+
+### Bug Fixes
+
+* **cli:** address review findings on inputs, config order and output ([5a3f71a](https://github.com/jonperron/fhir-linter/commit/5a3f71a5020c91e5243b702ebd6620fdb2825fa5))
+* **cli:** use fatal severity in docs and cover it with a test ([1693dda](https://github.com/jonperron/fhir-linter/commit/1693dda4e43a01c7eeb9a9df6fd4eacd6d871c4a))
+* **definitions:** detect notSelectable by its property URI ([ae89a70](https://github.com/jonperron/fhir-linter/commit/ae89a709021ad1b1fadcf4df4f84116082e54d04))
+* **definitions:** honour include.version in ValueSet membership ([d0a6f04](https://github.com/jonperron/fhir-linter/commit/d0a6f04c5abff07d1ef1286c17c6e92142e003b5))
+* **definitions:** registry audit items A6-A8, D6, D7, D10 ([#66](https://github.com/jonperron/fhir-linter/issues/66)) ([961c81c](https://github.com/jonperron/fhir-linter/commit/961c81c41881229f6b4f73c045b8be30373ad68a))
+* **definitions:** reject snapshot elements without path or max ([1bdd68f](https://github.com/jonperron/fhir-linter/commit/1bdd68f95331d0ccfd0d63d10a3885a2d543a34c))
+* **definitions:** treat notSelectable concepts as undecidable ([d8939a0](https://github.com/jonperron/fhir-linter/commit/d8939a0d463dde76f4507aa8dcdd4cd19dd2ffdb))
+* **fhirpath:** accept double-quoted string literals ([f92c1ab](https://github.com/jonperron/fhir-linter/commit/f92c1ab29709b9474a18e91177da91d3aa8bb0c3))
+* **fhirpath:** accept double-quoted string literals ([#81](https://github.com/jonperron/fhir-linter/issues/81)) ([7885622](https://github.com/jonperron/fhir-linter/commit/78856225a9c564912380384db6b71e6cf5c23bcf))
+* **fhirpath:** accept leap seconds and clamp substring length ([3cbe1b9](https://github.com/jonperron/fhir-linter/commit/3cbe1b980992eb79c873df709635db774620a802))
+* **fhirpath:** apply singleton evaluation and boolean criteria rules ([4c2367d](https://github.com/jonperron/fhir-linter/commit/4c2367d82bb23ebada3f1101347db2df4e6e1c13))
+* **fhirpath:** check ordering operands before empty and drop lone nulls ([9ca7d43](https://github.com/jonperron/fhir-linter/commit/9ca7d43d46c5bf415767f2fc713d8e92a1cceb34))
+* **fhirpath:** conversion functions follow fhirpath n1 ([67bfe53](https://github.com/jonperron/fhir-linter/commit/67bfe53d3fdd06bb9e717bbcd4a62c8f83528d81))
+* **fhirpath:** dedupe both operands of union and intersect ([ce160fb](https://github.com/jonperron/fhir-linter/commit/ce160fba7c5a9196f09929171059a216c31dea49))
+* **fhirpath:** fhir data model mapping (F10) ([#79](https://github.com/jonperron/fhir-linter/issues/79)) ([870d3ae](https://github.com/jonperron/fhir-linter/commit/870d3ae9868558b7c55db0ff3feeddb080ded776))
+* **fhirpath:** follow the spec for = and ~ on collections and dates ([176418c](https://github.com/jonperron/fhir-linter/commit/176418cfb992669c777a6b0067b1be86f74c31d2))
+* **fhirpath:** give empty when a zone makes a date comparison unknown ([ed83bb1](https://github.com/jonperron/fhir-linter/commit/ed83bb1cf0c99d7b2ccb7831522a2c2b002e976c))
+* **fhirpath:** give hasValue() empty unless one primitive has a value ([e25c1c3](https://github.com/jonperron/fhir-linter/commit/e25c1c3521ad8db267f47430b54f3e85ff8b27d9))
+* **fhirpath:** hide the split representation of fhir primitives ([c129ed9](https://github.com/jonperron/fhir-linter/commit/c129ed99522cc2d0cde2b526427e03e7da1048e8))
+* **fhirpath:** keep resourceType and json nulls out of the item tree ([08de71a](https://github.com/jonperron/fhir-linter/commit/08de71a401e011ae8b600e7869963e9d63c497c0))
+* **fhirpath:** keep sort order total and string ~ length-preserving ([316f0ae](https://github.com/jonperron/fhir-linter/commit/316f0ae6b276ecd9d1b820fc283b09e7451f7b1e))
+* **fhirpath:** let the deciding side of and, or and implies win ([e633cdb](https://github.com/jonperron/fhir-linter/commit/e633cdb4a62a07469343207736124c24bda0a755))
+* **fhirpath:** make the as operator follow as() on several items ([2f1b189](https://github.com/jonperron/fhir-linter/commit/2f1b189ce6028e5d6c02316341f95a533c1cb98d))
+* **fhirpath:** n1 string functions and conversions (F8, F9) ([#78](https://github.com/jonperron/fhir-linter/issues/78)) ([7d8c10b](https://github.com/jonperron/fhir-linter/commit/7d8c10b51cc460afba6545410716425b9b0a3808))
+* **fhirpath:** operator semantics (F3, F4, F6, F7, and/or errors, as operator) ([#77](https://github.com/jonperron/fhir-linter/issues/77)) ([b707452](https://github.com/jonperron/fhir-linter/commit/b70745299cb80161c9ff2672808913f68c3a18c4))
+* **fhirpath:** return empty on division by zero ([0d9a61e](https://github.com/jonperron/fhir-linter/commit/0d9a61e6bb54cf19696cae1ffa2ad5e2022a50d3))
+* **fhirpath:** return false from hasValue() when there is no value ([e196f6a](https://github.com/jonperron/fhir-linter/commit/e196f6a81f902d7c4c66c3eb4b9df1e1ba5ae49f))
+* **fhirpath:** skip value-less primitives in aggregates and getValue ([387a86d](https://github.com/jonperron/fhir-linter/commit/387a86d35cd1aa632f4cd145de71f17d5c3a8d46))
+* **fhirpath:** string functions return empty on empty input ([38efb8a](https://github.com/jonperron/fhir-linter/commit/38efb8a235facb7a274b5f3bea3d6b3d241b593a))
+* **fhirpath:** treat a date against a zoned date-time as one-sided zone ([855866a](https://github.com/jonperron/fhir-linter/commit/855866a3585cd84dfd5055e00361f562b6d5ef7c))
+* **fhirpath:** type fhir temporals by their declared element type ([9e4ec89](https://github.com/jonperron/fhir-linter/commit/9e4ec899a8d89e6bd074ae041a5197bb78354993))
+* **linter:** use fhir issueseverity codes for diagnostic severities ([efcf6e5](https://github.com/jonperron/fhir-linter/commit/efcf6e5e40820103cc91bfd6b668c51d5e6e01ac))
+* **linter:** use fhir issueseverity codes for diagnostic severities ([#74](https://github.com/jonperron/fhir-linter/issues/74)) ([28a4e14](https://github.com/jonperron/fhir-linter/commit/28a4e14f2e39485c040ccb865a004908fb2b4c0e))
+* **parser:** bound xml namespace lookups and the div depth ([02ee7ca](https://github.com/jonperron/fhir-linter/commit/02ee7caf3a14ae8a6ffd609c39fd6085f8628789))
+* **parser:** check the xml attribute or element form of each element ([63b48b1](https://github.com/jonperron/fhir-linter/commit/63b48b1975f050ca836c0916c3f6549c123ad124))
+* **parser:** check xml namespaces with quick-xml's nsreader ([3c69c5f](https://github.com/jonperron/fhir-linter/commit/3c69c5f2ab26475d3b8a5607ad407cef3d45a827))
+* **parser:** keep rejecting control references in the raw div ([f945b40](https://github.com/jonperron/fhir-linter/commit/f945b4078caab7158d60d477c93e077a3eab7ed8))
+* **parser:** keep the xml narrative div as its raw markup ([ac117ea](https://github.com/jonperron/fhir-linter/commit/ac117ea891b64d59400795f31e4515dd3b6855f8))
+* **parser:** reject a dtd anywhere and malformed xhtml attributes ([07a3a97](https://github.com/jonperron/fhir-linter/commit/07a3a97d1d3dc2b931e1764d51085070ebe076d2))
+* **parser:** reject a DTD in fhir xml ([859b7c6](https://github.com/jonperron/fhir-linter/commit/859b7c6b05b9714aea2eac842321e42d52226aad))
+* **parser:** reject a non-utf-8 xml encoding declaration ([028ef5e](https://github.com/jonperron/fhir-linter/commit/028ef5e6c56ba964630cfdd63aa0976f50c5ed07))
+* **parser:** reject attributes on the xml resource root ([9e7f2b2](https://github.com/jonperron/fhir-linter/commit/9e7f2b28d5bee13888d4517eb9741c282ccc5e48))
+* **parser:** reject text and cdata inside fhir xml elements ([8756f3f](https://github.com/jonperron/fhir-linter/commit/8756f3ff93b6333758e67cc3bbf446c1448a5e24))
+* **parser:** report the xml schema instance namespace as structure_003 ([5c6ce6a](https://github.com/jonperron/fhir-linter/commit/5c6ce6a1f361a774f9d0c5052d1101142eefc1a3))
+* **parser:** trim xml attribute values on read and warn ([58ec325](https://github.com/jonperron/fhir-linter/commit/58ec32507b0be83a426ee5b5d0dcbf82a882599e))
+* **parser:** xml conformance checks from the r5 xml page ([#71](https://github.com/jonperron/fhir-linter/issues/71)) ([aaa841a](https://github.com/jonperron/fhir-linter/commit/aaa841a9af07e3066f3de2120a2c41620428260e))
+* **validator:** pair root _id with the lifted id, convert once ([5d62ec5](https://github.com/jonperron/fhir-linter/commit/5d62ec593a01c523af9a745e921db18f33883be2))
+* **validator:** report trimmed xml attribute values as type_007 ([5bd52dc](https://github.com/jonperron/fhir-linter/commit/5bd52dccbfe6014f6f9bebcde3bfee107ccd721f))
+* **validator:** run invariants, terminology and references at every depth ([7c6d7e1](https://github.com/jonperron/fhir-linter/commit/7c6d7e127e68754e5f3cf6e2456b7937286f8b22))
+* **validator:** run invariants, terminology and references at every depth ([#80](https://github.com/jonperron/fhir-linter/issues/80)) ([2762841](https://github.com/jonperron/fhir-linter/commit/276284192cb81adceee8a2cc8c5a288d5da1dcee))
+
 ## [0.5.2](https://github.com/jonperron/fihr-linter/compare/fhir-linter-v0.5.1...fhir-linter-v0.5.2) (2026-11-11)
 
 
