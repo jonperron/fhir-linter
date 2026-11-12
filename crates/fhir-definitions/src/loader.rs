@@ -571,11 +571,54 @@ mod tests {
     }
 
     #[test]
+    fn slicing_keeps_ordered_and_every_discriminator() -> std::result::Result<(), &'static str> {
+        let slicing = parse_slicing(&serde_json::json!({
+            "rules": "closed", "ordered": true,
+            "discriminator": [{"type": "type", "path": "$this"}, {"type": "exists", "path": "x"}]
+        }))
+        .ok_or("slicing is complete")?;
+        assert!(slicing.ordered);
+        assert_eq!(slicing.rules.as_ref(), "closed");
+        let kinds: Vec<_> = slicing
+            .discriminators
+            .iter()
+            .map(|d| d.kind.as_ref())
+            .collect();
+        assert_eq!(kinds, ["type", "exists"]);
+        Ok(())
+    }
+
+    #[test]
+    fn additional_binding_keeps_any_and_skips_incomplete_entries()
+    -> std::result::Result<(), &'static str> {
+        let binding = parse_binding(&serde_json::json!({
+            "strength": "required",
+            "additional": [
+                {"purpose": "maximum", "valueSet": "http://x/vs|1.0", "any": true},
+                {"purpose": "ui"}
+            ]
+        }))
+        .ok_or("binding has a strength")?;
+        let [maximum] = binding.additional.as_slice() else {
+            return Err("only the complete entry is kept");
+        };
+        assert!(maximum.any);
+        assert_eq!(maximum.value_set.as_ref(), "http://x/vs");
+        Ok(())
+    }
+
+    #[test]
     fn load_bundle_rejects_malformed_snapshot_element() {
         for (name, element, expected) in [
             (
                 "slicing_no_rules",
                 r#"{"path": "TestSD2.id", "min": 0, "max": "1", "slicing": {}}"#,
+                "TestSD2.id has a slicing without",
+            ),
+            (
+                "discriminator_no_type",
+                r#"{"path": "TestSD2.id", "min": 0, "max": "1",
+                    "slicing": {"rules": "open", "discriminator": [{"path": "code"}]}}"#,
                 "TestSD2.id has a slicing without",
             ),
             (
