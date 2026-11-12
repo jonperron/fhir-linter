@@ -8,7 +8,7 @@ use super::Evaluator;
 use super::base64::{base64_decode, base64_decode_url, base64_encode, base64_encode_url};
 use super::helpers::{
     check_arity, check_arity_range, eval_string_arg, json_unescape, single_integer,
-    string_or_empty, string_transform,
+    string_transform,
 };
 use super::regex::{regex_matches, regex_matches_full, regex_replace_all};
 
@@ -56,36 +56,18 @@ impl Evaluator<'_> {
             }
             "startsWith" => {
                 check_arity(name, args, 1)?;
-                let prefix = eval_string_arg(&self.eval(&args[0], ctx)?, "startsWith")?;
-                vec![Value::Bool(
-                    focus
-                        .first()
-                        .and_then(|v| v.as_string())
-                        .map(|s| s.starts_with(prefix.as_ref()))
-                        .unwrap_or(false),
-                )]
+                let prefix = optional_string_arg(&self.eval(&args[0], ctx)?, "startsWith")?;
+                string_predicate(focus, prefix, |s, prefix| s.starts_with(prefix))
             }
             "endsWith" => {
                 check_arity(name, args, 1)?;
-                let suffix = eval_string_arg(&self.eval(&args[0], ctx)?, "endsWith")?;
-                vec![Value::Bool(
-                    focus
-                        .first()
-                        .and_then(|v| v.as_string())
-                        .map(|s| s.ends_with(suffix.as_ref()))
-                        .unwrap_or(false),
-                )]
+                let suffix = optional_string_arg(&self.eval(&args[0], ctx)?, "endsWith")?;
+                string_predicate(focus, suffix, |s, suffix| s.ends_with(suffix))
             }
             "contains" => {
                 check_arity(name, args, 1)?;
-                let sub = eval_string_arg(&self.eval(&args[0], ctx)?, "contains")?;
-                vec![Value::Bool(
-                    focus
-                        .first()
-                        .and_then(|v| v.as_string())
-                        .map(|s| s.contains(sub.as_ref()))
-                        .unwrap_or(false),
-                )]
+                let sub = optional_string_arg(&self.eval(&args[0], ctx)?, "contains")?;
+                string_predicate(focus, sub, |s, sub| s.contains(sub))
             }
             "upper" => {
                 check_arity(name, args, 0)?;
@@ -159,83 +141,112 @@ impl Evaluator<'_> {
                     None => return Ok(Some(vec![])),
                 };
                 let chars: Vec<char> = s.chars().collect();
-                let start_i = single_integer(&self.eval(&args[0], ctx)?, "substring start")?;
-                if start_i < 0 {
+                let start_col = self.eval(&args[0], ctx)?;
+                if start_col.is_empty() {
                     return Ok(Some(vec![]));
                 }
-                let start = start_i as usize;
-                let end = if args.len() == 2 {
-                    let len_i = single_integer(&self.eval(&args[1], ctx)?, "substring length")?;
+                let start_i = single_integer(&start_col, "substring start")?;
+                // N1: a start outside the string (0..length) gives empty.
+                let Some(start) = usize::try_from(start_i).ok().filter(|s| *s < chars.len()) else {
+                    return Ok(Some(vec![]));
+                };
+                // N1: an empty length behaves as if no length was given.
+                let len_col = match args.get(1) {
+                    Some(arg) => self.eval(arg, ctx)?,
+                    None => vec![],
+                };
+                let end = if len_col.is_empty() {
+                    chars.len()
+                } else {
+                    let len_i = single_integer(&len_col, "substring length")?;
                     if len_i <= 0 {
                         return Ok(Some(vec![Value::String(Arc::from(""))]));
                     }
                     (start.saturating_add(len_i as usize)).min(chars.len())
-                } else {
-                    chars.len()
                 };
-                let sub: String = chars[start.min(chars.len())..end].iter().collect();
+                let sub: String = chars[start..end].iter().collect();
                 vec![Value::String(Arc::from(sub.as_str()))]
             }
             "replace" => {
                 check_arity(name, args, 2)?;
-                let pattern = eval_string_arg(&self.eval(&args[0], ctx)?, "replace pattern")?;
+                let pattern = optional_string_arg(&self.eval(&args[0], ctx)?, "replace pattern")?;
                 let replacement =
-                    eval_string_arg(&self.eval(&args[1], ctx)?, "replace replacement")?;
-                match focus.first().and_then(|v| v.as_string()) {
-                    Some(s) => {
+                    optional_string_arg(&self.eval(&args[1], ctx)?, "replace replacement")?;
+                match (
+                    focus.first().and_then(|v| v.as_string()),
+                    pattern,
+                    replacement,
+                ) {
+                    (Some(s), Some(pattern), Some(replacement)) => {
                         let result = s.replace(pattern.as_ref(), replacement.as_ref());
                         vec![Value::String(Arc::from(result.as_str()))]
                     }
-                    None => vec![],
+                    _ => vec![],
                 }
             }
             "matches" => {
                 check_arity_range(name, args, 1, 2)?;
-                let pattern = eval_string_arg(&self.eval(&args[0], ctx)?, "matches pattern")?;
+                let pattern = optional_string_arg(&self.eval(&args[0], ctx)?, "matches pattern")?;
                 let flags = if args.len() == 2 {
                     eval_string_arg(&self.eval(&args[1], ctx)?, "matches flags")?
                 } else {
                     Arc::from("")
                 };
-                let text = string_or_empty(focus);
-                let matched = regex_matches(&text, &pattern, &flags)?;
-                vec![Value::Bool(matched)]
+                match (focus.first(), pattern) {
+                    (Some(item), Some(pattern)) => {
+                        let text = item.as_string().unwrap_or_else(|| Arc::from(""));
+                        vec![Value::Bool(regex_matches(&text, &pattern, &flags)?)]
+                    }
+                    _ => vec![],
+                }
             }
             "replaceMatches" => {
                 check_arity_range(name, args, 2, 3)?;
                 let pattern =
-                    eval_string_arg(&self.eval(&args[0], ctx)?, "replaceMatches pattern")?;
+                    optional_string_arg(&self.eval(&args[0], ctx)?, "replaceMatches pattern")?;
                 let replacement =
-                    eval_string_arg(&self.eval(&args[1], ctx)?, "replaceMatches replacement")?;
+                    optional_string_arg(&self.eval(&args[1], ctx)?, "replaceMatches replacement")?;
                 let flags = if args.len() == 3 {
                     eval_string_arg(&self.eval(&args[2], ctx)?, "replaceMatches flags")?
                 } else {
                     Arc::from("")
                 };
-                match focus.first().and_then(|v| v.as_string()) {
-                    Some(s) => {
+                match (
+                    focus.first().and_then(|v| v.as_string()),
+                    pattern,
+                    replacement,
+                ) {
+                    (Some(s), Some(pattern), Some(replacement)) => {
                         let result = regex_replace_all(&s, &pattern, &replacement, &flags)?;
                         vec![Value::String(Arc::from(result.as_str()))]
                     }
-                    None => vec![],
+                    _ => vec![],
                 }
             }
             "matchesFull" => {
                 check_arity_range(name, args, 1, 2)?;
-                let pattern = eval_string_arg(&self.eval(&args[0], ctx)?, "matchesFull pattern")?;
+                let pattern =
+                    optional_string_arg(&self.eval(&args[0], ctx)?, "matchesFull pattern")?;
                 let flags = if args.len() == 2 {
                     eval_string_arg(&self.eval(&args[1], ctx)?, "matchesFull flags")?
                 } else {
                     Arc::from("")
                 };
-                let text = string_or_empty(focus);
-                let matched = regex_matches_full(&text, &pattern, &flags)?;
-                vec![Value::Bool(matched)]
+                match (focus.first(), pattern) {
+                    (Some(item), Some(pattern)) => {
+                        let text = item.as_string().unwrap_or_else(|| Arc::from(""));
+                        vec![Value::Bool(regex_matches_full(&text, &pattern, &flags)?)]
+                    }
+                    _ => vec![],
+                }
             }
             "indexOf" => {
                 check_arity(name, args, 1)?;
-                let sub = eval_string_arg(&self.eval(&args[0], ctx)?, "indexOf")?;
-                match focus.first().and_then(|v| v.as_string()) {
+                let sub = optional_string_arg(&self.eval(&args[0], ctx)?, "indexOf")?;
+                let (Some(item), Some(sub)) = (focus.first(), sub) else {
+                    return Ok(Some(vec![]));
+                };
+                match item.as_string() {
                     Some(s) => {
                         let idx = s
                             .char_indices()
@@ -250,8 +261,11 @@ impl Evaluator<'_> {
             }
             "lastIndexOf" => {
                 check_arity(name, args, 1)?;
-                let sub = eval_string_arg(&self.eval(&args[0], ctx)?, "lastIndexOf")?;
-                match focus.first().and_then(|v| v.as_string()) {
+                let sub = optional_string_arg(&self.eval(&args[0], ctx)?, "lastIndexOf")?;
+                let (Some(item), Some(sub)) = (focus.first(), sub) else {
+                    return Ok(Some(vec![]));
+                };
+                match item.as_string() {
                     Some(s) => {
                         let chars: Vec<char> = s.chars().collect();
                         let sub_chars: Vec<char> = sub.chars().collect();
@@ -288,6 +302,9 @@ impl Evaluator<'_> {
                 } else {
                     eval_string_arg(&self.eval(&args[0], ctx)?, "join separator")?
                 };
+                if focus.is_empty() {
+                    return Ok(Some(vec![]));
+                }
                 let joined: Vec<String> = focus
                     .iter()
                     .filter_map(|v| v.as_string())
@@ -343,5 +360,30 @@ impl Evaluator<'_> {
             _ => return Ok(None),
         };
         Ok(Some(col))
+    }
+}
+
+/// A String argument that may be empty: N1 §5.6 makes the call return empty
+/// when it is. Any other non-String value is still a type error.
+fn optional_string_arg(col: &Collection, context: &str) -> Result<Option<Arc<str>>, EvalError> {
+    if col.is_empty() {
+        return Ok(None);
+    }
+    eval_string_arg(col, context).map(Some)
+}
+
+/// startsWith / endsWith / contains: empty input or argument gives empty.
+fn string_predicate(
+    focus: &[Value],
+    arg: Option<Arc<str>>,
+    test: impl Fn(&str, &str) -> bool,
+) -> Collection {
+    match (focus.first(), arg) {
+        (Some(item), Some(arg)) => {
+            vec![Value::Bool(
+                item.as_string().is_some_and(|s| test(&s, &arg)),
+            )]
+        }
+        _ => vec![],
     }
 }
