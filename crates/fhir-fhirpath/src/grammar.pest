@@ -65,11 +65,12 @@ index_step   =  { "[" ~ expression_inner ~ "]" }
 expression_inner = { implies_expr }
 
 // ── Primary ────────────────────────────────────────────────────────────────
-primary_expr = _{ paren_expr | literal | func_call | ident | dollar_this | dollar_index }
+primary_expr = _{ paren_expr | literal | func_call | ident | dollar_this | dollar_index | dollar_total }
 
 paren_expr  =  { "(" ~ expression_inner ~ ")" }
 dollar_this =  { "$this" }
 dollar_index = { "$index" }
+dollar_total = { "$total" }
 
 // func_call must be tried before ident because both start with an identifier
 func_call = { ident ~ "(" ~ (expression_inner ~ ("," ~ expression_inner)*)? ~ ")" }

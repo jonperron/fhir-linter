@@ -120,6 +120,7 @@ fn build_expr(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         Rule::func_call => build_func_call(pair),
         Rule::dollar_this => Ok(Expr::DollarThis),
         Rule::dollar_index => Ok(Expr::DollarIndex),
+        Rule::dollar_total => Ok(Expr::DollarTotal),
         other => Err(ParseError::Syntax(format!("unexpected rule: {other:?}"))),
     }
 }

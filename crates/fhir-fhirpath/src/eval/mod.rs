@@ -35,11 +35,17 @@ pub fn eval(
     context: &[Value],
     is_choice_variant: &dyn Fn(&str, &str) -> bool,
 ) -> Result<Collection, EvalError> {
-    Evaluator { is_choice_variant }.eval(expr, context)
+    Evaluator {
+        is_choice_variant,
+        total: None,
+    }
+    .eval(expr, context)
 }
 
 pub(super) struct Evaluator<'a> {
     is_choice_variant: &'a dyn Fn(&str, &str) -> bool,
+    /// `$total` while an `aggregate()` expression is evaluated.
+    total: Option<&'a [Value]>,
 }
 
 impl Evaluator<'_> {
@@ -67,6 +73,10 @@ impl Evaluator<'_> {
             Expr::DollarIndex => Err(EvalError::UndefinedFunction(
                 "$index is not supported outside of iteration context".to_owned(),
             )),
+            Expr::DollarTotal => self
+                .total
+                .map(<[Value]>::to_vec)
+                .ok_or_else(|| EvalError::Type("$total outside aggregate()".to_owned())),
 
             // ── Identifier / path step ─────────────────────────────────────
             Expr::Ident(name) => self.eval_ident(name, ctx, true),

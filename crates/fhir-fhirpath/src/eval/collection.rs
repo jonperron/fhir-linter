@@ -268,8 +268,11 @@ impl Evaluator<'_> {
                     vec![]
                 };
                 for item in focus {
-                    let item_ctx: Collection = vec![item.clone()];
-                    total = self.eval(&args[0], &item_ctx)?;
+                    let step = Evaluator {
+                        is_choice_variant: self.is_choice_variant,
+                        total: Some(&total),
+                    };
+                    total = step.eval(&args[0], std::slice::from_ref(item))?;
                 }
                 total
             }

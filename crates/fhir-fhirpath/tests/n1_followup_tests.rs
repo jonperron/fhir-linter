@@ -260,3 +260,34 @@ fn to_string_renders_per_the_n1_table() {
     assert!(evaluate("(1 | 2).toString()", &[]).is_err());
     assert!(evaluate("(1 | 2).convertsToString()", &[]).is_err());
 }
+
+// ── aggregate / $total ───────────────────────────────────────────────────────
+
+// N1 §7.1: "$total is set to init, or empty ({ }) if no init value is
+// supplied, and is set to the result of the aggregator expression after
+// every iteration."
+#[test]
+fn aggregate_carries_total_through_each_iteration() {
+    for expr in [
+        "(1|2|3|4|5|6|7|8|9).aggregate($this+$total, 0) = 45", // testAggregate1
+        "(1|2|3|4|5|6|7|8|9).aggregate($this+$total, 2) = 47", // testAggregate2
+        // testAggregate3, testAggregate4
+        "(1|2|3|4|5|6|7|8|9).aggregate(iif($total.empty(), $this, iif($this < $total, $this, $total))) = 1",
+        "(1|2|3|4|5|6|7|8|9).aggregate(iif($total.empty(), $this, iif($this > $total, $this, $total))) = 9",
+    ] {
+        assert_eq!(eval(expr), boolean(true), "{expr}");
+    }
+    assert_eq!(eval("{}.aggregate($this + $total, 7)"), integers(&[7]));
+    assert_eq!(eval("(1 | 2).aggregate($total + $this)"), vec![]);
+    // An inner aggregate has its own $total.
+    assert_eq!(
+        eval("(1 | 2).aggregate($total + (10 | 20).aggregate($total + $this, 0), 0)"),
+        integers(&[60])
+    );
+}
+
+#[test]
+fn total_outside_aggregate_is_an_error() {
+    assert!(evaluate("$total", &[]).is_err());
+    assert!(evaluate("(1 | 2).select($total)", &[]).is_err());
+}

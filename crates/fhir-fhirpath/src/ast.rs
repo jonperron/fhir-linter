@@ -24,6 +24,8 @@ pub enum Expr {
     DollarThis,
     /// `$index`
     DollarIndex,
+    /// `$total`, the running total inside `aggregate()`
+    DollarTotal,
     /// Identifier (path step, e.g. `name`, `Patient`).
     Ident(String),
     /// `.field` navigation applied to a base expression.
