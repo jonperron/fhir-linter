@@ -559,14 +559,15 @@ mod tests {
     }
 
     #[test]
-    fn choice_value_needs_the_prefix_then_a_type_name() {
+    fn choice_value_needs_the_prefix_then_a_type_name() -> std::result::Result<(), &'static str> {
         let elem = serde_json::json!({
             "_fixedCode": {"id": "x"}, "fixedness": 1, "patternCoding": {"code": "a"}
         });
         assert!(choice_value(&elem, "fixed").is_none());
-        let pattern = choice_value(&elem, "pattern").expect("patternCoding is a pattern");
+        let pattern = choice_value(&elem, "pattern").ok_or("patternCoding is a pattern")?;
         assert_eq!(pattern.key.as_ref(), "patternCoding");
         assert_eq!(pattern.value, serde_json::json!({"code": "a"}));
+        Ok(())
     }
 
     #[test]
