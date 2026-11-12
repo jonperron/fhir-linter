@@ -5,7 +5,9 @@ use crate::error::EvalError;
 use crate::value::{Collection, Value};
 
 use super::Evaluator;
-use super::helpers::{check_arity, check_arity_range, eval_string_arg};
+use super::helpers::{
+    check_arity, check_arity_range, criteria_bool, eval_string_arg, singleton, singleton_bool,
+};
 
 impl Evaluator<'_> {
     /// Handle miscellaneous functions (logic, system, FHIR extension helpers).
@@ -31,22 +33,17 @@ impl Evaluator<'_> {
             // ── Logic ─────────────────────────────────────────────────────
             "not" => {
                 check_arity(name, args, 0)?;
-                match focus.first() {
-                    Some(Value::Bool(b)) => vec![Value::Bool(!b)],
-                    None => vec![],
-                    Some(v) => {
-                        return Err(EvalError::Type(format!(
-                            "not() requires Boolean, got {}",
-                            v.type_name()
-                        )));
-                    }
-                }
+                singleton_bool(focus, "not()")?
+                    .map(|b| Value::Bool(!b))
+                    .into_iter()
+                    .collect()
             }
             "iif" => {
                 check_arity_range(name, args, 2, 3)?;
+                // N1 §5.5.1: iif() on several items is an error.
+                singleton(focus, "iif()")?;
                 let cond = self.eval(&args[0], focus)?;
-                let truthy = cond.iter().any(Value::is_truthy);
-                let result = if truthy {
+                let result = if criteria_bool(&cond, name)? == Some(true) {
                     self.eval(&args[1], focus)?
                 } else if args.len() == 3 {
                     self.eval(&args[2], focus)?

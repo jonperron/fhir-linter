@@ -360,6 +360,101 @@ fn equivalent_strings_case_insensitive() {
     assert!(eval_bool("'Hello' ~ 'hello'"));
 }
 
+/// N1 §6.1: `=` compares collections item by item, in order, and complex
+/// values property by property; date/times compare per precision and zone.
+#[test]
+fn equality_semantics() {
+    let t = || vec![Value::Bool(true)];
+    let f = || vec![Value::Bool(false)];
+    let cases: Vec<(&str, Collection)> = vec![
+        ("(1 | 2) = (1 | 2)", t()),
+        ("(1 | 2) = (2 | 1)", f()),
+        ("(1 | 1) = (1 | 2 | {})", f()),
+        ("name = name", t()),
+        ("telecom = name", f()),
+        // N1 says false; empty until F10 types XML primitives with extensions.
+        ("name.first() = 'Peter'", vec![]),
+        ("@2012-04-15T15:30:31 = @2012-04-15T15:30:31.0", t()),
+        ("@2012-01 = @2012", vec![]),
+        ("@2012-01-01 = @2012-02", f()),
+        ("@2015-02-04T10:00:00 = @2015-02-04T10:00", vec![]),
+        (
+            "@2012-04-15T15:00:00+02:00 = @2012-04-15T16:00:00+03:00",
+            t(),
+        ),
+        ("@2012-04-15T15:00:00Z != @2012-04-15T10:00:00", vec![]),
+        (
+            "@2017-11-05T01:30:00.0-04:00 = @2017-11-05T00:30:00.0-05:00",
+            t(),
+        ),
+        (
+            "@2017-11-05T01:30:00.0-04:00 < @2017-11-05T01:15:00.0-05:00",
+            t(),
+        ),
+        ("@2012-12-31T23:30:00-01:00 = @2013-01-01T00:30:00Z", t()),
+        ("@2012 < @2012-01", vec![]),
+        ("@2011 < @2012-01", t()),
+        ("@T10:00 < @T10:00:01", vec![]),
+        ("@T09:59 < @T10:00:01", t()),
+        ("@2013-01-01T00:30:00+01:00 = @2012-12-31T23:30:00Z", t()),
+        ("@2012-03-01T01:00:00+02:00 = @2012-02-29T23:00:00Z", t()),
+        ("@2013-03-01T01:00:00+02:00 = @2013-02-28T23:00:00Z", t()),
+        ("@2012-04-15 = @2012-04-15T10:00:00", vec![]),
+        ("@2012-04-14 < @2012-04-15T10:00", t()),
+        // N1 is silent on a date against a zoned date-time: empty, like any
+        // comparison where only one side has a zone.
+        ("@2012-04-16 = @2012-04-15T23:00:00-05:00", vec![]),
+        ("@2012-04-10 < @2012-04-15T23:00:00-05:00", vec![]),
+    ];
+    for (expr, expected) in cases {
+        assert_eq!(eval(expr), expected, "{expr}");
+    }
+}
+
+/// N1 §6.1.3: `~` never gives empty, ignores order, case and whitespace,
+/// rounds decimals to the least precise operand, and skips `id` on objects.
+#[test]
+fn equivalence_semantics() {
+    for (expr, expected) in [
+        ("{} ~ {}", true),
+        ("1 ~ {}", false),
+        ("{} !~ 1", true),
+        ("(1 | 2 | 3) ~ (3 | 2 | 1)", true),
+        ("(1 | 2) ~ (1 | 2 | 3)", false),
+        ("'a B\tc' ~ 'A b c'", true),
+        ("'a  b' ~ 'a b'", false),
+        ("1.2 / 1.8 ~ 0.67", true),
+        ("0.5 ~ 0.6", false),
+        ("name ~ name", true),
+        ("name ~ telecom", false),
+        ("@2012 ~ @2012-01", false),
+        ("@2012-04-15T15:30:31 ~ @2012-04-15T15:30:31.0", true),
+    ] {
+        assert_eq!(eval(expr), vec![Value::Bool(expected)], "{expr}");
+    }
+    let object = |id: &str| {
+        let mut fields: IndexMap<Arc<str>, Collection> = IndexMap::new();
+        fields.insert(Arc::from("id"), vec![Value::String(Arc::from(id))]);
+        fields.insert(Arc::from("text"), vec![Value::String(Arc::from("X"))]);
+        Value::Object(Arc::new(fields))
+    };
+    let ctx = vec![object("a"), object("b")];
+    let both = |expr: &str| evaluate(expr, &ctx).unwrap();
+    assert_eq!(both("first() ~ last()"), vec![Value::Bool(true)]);
+    assert_eq!(both("first() = last()"), vec![Value::Bool(false)]);
+    // A lone null placeholder is empty, as in singleton evaluation.
+    let null = [Value::Null];
+    assert_eq!(
+        evaluate("$this ~ {}", &null).unwrap(),
+        vec![Value::Bool(true)]
+    );
+    assert_eq!(
+        evaluate("$this !~ 1", &null).unwrap(),
+        vec![Value::Bool(true)]
+    );
+    assert_eq!(evaluate("$this = (1 | 2)", &null).unwrap(), vec![]);
+}
+
 // ── String functions ─────────────────────────────────────────────────────────
 
 #[test]
@@ -572,6 +667,20 @@ fn union_merges_deduplicates() {
     assert_eq!(result, vec![Value::Integer(1), Value::Integer(2)]);
 }
 
+/// N1 §5.4.1: "A: 1, 1, 2, 3 ... A union B // 1, 2, 3"; duplicates on the left go too.
+#[test]
+fn union_and_intersect_dedupe_both_operands() {
+    let ints = |v: &[i64]| v.iter().map(|n| Value::Integer(*n)).collect::<Vec<_>>();
+    let left = "(1 | 2 | 3).select(iif($this = 3, 2, 1))"; // 1, 1, 2
+    let union = format!("{left} | 3");
+    assert_eq!(evaluate(&union, &[]).unwrap(), ints(&[1, 2, 3]));
+    let intersect = format!("{left}.intersect(1 | 2)");
+    assert_eq!(evaluate(&intersect, &[]).unwrap(), ints(&[1, 2]));
+    assert_eq!(evaluate("1 | 2.combine(2)", &[]).unwrap(), ints(&[1, 2]));
+    let right_dupes = "(1 | 2).intersect(1.combine(1))";
+    assert_eq!(evaluate(right_dupes, &[]).unwrap(), ints(&[1]));
+}
+
 #[test]
 fn in_operator() {
     assert!(eval_bool("1 in (1 | 2 | 3)"));
@@ -686,31 +795,22 @@ fn all_returns_false() {
 
 // ── Error paths ───────────────────────────────────────────────────────────────
 
+/// N1 §6.6: "12 / 0 // empty", "5 div 0 // empty", "5 mod 0 // empty".
 #[test]
-fn division_by_zero_float_returns_error() {
-    let result = evaluate("1 / 0", &[]);
-    assert!(matches!(
-        result,
-        Err(fhir_fhirpath::EvalError::DivisionByZero)
-    ));
-}
-
-#[test]
-fn modulo_by_zero_returns_error() {
-    let result = evaluate("5 mod 0", &[]);
-    assert!(matches!(
-        result,
-        Err(fhir_fhirpath::EvalError::DivisionByZero)
-    ));
-}
-
-#[test]
-fn div_integer_by_zero_returns_error() {
-    let result = evaluate("5 div 0", &[]);
-    assert!(matches!(
-        result,
-        Err(fhir_fhirpath::EvalError::DivisionByZero)
-    ));
+fn division_by_zero_returns_empty() {
+    for expr in [
+        "1 / 0",
+        "0.0 / 0",
+        "1 / 0.0",
+        "5 div 0",
+        "0 div 0.0",
+        "5 mod 0",
+        "5.5 mod 0",
+        "5 mod 0.0",
+        "0.0 mod 0",
+    ] {
+        assert_eq!(evaluate(expr, &[]).unwrap(), vec![], "{expr}");
+    }
 }
 
 #[test]
@@ -753,9 +853,87 @@ fn type_error_length_on_integer() {
 }
 
 #[test]
-fn type_error_not_on_integer() {
-    let result = evaluate("42.not()", &[]);
+fn type_error_not_on_several_items() {
+    let result = evaluate("(1 | 2).not()", &[]);
     assert!(matches!(result, Err(fhir_fhirpath::EvalError::Type(_))));
+}
+
+/// N1 §4.5 singleton evaluation: one non-Boolean item where a Boolean is
+/// expected is true; several items are an error.
+#[test]
+fn singleton_evaluation_of_boolean_operands() {
+    let cases: [(&str, Collection); 6] = [
+        ("42.not()", vec![Value::Bool(false)]),
+        ("(0).not() = false", vec![Value::Bool(true)]),
+        ("active and name", vec![Value::Bool(true)]),
+        ("(true and 'foo').empty()", vec![Value::Bool(false)]),
+        ("false or 'foo'", vec![Value::Bool(true)]),
+        ("'foo' implies false", vec![Value::Bool(false)]),
+    ];
+    for (expr, expected) in cases {
+        assert_eq!(eval(expr), expected, "{expr}");
+    }
+}
+
+/// N1 §6.5 truth tables: once one side decides `and`, `or` or `implies`,
+/// an error on the other side does not change the result.
+#[test]
+fn boolean_operators_ignore_errors_on_the_undeciding_side() {
+    let error = "(1 | 2).not()";
+    for (expr, expected) in [
+        (format!("true or {error}"), true),
+        (format!("{error} or true"), true),
+        (format!("false and {error}"), false),
+        (format!("{error} and false"), false),
+        (format!("false implies {error}"), true),
+        (format!("{error} implies true"), true),
+    ] {
+        assert_eq!(
+            evaluate(&expr, &[]).unwrap(),
+            vec![Value::Bool(expected)],
+            "{expr}"
+        );
+    }
+    for expr in [
+        format!("false or {error}"),
+        format!("{error} and true"),
+        format!("{error} xor true"),
+        format!("true implies {error}"),
+    ] {
+        assert!(evaluate(&expr, &[]).is_err(), "{expr}");
+    }
+}
+
+/// Several items where one is expected are an error (N1 §4.5, §5.2, §6.4.3,
+/// §6.5), and criteria must be Boolean (§5.2.1, §5.5.1).
+#[test]
+fn singleton_evaluation_errors() {
+    for expr in [
+        "name.given and true",
+        "name.given.not()",
+        "iif('non boolean criteria', 1, 2)",
+        "iif(1 | 2 | 3, true, false)",
+        "('item1' | 'item2').iif(true, 1, 2)",
+        "name.given.where($this)",
+        "name.given.exists(length())",
+        "name.given.all($this)",
+        "(true | 'foo').allTrue()",
+        "('a' | 'c' | 'd') in 'b'",
+        "'b' contains ('a' | 'c')",
+        "(1 | 2 | 3) & 'b'",
+        "(1 | 2) + 1",
+        "(1 | 2) < 3",
+        "-(1 | 2)",
+        "{} < (1 | 2)",
+        "(1 | 2) >= {}",
+    ] {
+        let ctx = make_patient();
+        assert!(
+            matches!(evaluate(expr, &ctx), Err(fhir_fhirpath::EvalError::Type(_))),
+            "{expr}: {:?}",
+            evaluate(expr, &ctx)
+        );
+    }
 }
 
 #[test]
@@ -1996,26 +2174,6 @@ fn concat_with_empty_collection_treats_as_empty_string() {
     assert_eq!(result, vec![Value::String(Arc::from("x"))]);
 }
 
-// ── Division by zero ─────────────────────────────────────────────────────────
-
-#[test]
-fn division_by_zero_returns_error() {
-    let err = evaluate("1 / 0", &[]).unwrap_err();
-    assert!(matches!(err, fhir_fhirpath::EvalError::DivisionByZero));
-}
-
-#[test]
-fn mod_by_zero_returns_error() {
-    let err = evaluate("5 mod 0", &[]).unwrap_err();
-    assert!(matches!(err, fhir_fhirpath::EvalError::DivisionByZero));
-}
-
-#[test]
-fn div_by_zero_returns_error() {
-    let err = evaluate("5 div 0", &[]).unwrap_err();
-    assert!(matches!(err, fhir_fhirpath::EvalError::DivisionByZero));
-}
-
 #[test]
 fn integer_arithmetic_is_exact_above_2_pow_53() {
     assert_eq!(
@@ -2477,6 +2635,18 @@ fn is_operator_on_multiple_items_is_error() {
         evaluate("(1 | 2) is Integer", &make_patient()),
         Err(fhir_fhirpath::EvalError::Type(_))
     ));
+}
+
+// N1 §6.3.2: the `as` operator behaves like as(): several items are an error.
+#[test]
+fn as_operator_follows_as_function() {
+    assert!(matches!(
+        evaluate("(1 | 2) as Integer", &make_patient()),
+        Err(fhir_fhirpath::EvalError::Type(_))
+    ));
+    assert!(eval("{} as Integer").is_empty());
+    assert_eq!(eval("1 as Integer"), vec![Value::Integer(1)]);
+    assert!(eval("1 as String").is_empty());
 }
 
 // R5 2.1.9.1.1: a choice element is named without its [x] suffix.

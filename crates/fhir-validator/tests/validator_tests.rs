@@ -743,6 +743,32 @@ fn dgr1_with_unimplemented_resolve_is_skipped_not_violated() {
     assert_eq!(found, ["Information INVARIANT_SKIPPED DiagnosticReport"]);
 }
 
+// docRef-1 is `facilityType.empty() or context.where(resolve() is Encounter).empty()`:
+// with no facilityType the left side decides `or`, so the unimplemented
+// `resolve()` on the right must not make it skipped.
+#[test]
+fn docref1_decided_by_left_side_is_checked_not_skipped() {
+    let docref1 = |facility_type: &str| {
+        let json = format!(
+            r#"{{"resourceType":"DocumentReference","status":"current",{facility_type}
+            "content":[{{"attachment":{{"url":"http://example.org/doc"}}}}],
+            "context":[{{"reference":"Encounter/e1"}}]}}"#
+        );
+        let resource = parse_json(&json).unwrap();
+        validate(&resource, &load_registry())
+            .into_iter()
+            .filter(|d| d.message.contains("docRef-1"))
+            .map(|d| format!("{:?} {} {}", d.severity, d.code, d.path))
+            .collect::<Vec<_>>()
+    };
+    let found = docref1("");
+    assert!(found.is_empty(), "{found:?}");
+    // With facilityType the right side must be evaluated: this proves the
+    // constraint is loaded and run, so the empty result above is a real pass.
+    let found = docref1(r#""facilityType":{"text":"x"},"#);
+    assert_eq!(found, ["Information INVARIANT_SKIPPED DocumentReference"]);
+}
+
 #[test]
 fn content_reference_element_is_not_unknown() {
     let found = codes_for(
