@@ -450,14 +450,19 @@ pub(super) fn json_unescape(s: &str) -> String {
 // ── Argument extraction ───────────────────────────────────────────────────────
 
 pub(super) fn single_integer(col: &Collection, context: &str) -> Result<i64, EvalError> {
-    match col.first().map(Value::primitive_value) {
-        Some(Value::Integer(n)) => Ok(*n),
+    optional_integer(col, context)?
+        .ok_or_else(|| EvalError::Type(format!("{context}: expected Integer, got empty")))
+}
+
+/// An Integer argument that may be empty (N1 §4.4.1); several items or a
+/// non-Integer item are an error (N1 §5).
+pub(super) fn optional_integer(col: &[Value], context: &str) -> Result<Option<i64>, EvalError> {
+    match singleton(col, context)? {
+        None => Ok(None),
+        Some(Value::Integer(n)) => Ok(Some(*n)),
         Some(v) => Err(EvalError::Type(format!(
             "{context}: expected Integer, got {}",
             v.type_name()
-        ))),
-        None => Err(EvalError::Type(format!(
-            "{context}: expected Integer, got empty"
         ))),
     }
 }

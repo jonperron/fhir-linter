@@ -5,7 +5,7 @@ use crate::value::{Collection, Value};
 use super::Evaluator;
 use super::helpers::{
     as_type, check_arity, check_arity_range, collect_descendants, compare_values, contains_value,
-    criteria_bool, distinct, eval_type_name, is_type, primitive_values, single_integer,
+    criteria_bool, distinct, eval_type_name, is_type, optional_integer, primitive_values,
     value_is_type,
 };
 
@@ -175,15 +175,19 @@ impl Evaluator<'_> {
                 check_arity(name, args, 0)?;
                 focus.iter().skip(1).cloned().collect()
             }
-            "skip" => {
+            "skip" | "take" => {
                 check_arity(name, args, 1)?;
-                let n = single_integer(&self.eval(&args[0], ctx)?, "skip")?;
-                focus.iter().skip(n.max(0) as usize).cloned().collect()
-            }
-            "take" => {
-                check_arity(name, args, 1)?;
-                let n = single_integer(&self.eval(&args[0], ctx)?, "take")?;
-                focus.iter().take(n.max(0) as usize).cloned().collect()
+                // N1 §4.4.1: an empty count gives empty.
+                let Some(n) = optional_integer(&self.eval(&args[0], ctx)?, name)? else {
+                    return Ok(Some(vec![]));
+                };
+                // Clamp: on 32-bit targets an i64 count can exceed usize.
+                let n = usize::try_from(n.max(0)).unwrap_or(usize::MAX);
+                if name == "skip" {
+                    focus.iter().skip(n).cloned().collect()
+                } else {
+                    focus.iter().take(n).cloned().collect()
+                }
             }
             "single" => {
                 check_arity(name, args, 0)?;
