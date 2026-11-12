@@ -53,8 +53,28 @@ Le système SHALL implémenter une grammaire PEG via `pest` couvrant la syntaxe 
 
 #### Scenario: Littéraux pris en charge
 
-- **WHEN** l'expression contient un littéral (booléen, entier, Long `45L`, décimal, chaîne entre guillemets simples, date `@YYYY-MM-DD`, dateTime complet `@YYYY-MM-DDThh:mm:ss`, dateTime partiel `@YYYY-MM-DDT` / `@YYYY-MMT` / `@YYYYT`, heure `@Thh:mm:ss`, quantité `1.5 'mg'`)
+- **WHEN** l'expression contient un littéral (booléen, entier, Long `45L`, décimal, chaîne entre guillemets simples, date `@YYYY-MM-DD`, dateTime complet `@YYYY-MM-DDThh:mm:ss`, dateTime partiel `@YYYY-MM-DDT` / `@YYYY-MMT` / `@YYYYT`, heure `@Thh:mm:ss`, quantité `1.5 'mg'` ou avec mot-clé calendaire `4 days`)
 - **THEN** le parser SHALL produire le nœud AST correspondant sans erreur
+
+#### Scenario: Date et DateTime calendaires
+
+- **WHEN** un littéral de date ou de dateTime n'est pas une date calendaire (`@2023-02-29`, `@2023-13`, `@0000`)
+- **THEN** `parse` SHALL retourner `Err(ParseError::Syntax(...))` ; l'année SHALL être `0001` à `9999`, le mois `01` à `12` et le jour valide pour son mois (années bissextiles comprises), et `@2024-02-29` SHALL être accepté
+
+#### Scenario: Littéral Time non borné
+
+- **WHEN** un littéral `@Thh:mm:ss` est analysé
+- **THEN** ses valeurs ne SHALL pas être contrôlées en plage (comportement inchangé)
+
+#### Scenario: Mot-clé calendaire dans une quantité
+
+- **WHEN** `4 days` ou `1 day` est analysé
+- **THEN** le mot-clé calendaire (singulier ou pluriel) SHALL être accepté et conservé au singulier (`'day'`) ; un mot inconnu (`1 fortnight`) ou suivi de texte (`5 daysx`) SHALL être une erreur
+
+#### Scenario: $total dans la grammaire
+
+- **WHEN** l'expression contient `$total`
+- **THEN** le parser SHALL l'accepter comme variable (voir « Fonctions d'agrégation »)
 
 #### Scenario: Opérateurs binaires
 
@@ -158,6 +178,11 @@ Le système SHALL implémenter `empty()`, `exists()`, `exists(criteria)`, `all(c
 - **WHEN** `exists(x | x > 0)` est évalué sur une collection d'entiers
 - **THEN** le résultat SHALL être `[Bool(true)]` si au moins un élément satisfait le critère
 
+#### Scenario: $index dans exists et all
+
+- **WHEN** `('a' | 'b').exists($index = 1)` ou `('a' | 'b').all($index < 2)` est évalué
+- **THEN** `$index` SHALL valoir la position (Integer, base 0) de l'élément courant et les résultats SHALL être `[Bool(true)]`
+
 #### Scenario: Critère non booléen
 
 - **WHEN** le critère de `where`, `exists` ou `all` produit pour un élément autre chose qu'un booléen seul ou une collection vide (ex. `(1 | 2).exists('a')`)
@@ -184,6 +209,16 @@ Le critère de `where` SHALL produire pour chaque élément un booléen seul ou 
 
 - **WHEN** `where(active = true)` est évalué sur une collection d'objets
 - **THEN** le résultat SHALL contenir uniquement les éléments pour lesquels le critère est vrai
+
+#### Scenario: $index dans where, select et repeat
+
+- **WHEN** `('a' | 'b' | 'c').where($index > 0)` ou `('a' | 'b' | 'c').select($index)` est évalué
+- **THEN** `$index` SHALL valoir la position (Integer, base 0) de l'élément dans la collection itérée, soit `['b', 'c']` puis `[0, 1, 2]` ; dans `repeat`, il SHALL valoir la position dans la ronde courante (la spécification N1 est muette)
+
+#### Scenario: $index de l'itération la plus interne
+
+- **WHEN** `(1 | 2).select((10 | 20 | 30).where($index = 2))` est évalué
+- **THEN** `$index` SHALL désigner la position dans l'itération la plus interne, soit `[30, 30]`
 
 #### Scenario: ofType filtre par type FHIRPath
 
@@ -239,6 +274,16 @@ Le système SHALL implémenter `first()`, `last()`, `tail()`, `skip(n)`, `take(n
 - **WHEN** `{}.single()` est évalué
 - **THEN** le résultat SHALL être une collection vide
 
+#### Scenario: skip et take avec un compte vide
+
+- **WHEN** `(0 | 1 | 2).skip({})` ou `(0 | 1 | 2).take({})` est évalué
+- **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: skip et take avec un compte invalide
+
+- **WHEN** `skip` ou `take` reçoit plusieurs comptes (`skip(1 | 2)`) ou un compte non `Integer` (`skip('1')`)
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))`
+
 #### Scenario: Indexeur hors limites ou négatif
 
 - **WHEN** `coll[i]` est évalué avec `i` négatif ou `i` >= la taille de la collection
@@ -269,6 +314,8 @@ Le paramètre optionnel `flags` accepte `i` (insensible à la casse) et `m` (mul
 `escape`/`unescape` supportent les cibles `'html'` et `'json'`.
 
 Pour `startsWith`, `endsWith`, `contains`, `indexOf`, `lastIndexOf`, `matches`, `matchesFull`, `replace`, `replaceMatches` et `substring`, une entrée vide ou un argument vide (motif, sous-chaîne, substitution, début) SHALL donner une collection vide ; un argument non `String` (ou non `Integer` pour `substring`) SHALL rester une erreur. Pour `substring`, un début hors de `0..length-1` SHALL donner une collection vide, une longueur vide SHALL se comporter comme une longueur absente et une longueur `<= 0` SHALL donner `''`. `join` sur une entrée vide SHALL donner une collection vide.
+
+Les fonctions de chaînes de N1 §5.6 (`indexOf`, `lastIndexOf`, `substring`, `startsWith`, `endsWith`, `contains`, `upper`, `lower`, `replace`, `matches`, `matchesFull`, `replaceMatches`, `length`, `trim`, `split`, `encode`, `decode`, `escape`, `unescape`) SHALL appliquer l'évaluation singleton à leur entrée : plusieurs éléments ou un élément qui n'est pas une `String` (y compris `Date`, `DateTime` et `Time`) SHALL donner `Err(EvalError::Type(...))`, et aucune ne SHALL lire seulement le premier élément. `join` SHALL conserver son entrée en collection. Les arguments `Integer` (`index`, `round`, `substring`) SHALL rejeter plusieurs éléments. `toString()` suit les règles de « Fonctions de conversion ».
 
 #### Scenario: length sur une chaîne
 
@@ -335,6 +382,21 @@ Pour `startsWith`, `endsWith`, `contains`, `indexOf`, `lastIndexOf`, `matches`, 
 - **WHEN** `'hello'.substring(1, {})` est évalué
 - **THEN** le résultat SHALL être `[String('ello')]`
 
+#### Scenario: Entrée à plusieurs éléments ou non chaîne
+
+- **WHEN** `('a' | 'b').upper()`, `1.length()`, `@2020-01-01.startsWith('2')` ou `('a' | 'b').trim()` est évalué
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))`
+
+#### Scenario: Argument Integer à plusieurs éléments
+
+- **WHEN** `'hello'.substring(1 | 2)` est évalué
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))`
+
+#### Scenario: join conserve une entrée collection
+
+- **WHEN** `('a' | 'b').join(',')` est évalué
+- **THEN** le résultat SHALL être `[String('a,b')]`
+
 #### Scenario: join sur une entrée vide
 
 - **WHEN** `{}.join(',')` est évalué
@@ -383,7 +445,13 @@ Pour `toX()` et `convertsToX()` avec X parmi `Boolean`, `Integer`, `Decimal`, `D
 - `toDateTime` : `DateTime`, `Date`, `String` `YYYY[-MM[-DD]][Thh[:mm[:ss[.fff]]][Z|(+|-)hh:mm]]` avec un décalage d'au plus `14:00`.
 - `toTime` : `Time`, `String` `hh[:mm[:ss[.fff]]]`.
 
-Une date en `String` SHALL être une date calendaire réelle (année `0001` à `9999`, jour valide pour son mois, années bissextiles comprises). `convertsToString`, `convertsToLong`, `convertsToQuantity`, `toLong` et `toQuantity` ne suivent pas ces règles et restent inchangés.
+Une date en `String` SHALL être une date calendaire réelle (année `0001` à `9999`, jour valide pour son mois, années bissextiles comprises). `toLong`/`convertsToLong` (absents de N1, FHIRPath 3.0 STU) suivent le modèle de `toInteger` : entrée singleton, sources `Integer`, `Long`, `Boolean` et `String` `(\+|-)?\d+` dans les bornes `i64`, sinon collection vide (`toLong`) ou `false` (`convertsToLong`). Une chaîne de chiffres au-delà de `f64` ne SHALL pas être convertie en infini par `toDecimal` ni `toQuantity`.
+
+`toQuantity([unit])` et `convertsToQuantity([unit])` suivent N1 §5.5.7 : `Integer` et `Decimal` donnent une quantité d'unité `'1'`, une `Quantity` est inchangée, un `Boolean` donne `1.0` ou `0.0` d'unité `'1'`, une `String` conforme à `(\+|-)?\d+(\.\d+)?\s*('unité'|mot-clé)?` est convertie (une unité sans guillemets SHALL être un mot-clé calendaire). Plusieurs éléments SHALL être une erreur, une entrée vide donne une collection vide, tout autre élément donne une collection vide (`toQuantity`) ou `false` (`convertsToQuantity`). Un argument `unit` ne conserve que l'unité propre de l'entrée (aucune conversion UCUM) : une autre unité donne une collection vide, un argument vide donne une collection vide et un argument non `String` est une erreur.
+
+Les unités calendaires des littéraux de quantité (`year`, `month`, `week`, `day`, `hour`, `minute`, `second`, `millisecond`, au singulier ou au pluriel) SHALL être stockées au singulier. `=` ne SHALL apparier une unité calendaire à son unité UCUM que pour `second`/`'s'` et `millisecond`/`'ms'` ; `~` SHALL les apparier toutes (`year`~`'a'`, `month`~`'mo'`, `week`~`'wk'`, `day`~`'d'`, `hour`~`'h'`, `minute`~`'min'`). Les comparaisons d'ordre SHALL accepter les mêmes paires que `=`.
+
+`toString()` et `convertsToString()` SHALL exiger une entrée singleton (plusieurs éléments : erreur). `String`, `Boolean`, `Integer`, `Long`, `Decimal`, `Date`, `DateTime`, `Time` et `Quantity` sont convertibles, tout autre élément non (collection vide pour `toString`, `false` pour `convertsToString`). Un `Decimal` SHALL toujours s'afficher avec une partie fractionnaire (`1.0` donne `'1.0'` ; `f64` ne conserve pas la précision du littéral, donc `1.50` donne `'1.5'`) et une `Quantity` SHALL s'afficher `valeur 'unité'`, unités calendaires comprises (`4 days` donne `"4 'day'"`). `convertsToString` sur une entrée vide SHALL donner une collection vide.
 
 #### Scenario: toInteger depuis une chaîne
 
@@ -430,6 +498,56 @@ Une date en `String` SHALL être une date calendaire réelle (année `0001` à `
 - **WHEN** `@2020-01-02T10:00:00.toDate()` est évalué
 - **THEN** le résultat SHALL être `[Date('2020-01-02')]`
 
+#### Scenario: toQuantity depuis les types numériques et Boolean
+
+- **WHEN** `1.toQuantity()`, `1.5.toQuantity()`, `true.toQuantity()` puis `4 'mg'.toQuantity()` sont évalués
+- **THEN** les résultats SHALL être `1 '1'`, `1.5 '1'`, `1.0 '1'` et `4 'mg'` (Quantity inchangée)
+
+#### Scenario: toQuantity depuis une chaîne
+
+- **WHEN** `'4 days'.toQuantity()`, `'1.0'.toQuantity()` puis `'1 foo'.toQuantity()` sont évalués
+- **THEN** les deux premiers SHALL donner `4 'day'` et `1.0 '1'`, le dernier une collection vide (unité sans guillemets non calendaire)
+
+#### Scenario: toQuantity avec argument unité
+
+- **WHEN** `4 'mg'.toQuantity('mg')`, `4 'mg'.toQuantity('g')`, `4 'mg'.toQuantity({})` puis `4 'mg'.toQuantity(1)` sont évalués
+- **THEN** les résultats SHALL être `4 'mg'`, une collection vide, une collection vide, puis `Err(EvalError::Type(...))`
+
+#### Scenario: toQuantity sur plusieurs éléments
+
+- **WHEN** `(1 | 2).toQuantity()` ou `(1 | 2).convertsToQuantity()` est évalué
+- **THEN** l'évaluateur SHALL retourner une erreur
+
+#### Scenario: Chaîne de chiffres au-delà de f64
+
+- **WHEN** une chaîne de plus de 310 chiffres est passée à `toDecimal()` ou `toQuantity()`
+- **THEN** le résultat SHALL être une collection vide, et `convertsToQuantity()` SHALL valoir `[Bool(false)]`
+
+#### Scenario: toLong depuis les sources convertibles
+
+- **WHEN** `'12'.toLong()`, `true.toLong()`, `1.5.toLong()` puis `{}.convertsToLong()` sont évalués
+- **THEN** les résultats SHALL être `[Long(12)]`, `[Long(1)]`, une collection vide puis une collection vide ; `(1 | 2).toLong()` SHALL retourner une erreur
+
+#### Scenario: toString d'un Decimal
+
+- **WHEN** `1.0.toString()` puis `1.50.toString()` sont évalués
+- **THEN** les résultats SHALL être `[String('1.0')]` puis `[String('1.5')]`
+
+#### Scenario: toString d'une Quantity
+
+- **WHEN** `4 days.toString()` est évalué
+- **THEN** le résultat SHALL être `[String("4 'day'")]`
+
+#### Scenario: toString sur plusieurs éléments
+
+- **WHEN** `(1 | 2).toString()` est évalué
+- **THEN** l'évaluateur SHALL retourner une erreur ; `{}.toString()` et `{}.convertsToString()` SHALL donner une collection vide
+
+#### Scenario: Quantités calendaires et UCUM
+
+- **WHEN** `1 second = 1 's'`, `1 year = 1 'a'`, `1 year ~ 1 'a'` puis `1 week ~ 1 'd'` sont évalués
+- **THEN** les résultats SHALL être `[Bool(true)]`, `[Bool(false)]`, `[Bool(true)]` puis `[Bool(false)]`
+
 #### Scenario: Date calendaire invalide
 
 - **WHEN** `'2023-02-29'.convertsToDate()` ou `'2020-01-01T10:00+14:30'.convertsToDateTime()` est évalué
@@ -473,6 +591,21 @@ L'union `|` et `intersect()` SHALL éliminer les doublons des deux opérandes, y
 ### Requirement: Fonctions d'agrégation
 
 Le système SHALL implémenter `aggregate(aggregator, init)`, `sum()`, `min()`, `max()`, `avg()`, `sort()`, `sort(keySelector)`.
+
+#### Scenario: $total dans aggregate
+
+- **WHEN** `(1 | 2 | 3).aggregate($total + $this, 0)` ou `(1 | 2).aggregate($total + $this)` est évalué
+- **THEN** `$total` SHALL valoir `init` (ou une collection vide sans `init`) à la première étape, puis le résultat de chaque étape ; les résultats SHALL être `[Integer(6)]` puis une collection vide
+
+#### Scenario: aggregate imbriqué
+
+- **WHEN** un `aggregate()` est imbriqué dans l'agrégateur d'un autre
+- **THEN** l'`aggregate()` interne SHALL avoir son propre `$total`
+
+#### Scenario: $index dans aggregate
+
+- **WHEN** `(5 | 6 | 7).aggregate($total + $index, 0)` est évalué
+- **THEN** `$index` SHALL valoir la position de l'élément et le résultat SHALL être `[Integer(3)]`
 
 #### Scenario: sum sur une collection d'entiers
 
@@ -588,15 +721,15 @@ Le système SHALL exposer `EvalError` couvrant toutes les erreurs d'exécution p
 
 Le système SHALL documenter les limitations suivantes de l'implémentation actuelle.
 
-#### Scenario: $index non supporté
+#### Scenario: $index hors d'une itération
 
-- **WHEN** une expression utilise `$index` dans un contexte d'itération
-- **THEN** l'évaluateur SHALL retourner `Err(EvalError::UndefinedFunction("$index"))`
+- **WHEN** `$index` est évalué hors de `where`, `select`, `all`, `exists`, `repeat` et `aggregate` (ex. `$index`, `iif(true, $index, 0)`)
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))` (et non `UndefinedFunction`, de sorte que le validateur ne le traduise plus en `INVARIANT_SKIPPED`)
 
-#### Scenario: aggregate sans $total
+#### Scenario: $total hors d'aggregate
 
-- **WHEN** `aggregate()` est utilisé avec une référence à `$total`
-- **THEN** l'accumulateur `$total` ne sera pas accessible (comportement non défini dans l'implémentation actuelle)
+- **WHEN** `$total` est évalué hors de l'agrégateur d'`aggregate()`
+- **THEN** l'évaluateur SHALL retourner une erreur
 
 #### Scenario: Fonctions non implémentées retournent UndefinedFunction
 
@@ -606,11 +739,11 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 
-Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate` sur son `inputfile` (un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5 (sans navigation des choix)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 877 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
+Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate` sur son `inputfile` (un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5 (sans navigation des choix)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 916 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
 
 #### Scenario: Réussites sous le plancher
 
-- **WHEN** moins de 877 cas de la suite réussissent
+- **WHEN** moins de 916 cas de la suite réussissent
 - **THEN** le test SHALL échouer
 
 #### Scenario: Dérive du nombre de cas
