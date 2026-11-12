@@ -202,3 +202,26 @@ fn complex_value_never_equals_a_primitive() {
         [true]
     );
 }
+
+#[test]
+fn has_value_is_true_only_for_one_primitive_with_a_value() {
+    // R5 fhirpath.html hasValue(): "Returns true if the input collection
+    // contains a single value which is a FHIR primitive, and it has a primitive
+    // value ... Otherwise, the return value is empty."
+    let ctx = typed(
+        r#"{"resourceType":"Patient","birthDate":"1970-01-01",
+        "_birthDate":{"extension":[{"url":"u","valueString":"x"}]},
+        "name":[{"given":["a",null],
+        "_given":[null,{"extension":[{"url":"u","valueString":"x"}]}]}]}"#,
+    );
+    let one = |expr: &str| evaluate(expr, &ctx).unwrap();
+    assert_eq!(bools(&one("name.given[0].hasValue()")), [true]);
+    assert_eq!(bools(&one("birthDate.hasValue()")), [true]);
+    // A primitive with extensions and no value.
+    assert!(one("name.given[1].hasValue()").is_empty());
+    // A complex value, several items, no item.
+    assert!(one("name.first().hasValue()").is_empty());
+    assert!(one("name.given.hasValue()").is_empty());
+    assert!(one("{}.hasValue()").is_empty());
+    assert!(one("birthDate.extension.hasValue()").is_empty());
+}

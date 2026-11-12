@@ -108,3 +108,18 @@ fn extensions_on_a_primitive_without_value_make_it_present() {
     assert_eq!(fired.len(), 1, "{fired:?}");
     assert!(fired[0].starts_with("INVARIANT_app-5 "), "{fired:?}");
 }
+
+#[test]
+fn bdl_10_needs_a_timestamp_value_not_only_extensions() {
+    let bundle =
+        |timestamp: &str| format!(r#"{{"resourceType":"Bundle","type":"document"{timestamp}}}"#);
+    let with_value = bundle(r#","timestamp":"2020-01-01T10:00:00Z""#);
+    assert!(json_about(&with_value, "bdl-10").is_empty());
+    let extension_only = bundle(
+        r#","_timestamp":{"extension":[{"url":"http://hl7.org/fhir/StructureDefinition/data-absent-reason",
+        "valueCode":"unknown"}]}"#,
+    );
+    let fired = json_about(&extension_only, "bdl-10");
+    assert_eq!(fired.len(), 1, "{fired:?}");
+    assert!(fired[0].starts_with("INVARIANT_bdl-10 "), "{fired:?}");
+}

@@ -1433,9 +1433,10 @@ fn has_value_true_when_focus_is_non_empty() {
 }
 
 #[test]
-fn has_value_false_when_focus_is_empty() {
+fn has_value_empty_when_focus_is_empty() {
+    // R5 hasValue(): "Otherwise, the return value is empty".
     let result = evaluate("{}.hasValue()", &[]).unwrap();
-    assert_eq!(result, vec![Value::Bool(false)]);
+    assert_eq!(result, vec![]);
 }
 
 #[test]

@@ -87,9 +87,14 @@ impl Evaluator<'_> {
             }
             "hasValue" => {
                 check_arity(name, args, 0)?;
-                vec![Value::Bool(
-                    focus.len() == 1 && !matches!(focus[0], Value::Null),
-                )]
+                // R5: true for one primitive that has a value; "otherwise, the
+                // return value is empty" (complex values, no value, several items).
+                match focus {
+                    [item] if !matches!(item.primitive_value(), Value::Null | Value::Object(_)) => {
+                        vec![Value::Bool(true)]
+                    }
+                    _ => vec![],
+                }
             }
             "getValue" => {
                 check_arity(name, args, 0)?;
