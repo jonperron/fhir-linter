@@ -369,8 +369,8 @@ impl Evaluator<'_> {
                     items
                 } else {
                     let mut keys: Vec<Value> = Vec::with_capacity(items.len());
-                    for item in &items {
-                        let key_col = self.eval(&args[0], std::slice::from_ref(item))?;
+                    for (index, item) in items.iter().enumerate() {
+                        let key_col = self.eval_item(&args[0], item, index)?;
                         keys.push(key_col.into_iter().next().unwrap_or(Value::Null));
                     }
                     let mut indices: Vec<usize> = (0..items.len()).collect();

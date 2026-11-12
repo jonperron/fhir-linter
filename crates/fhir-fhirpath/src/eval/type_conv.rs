@@ -156,7 +156,7 @@ fn to_quantity(item: &Value) -> Option<Value> {
     let (value, unit) = match item {
         Value::Quantity(..) => return Some(item.clone()),
         Value::Integer(n) => (*n as f64, "1"),
-        Value::Decimal(d) => (*d, "1"),
+        Value::Decimal(d) if d.is_finite() => (*d, "1"),
         Value::Bool(b) => (f64::from(u8::from(*b)), "1"),
         Value::String(s) => {
             let captures = QUANTITY.as_ref()?.captures(s)?;
@@ -179,7 +179,7 @@ fn to_string(item: &Value) -> Option<Value> {
         Value::String(_) => return Some(item.clone()),
         Value::Bool(b) => b.to_string(),
         Value::Integer(n) | Value::Long(n) => n.to_string(),
-        Value::Decimal(d) => decimal_text(*d),
+        Value::Decimal(d) if d.is_finite() => decimal_text(*d),
         Value::Date(s) | Value::DateTime(s) | Value::Time(s) => s.to_string(),
         Value::Quantity(value, unit) => format!("{value} '{unit}'"),
         _ => return None,

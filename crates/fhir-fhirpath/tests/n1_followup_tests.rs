@@ -386,7 +386,30 @@ fn to_quantity_with_a_bad_unit_argument() {
 }
 
 #[test]
-fn index_inside_iif_or_sort_outside_an_iteration_is_an_error() {
+fn index_inside_iif_outside_an_iteration_is_an_error() {
     assert!(evaluate("iif(true, $index, 0)", &[]).is_err());
-    assert!(evaluate("(2 | 1).sort($index)", &[]).is_err());
+}
+
+// N1 §5: sort's key is an expression parameter, so `$index` is the position
+// of the item being sorted, not an enclosing iteration's.
+#[test]
+fn sort_key_sees_its_own_index() {
+    assert_eq!(
+        eval("(30 | 10 | 20).sort(-$index)"),
+        integers(&[20, 10, 30])
+    );
+    assert_eq!(
+        eval("(1 | 2).select((30 | 10 | 20).sort(-$index))"),
+        integers(&[20, 10, 30, 20, 10, 30])
+    );
+}
+
+// A decimal literal beyond f64 is infinite; it has no Quantity or String form.
+#[test]
+fn non_finite_decimals_do_not_convert() {
+    let huge = format!("1{}.0", "0".repeat(400));
+    for function in ["toQuantity()", "toString()"] {
+        let expr = format!("{huge}.{function}");
+        assert_eq!(eval(&expr), vec![], "{expr}");
+    }
 }
