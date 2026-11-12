@@ -69,7 +69,7 @@ impl Evaluator<'_> {
                 // N1 §5.1: the input must be a collection of Booleans.
                 let bools = focus
                     .iter()
-                    .map(|v| match v {
+                    .map(|v| match v.primitive_value() {
                         Value::Bool(b) => Ok(*b),
                         v => Err(EvalError::Type(format!(
                             "{name}() requires Boolean items, got {}",
@@ -267,7 +267,7 @@ impl Evaluator<'_> {
                 let mut sum = 0f64;
                 let mut all_integer = true;
                 for v in focus {
-                    match v {
+                    match v.primitive_value() {
                         Value::Integer(n) => sum += *n as f64,
                         Value::Decimal(d) => {
                             sum += d;
@@ -321,7 +321,7 @@ impl Evaluator<'_> {
                 let count = focus.len() as f64;
                 let mut sum = 0f64;
                 for v in focus {
-                    match v {
+                    match v.primitive_value() {
                         Value::Integer(n) => sum += *n as f64,
                         Value::Long(n) => sum += *n as f64,
                         Value::Decimal(d) => sum += d,
@@ -376,7 +376,7 @@ impl Evaluator<'_> {
                 check_arity(name, args, 0)?;
                 let mut out = Vec::new();
                 for item in focus {
-                    if let Value::Object(fields) = item {
+                    if let Some(fields) = item.fields() {
                         for col in fields.values() {
                             out.extend_from_slice(col);
                         }

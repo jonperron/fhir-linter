@@ -95,3 +95,16 @@ fn xml_appointment_compares_instants_too() {
     let fired = xml_about(xml, "app-5");
     assert!(fired.is_empty(), "{fired:?}");
 }
+
+#[test]
+fn extensions_on_a_primitive_without_value_make_it_present() {
+    // `_start` alone (say a data-absent-reason) is a start element with no
+    // value: it exists, and `start <= end` is empty, so app-5 is not true.
+    let json = r#"{"resourceType":"Appointment","status":"booked",
+        "participant":[{"status":"accepted","actor":{"display":"a"}}],
+        "_start":{"extension":[{"url":"http://hl7.org/fhir/StructureDefinition/data-absent-reason",
+        "valueCode":"unknown"}]},"end":"2020-01-01T09:30:00Z"}"#;
+    let fired = json_about(json, "app-5");
+    assert_eq!(fired.len(), 1, "{fired:?}");
+    assert!(fired[0].starts_with("INVARIANT_app-5 "), "{fired:?}");
+}

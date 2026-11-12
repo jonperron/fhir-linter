@@ -372,8 +372,8 @@ fn equality_semantics() {
         ("(1 | 1) = (1 | 2 | {})", f()),
         ("name = name", t()),
         ("telecom = name", f()),
-        // N1 says false; empty until F10 types XML primitives with extensions.
-        ("name.first() = 'Peter'", vec![]),
+        // N1 §6.1.1: a complex value never equals a primitive.
+        ("name.first() = 'Peter'", f()),
         ("@2012-04-15T15:30:31 = @2012-04-15T15:30:31.0", t()),
         ("@2012-01 = @2012", vec![]),
         ("@2012-01-01 = @2012-02", f()),

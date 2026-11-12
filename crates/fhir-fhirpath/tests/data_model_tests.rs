@@ -10,6 +10,11 @@ fn child_element(parent: &str, name: &str) -> Option<(Arc<str>, Arc<str>)> {
     let ty = match (parent, name) {
         ("Patient", "birthDate") => "date",
         ("Patient", "contained") => "Resource",
+        ("Patient", "gender") => "code",
+        ("Patient", "name") => "HumanName",
+        ("HumanName", "given") => "string",
+        ("Extension", "valueString") => "string",
+        ("code" | "string", "extension") => "Extension",
         ("Observation", "effectiveDateTime") => "dateTime",
         ("Observation", "issued") => "instant",
         ("Observation", "valueTime") => "time",
@@ -105,6 +110,95 @@ fn xml_temporals_are_typed_too() {
     )];
     assert_eq!(
         bools(&evaluate("birthDate = @1974-12-25", &ctx).unwrap()),
+        [true]
+    );
+}
+
+fn untyped(json: &str) -> Vec<Value> {
+    vec![resource_to_value(&parse_json(json).unwrap())]
+}
+
+const BIRTH_DATE_EXTENSION: &str = r#"{"resourceType":"Patient","birthDate":"1970-01-01",
+    "_birthDate":{"id":"b1","extension":[{"url":"u","valueString":"x"}]}}"#;
+
+#[test]
+fn json_primitive_extensions_are_found_on_the_primitive() {
+    for ctx in [untyped(BIRTH_DATE_EXTENSION), typed(BIRTH_DATE_EXTENSION)] {
+        let one = |expr: &str| evaluate(expr, &ctx).unwrap();
+        assert_eq!(bools(&one("birthDate.extension.exists()")), [true]);
+        assert_eq!(bools(&one("birthDate.extension('u').exists()")), [true]);
+        assert_eq!(bools(&one("birthDate.id = 'b1'")), [true]);
+        // The split representation is not visible (R5 fhirpath.html §2.1.9.1).
+        assert_eq!(bools(&one("_birthDate.exists()")), [false]);
+        assert_eq!(bools(&one("children().count() = 2")), [true]);
+        // The value still behaves as the primitive.
+        assert_eq!(bools(&one("birthDate.toString() = '1970-01-01'")), [true]);
+        assert_eq!(bools(&one("birthDate.toString().length() = 10")), [true]);
+    }
+    let ctx = typed(BIRTH_DATE_EXTENSION);
+    assert_eq!(bools(&evaluate("birthDate < @1971", &ctx).unwrap()), [true]);
+    assert_eq!(
+        bools(&evaluate("birthDate.extension('u').valueString = 'x'", &ctx).unwrap()),
+        [true]
+    );
+}
+
+#[test]
+fn repeating_primitive_extensions_pair_by_index() {
+    let ctx = untyped(
+        r#"{"resourceType":"Patient","name":[{"given":["a",null,"c"],
+        "_given":[null,{"extension":[{"url":"u","valueString":"x"}]},null]}]}"#,
+    );
+    let one = |expr: &str| evaluate(expr, &ctx).unwrap();
+    assert_eq!(bools(&one("name.given.count() = 3")), [true]);
+    assert_eq!(bools(&one("name.given[1].extension.exists()")), [true]);
+    assert_eq!(bools(&one("name.given[2] = 'c'")), [true]);
+    assert_eq!(bools(&one("name.given[0].extension.exists()")), [false]);
+    // A primitive with extensions but no value compares as empty.
+    assert!(one("name.given[1] = 'b'").is_empty());
+    assert!(one("name.given[1] < 'x'").is_empty());
+    assert!(one("name.given[1].length()").is_empty());
+}
+
+#[test]
+fn extensions_without_a_value_still_make_the_element_present() {
+    let ctx = untyped(
+        r#"{"resourceType":"Patient",
+        "_birthDate":{"extension":[{"url":"u","valueString":"x"}]}}"#,
+    );
+    let one = |expr: &str| evaluate(expr, &ctx).unwrap();
+    assert_eq!(bools(&one("birthDate.exists()")), [true]);
+    assert_eq!(bools(&one("birthDate.extension('u').exists()")), [true]);
+    assert!(one("birthDate = '1970'").is_empty());
+}
+
+#[test]
+fn xml_primitives_with_extensions_behave_as_primitives() {
+    let xml = r#"<Patient xmlns="http://hl7.org/fhir">
+        <gender value="male"><extension url="u"><valueString value="x"/></extension></gender>
+        <birthDate value="1974-12-25"><extension url="u"><valueString value="y"/></extension></birthDate>
+        </Patient>"#;
+    let ctx = vec![resource_to_typed_value(
+        &parse_xml(xml).unwrap(),
+        &child_element,
+    )];
+    let one = |expr: &str| evaluate(expr, &ctx).unwrap();
+    assert_eq!(bools(&one("gender = 'male'")), [true]);
+    assert_eq!(bools(&one("gender.extension('u').exists()")), [true]);
+    assert_eq!(bools(&one("birthDate = @1974-12-25")), [true]);
+    assert_eq!(bools(&one("birthDate.extension.exists()")), [true]);
+}
+
+#[test]
+fn complex_value_never_equals_a_primitive() {
+    // N1 §6.1.1; testHasCodingValue3 in the official suite.
+    let ctx = untyped(r#"{"resourceType":"Patient","name":[{"family":"Peter"}]}"#);
+    assert_eq!(
+        bools(&evaluate("name.first() = 'Peter'", &ctx).unwrap()),
+        [false]
+    );
+    assert_eq!(
+        bools(&evaluate("name.first() != 'Peter'", &ctx).unwrap()),
         [true]
     );
 }

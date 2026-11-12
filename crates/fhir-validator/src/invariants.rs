@@ -61,7 +61,7 @@ pub fn validate(
 
         // A constraint is satisfied when the expression returns exactly [true].
         // An empty collection or [false] counts as a violation.
-        let satisfied = matches!(result.as_slice(), [fhir_fhirpath::Value::Bool(true)]);
+        let satisfied = matches!(result.as_slice(), [value] if value.is_truthy());
 
         if !satisfied {
             // R5 constraint-severity is error | warning (required binding):
