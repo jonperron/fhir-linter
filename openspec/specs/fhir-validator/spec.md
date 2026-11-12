@@ -408,6 +408,11 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 - **THEN** aucun Diagnostic `INVARIANT_<key>` ne SHALL être émis pour cette contrainte
 - **AND** exactement un Diagnostic de severity `Information` avec code `INVARIANT_SKIPPED` SHALL être émis, au `path` du type de ressource pour une contrainte de la racine ou au chemin d'instance du nœud pour une contrainte imbriquée, avec un message nommant la `key` de la contrainte et la raison de l'erreur
 
+#### Scenario: Collection FHIRPath trop grande signalée INVARIANT_SKIPPED
+
+- **WHEN** l'évaluation d'une contrainte retourne `EvalError::CollectionTooLarge` (collection intermédiaire de plus de 100 000 items)
+- **THEN** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` nommant la `key` de la contrainte et « collection larger than 100000 items » SHALL être émis
+
 #### Scenario: Expression non analysable signalée INVARIANT_SKIPPED
 
 - **WHEN** l'expression FHIRPath d'une contrainte ne peut pas être analysée (par ex. les variables d'environnement `%` telles que `%resource`, non encore supportées par le parseur, si bien que `dom-3` est toujours ignorée)

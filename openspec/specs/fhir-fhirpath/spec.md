@@ -725,7 +725,36 @@ Le système SHALL exposer `EvalError` couvrant toutes les erreurs d'exécution p
 #### Scenario: Variantes d'EvalError
 
 - **WHEN** une erreur se produit à l'évaluation
-- **THEN** `EvalError` SHALL avoir les variantes : `Type(String)` (erreur de type), `UndefinedFunction(String)` (fonction inconnue), `Arity { name, expected, got }` (mauvais nombre d'arguments), `DivisionByZero` (conservée pour la compatibilité de l'enum public mais plus jamais produite, la division par zéro donnant une collection vide), `Parse(ParseError)` (erreur de parse propagée)
+- **THEN** `EvalError` SHALL avoir les variantes : `Type(String)` (erreur de type), `UndefinedFunction(String)` (fonction inconnue), `Arity { name, expected, got }` (mauvais nombre d'arguments), `DivisionByZero` (conservée pour la compatibilité de l'enum public mais plus jamais produite, la division par zéro donnant une collection vide), `Parse(ParseError)` (erreur de parse propagée), `CollectionTooLarge(usize)` (collection intermédiaire au-delà de `MAX_COLLECTION_LEN`, message « collection larger than 100000 items »)
+
+### Requirement: Plafond de taille des collections
+
+Le système SHALL définir la constante `MAX_COLLECTION_LEN` = 100 000 (`crates/fhir-fhirpath/src/eval/helpers.rs`). Lorsqu'une collection intermédiaire dépasse cette limite, l'évaluation SHALL s'arrêter avec `Err(EvalError::CollectionTooLarge(limit))`. Le plafond SHALL être vérifié sur le résultat de chaque nœud évalué, ainsi que pour chaque item de focus dans `select`, `repeat`, `children()`, `descendants()`, la navigation de chemin et `extension(url)`, de sorte qu'une étape dépasse la limite d'au plus la sortie d'un item (ou l'autre côté d'un `combine`/union). Ce plafond borne la croissance exponentielle d'expressions courtes.
+
+#### Scenario: Chaîne select exponentielle
+
+- **WHEN** une expression courte enchaîne `select($this.combine($this))` jusqu'à dépasser 100 000 items (par ex. 2^20 items)
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::CollectionTooLarge(100000))` sans construire la collection complète
+
+#### Scenario: Forme aggregate
+
+- **WHEN** `aggregate($total.combine($total), 1)` est évalué sur une entrée assez grande pour dépasser 100 000 items
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::CollectionTooLarge(100000))`
+
+#### Scenario: Navigation sur de nombreuses copies
+
+- **WHEN** une navigation de chemin ou `extension(url)` étend de nombreuses copies d'une ressource au-delà de 100 000 items
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::CollectionTooLarge(100000))`
+
+#### Scenario: 2^16 items restent évalués
+
+- **WHEN** une expression produit 2^16 (65 536) items, sous la limite
+- **THEN** l'évaluateur SHALL retourner la collection normalement
+
+#### Scenario: Entrée légitime volumineuse
+
+- **WHEN** une entrée légitime dépasse 100 000 items (par ex. `descendants()` d'un très grand Bundle)
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::CollectionTooLarge(100000))`, et le validateur SHALL la signaler par un `INVARIANT_SKIPPED`
 
 ### Requirement: Limitations connues
 
@@ -746,6 +775,11 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 - **WHEN** `resolve()`, `memberOf()`, `conformsTo()`, `today()`, `now()`, `timeOfDay()`, `lowBoundary()`, `highBoundary()`, `precision()`, `htmlChecks()` ou `comparable()` est évalué
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::UndefinedFunction(name))` où `name` est le nom de la fonction
 - **AND** il SHALL NOT retourner de résultat deviné (collection vide, booléen), afin que le validateur signale la contrainte comme non vérifiée (`INVARIANT_SKIPPED`)
+
+#### Scenario: Croissance hors du plafond de collection
+
+- **WHEN** une expression double une chaîne (par ex. `aggregate($total + $total, 'a')`) ou déclenche le dédoublonnage O(n²) de `repeat`/`distinct`
+- **THEN** `MAX_COLLECTION_LEN` SHALL NOT s'appliquer (longueur de chaîne et coût CPU non plafonnés) ; ces cas sont des limitations connues
 
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 
