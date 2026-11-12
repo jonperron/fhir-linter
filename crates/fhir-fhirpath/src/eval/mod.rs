@@ -68,8 +68,9 @@ impl Evaluator<'_> {
     }
 
     /// Evaluate `expr`; every intermediate collection is checked against
-    /// [`helpers::MAX_COLLECTION_LEN`]: a combine or select step can reach at
-    /// most twice the limit before it stops.
+    /// [`helpers::MAX_COLLECTION_LEN`]. Producers that iterate their focus
+    /// also check per item, so a step overshoots by at most one item's output
+    /// (or the other side of a combine or union).
     pub(super) fn eval(&self, expr: &Expr, ctx: &[Value]) -> Result<Collection, EvalError> {
         let col = self.eval_expr(expr, ctx)?;
         helpers::check_collection_len(col.len())?;

@@ -38,11 +38,17 @@ fn doubling_aggregate_stops_at_the_limit() {
 #[test]
 fn navigation_over_many_copies_stops_at_the_limit() -> Result<(), Box<dyn std::error::Error>> {
     let patient = fhir_parser::parse_json(
-        r#"{"resourceType":"Patient","name":[{"given":["a","b","c"]},{"given":["d","e"]}]}"#,
+        r#"{"resourceType":"Patient","name":[{"given":["a","b","c"]},{"given":["d","e"]}],
+        "extension":[{"url":"u","valueString":"x"},{"url":"u","valueString":"y"}]}"#,
     )?;
     let context = [fhir_fhirpath::resource_to_value(&patient)];
     let copies = doubling_chain(16).replacen('1', "$this", 1);
-    for step in ["descendants()", "children()", "name.given"] {
+    for step in [
+        "descendants()",
+        "children()",
+        "name.given",
+        "extension('u')",
+    ] {
         let expr = format!("{copies}.{step}");
         assert!(
             matches!(
