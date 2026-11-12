@@ -62,6 +62,27 @@ fn navigation_over_many_copies_stops_at_the_limit() -> Result<(), Box<dyn std::e
 }
 
 #[test]
+fn navigation_under_the_limit_still_evaluates() -> Result<(), Box<dyn std::error::Error>> {
+    let patient = fhir_parser::parse_json(
+        r#"{"resourceType":"Patient","name":[{"given":["a","b","c"]},{"given":["d","e"]}],
+        "extension":[{"url":"u","valueString":"x"},{"url":"u","valueString":"y"}]}"#,
+    )?;
+    let context = [fhir_fhirpath::resource_to_value(&patient)];
+    let copies = doubling_chain(10).replacen('1', "$this", 1);
+    for (step, expected) in [("name.given", 5 * 1024), ("extension('u')", 2 * 1024)] {
+        let found = evaluate(&format!("{copies}.{step}"), &context)?;
+        assert_eq!(found.len(), expected, "{step}");
+    }
+    for step in ["children()", "descendants()"] {
+        assert!(
+            evaluate(&format!("{copies}.{step}"), &context)?.len() < LIMIT,
+            "{step}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn collections_under_the_limit_still_evaluate() -> Result<(), EvalError> {
     assert_eq!(evaluate(&doubling_chain(16), &[])?.len(), 65_536);
     let items: Vec<String> = (1..=16).map(|n| n.to_string()).collect();
