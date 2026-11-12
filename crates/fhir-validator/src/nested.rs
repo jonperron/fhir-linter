@@ -500,6 +500,7 @@ mod tests {
             binding: None,
             slice_name: None,
             xml_attr: false,
+            content_reference: None,
         }
     }
 

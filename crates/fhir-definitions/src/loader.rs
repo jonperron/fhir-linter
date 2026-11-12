@@ -136,6 +136,9 @@ fn parse_element_definition(
     let xml_attr = elem["representation"]
         .as_array()
         .is_some_and(|r| r.iter().any(|v| v == "xmlAttr"));
+    let content_reference = elem["contentReference"]
+        .as_str()
+        .map(|r| Arc::from(r.strip_prefix('#').unwrap_or(r)));
 
     Ok(ElementDefinition {
         path,
@@ -146,6 +149,7 @@ fn parse_element_definition(
         binding,
         slice_name,
         xml_attr,
+        content_reference,
     })
 }
 

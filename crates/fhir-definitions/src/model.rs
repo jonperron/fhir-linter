@@ -84,6 +84,10 @@ pub struct ElementDefinition {
     pub slice_name: Option<Arc<str>>,
     /// `representation` holds `xmlAttr`: the XML form is an attribute, not a child element.
     pub xml_attr: bool,
+    /// `contentReference`: the element whose content rules apply here. A local
+    /// `#Questionnaire.item` is kept as the bare path `Questionnaire.item`; a reference into
+    /// another definition (`http://...#Observation.referenceRange`) is kept whole.
+    pub content_reference: Option<Arc<str>>,
 }
 
 /// A FHIRPath constraint expression on an element.
@@ -185,6 +189,7 @@ mod tests {
             binding: None,
             slice_name: None,
             xml_attr: false,
+            content_reference: None,
         }
     }
 
