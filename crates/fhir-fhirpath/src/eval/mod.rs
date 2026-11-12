@@ -257,6 +257,8 @@ impl Evaluator<'_> {
                     result.push(item.clone());
                 }
             }
+            // Per item, so many copies of one node cannot expand past the cap.
+            helpers::check_collection_len(result.len())?;
         }
         Ok(result)
     }

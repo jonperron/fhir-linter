@@ -32,6 +32,29 @@ fn doubling_aggregate_stops_at_the_limit() {
     assert!(is_too_large(&expr), "{expr}");
 }
 
+// 2^16 copies of a node stay under the cap; expanding each one must stop at
+// the cap instead of building copies x children first. Only peak memory
+// differs from a post-check, so this pins the outcome, not the allocation.
+#[test]
+fn navigation_over_many_copies_stops_at_the_limit() -> Result<(), Box<dyn std::error::Error>> {
+    let patient = fhir_parser::parse_json(
+        r#"{"resourceType":"Patient","name":[{"given":["a","b","c"]},{"given":["d","e"]}]}"#,
+    )?;
+    let context = [fhir_fhirpath::resource_to_value(&patient)];
+    let copies = doubling_chain(16).replacen('1', "$this", 1);
+    for step in ["descendants()", "children()", "name.given"] {
+        let expr = format!("{copies}.{step}");
+        assert!(
+            matches!(
+                evaluate(&expr, &context),
+                Err(EvalError::CollectionTooLarge(LIMIT))
+            ),
+            "{step}"
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn collections_under_the_limit_still_evaluate() -> Result<(), EvalError> {
     assert_eq!(evaluate(&doubling_chain(16), &[])?.len(), 65_536);

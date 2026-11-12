@@ -391,19 +391,23 @@ impl Evaluator<'_> {
             }
 
             // ── Navigation ────────────────────────────────────────────────
+            // Checked per item: many copies of one node would otherwise expand
+            // past the cap before the result is checked.
             "children" => {
                 check_arity(name, args, 0)?;
-                focus
-                    .iter()
-                    .flat_map(Value::child_elements)
-                    .cloned()
-                    .collect()
+                let mut out = Vec::new();
+                for item in focus {
+                    out.extend(item.child_elements().cloned());
+                    check_collection_len(out.len())?;
+                }
+                out
             }
             "descendants" => {
                 check_arity(name, args, 0)?;
                 let mut out = Vec::new();
                 for item in focus {
                     collect_descendants(item, &mut out);
+                    check_collection_len(out.len())?;
                 }
                 out
             }
