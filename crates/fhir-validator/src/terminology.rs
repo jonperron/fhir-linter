@@ -1,69 +1,61 @@
-use fhir_definitions::{Registry, StructureDefinition};
-use fhir_parser::{Node, Resource, Value};
+use fhir_definitions::{ElementDefinition, Registry};
+use fhir_parser::{Node, Value};
 
 use crate::diagnostic::Diagnostic;
 
-/// Validate `required` and `extensible` terminology bindings on top-level elements.
+/// Validate the `required` or `extensible` binding of `elem` on its value `node`
+/// (instance `path`), whose type is `fhir_type`. The walk in `nested.rs` calls it
+/// for every element, at every depth.
 ///
 /// Emits `TERMINOLOGY_001` when a `code`, `Coding` or `CodeableConcept` is
 /// provably outside the bound ValueSet: an error for `required`, a warning for
 /// `extensible`. Membership that cannot be decided from the loaded definitions
 /// (filters, external code systems) is not reported. A bound Coding with a
 /// code but no system also gets a `TERMINOLOGY_002` warning.
-pub fn validate(
-    resource: &Resource,
-    sd: &StructureDefinition,
+pub(crate) fn check(
+    node: &Node,
+    elem: &ElementDefinition,
+    fhir_type: &str,
+    path: &str,
     registry: &Registry,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let resource_type = resource.resource_type.as_ref();
+    let Some(binding) = &elem.binding else {
+        return;
+    };
+    let Some(vs) = &binding.value_set else {
+        return;
+    };
+    let strength = binding.strength.as_ref();
+    let required = match strength {
+        "required" => true,
+        "extensible" => false,
+        _ => return,
+    };
+    // The spec sets no validator severity for extensible bindings: report them as warnings.
+    let report = if required {
+        Diagnostic::error
+    } else {
+        Diagnostic::warning
+    };
 
-    for (field_name, node) in &resource.fields {
-        let path = format!("{resource_type}.{field_name}");
-        let Some(elem) = sd.element(&path) else {
-            continue;
-        };
-        let Some(binding) = &elem.binding else {
-            continue;
-        };
-        let Some(vs) = &binding.value_set else {
-            continue;
-        };
-        let strength = binding.strength.as_ref();
-        let required = match strength {
-            "required" => true,
-            "extensible" => false,
-            _ => continue,
-        };
-        // The spec sets no validator severity for extensible bindings: report them as warnings.
-        let report = if required {
-            Diagnostic::error
-        } else {
-            Diagnostic::warning
-        };
-        let [fhir_type] = elem.types.as_slice() else {
-            continue;
-        };
-
-        for (item, item_path) in entries(node, &path) {
-            let codings = codings(item, fhir_type, &item_path);
-            if let Some(bad) = out_of_set(item, fhir_type, &codings, vs, required, registry) {
-                let message =
-                    format!("{bad} at '{item_path}' is not in {strength} ValueSet '{vs}'");
-                diagnostics
-                    .push(report("TERMINOLOGY_001", message, item_path).with_location(item.span));
-            }
-            for (coding_node, coding_path) in codings {
-                if let Some((None, code)) = coding(&coding_node.value) {
-                    let message = format!(
-                        "Coding '{code}' at '{coding_path}' has no system, \
-                         so it cannot be a member of ValueSet '{vs}'"
-                    );
-                    diagnostics.push(
-                        Diagnostic::warning("TERMINOLOGY_002", message, coding_path)
-                            .with_location(coding_node.span),
-                    );
-                }
+    for (item, item_path) in entries(node, path) {
+        let codings = codings(item, fhir_type, &item_path);
+        if let Some(bad) = out_of_set(item, fhir_type, &codings, vs, required, registry) {
+            let message = format!("{bad} at '{item_path}' is not in {strength} ValueSet '{vs}'");
+            diagnostics
+                .push(report("TERMINOLOGY_001", message, item_path).with_location(item.span));
+        }
+        for (coding_node, coding_path) in codings {
+            if let Some((None, code)) = coding(&coding_node.value) {
+                let message = format!(
+                    "Coding '{code}' at '{coding_path}' has no system, \
+                     so it cannot be a member of ValueSet '{vs}'"
+                );
+                diagnostics.push(
+                    Diagnostic::warning("TERMINOLOGY_002", message, coding_path)
+                        .with_location(coding_node.span),
+                );
             }
         }
     }

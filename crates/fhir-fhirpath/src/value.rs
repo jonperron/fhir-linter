@@ -185,6 +185,23 @@ pub fn resource_to_typed_value(
     Value::Object(Arc::new(map))
 }
 
+/// Convert one instance value and, for a primitive, its JSON `_name` element,
+/// whose element is `child` (definition path and type code, as returned by
+/// [`ChildElement`]). An array becomes one item per value; a JSON null, or
+/// nothing at all, gives an empty collection.
+pub fn node_to_typed_value(
+    value: Option<&fhir_parser::Value>,
+    element: Option<&fhir_parser::Value>,
+    child: Option<&(Arc<str>, Arc<str>)>,
+    child_element: &ChildElement<'_>,
+) -> Collection {
+    match (value, element) {
+        (Some(value), None) => convert(value, child, child_element),
+        (value, Some(element)) => split(value, element, child, child_element),
+        (None, None) => vec![],
+    }
+}
+
 /// Convert one node whose element is `child` (definition path, type code).
 fn convert(
     v: &fhir_parser::Value,
@@ -251,11 +268,7 @@ fn object_fields(
             ),
         };
         let child = definition.and_then(|d| child_element(d, &name));
-        let values = match (value, element) {
-            (Some(value), None) => convert(value, child.as_ref(), child_element),
-            (value, Some(element)) => split(value, element, child.as_ref(), child_element),
-            (None, None) => continue,
-        };
+        let values = node_to_typed_value(value, element, child.as_ref(), child_element);
         if !values.is_empty() {
             map.insert(name, values);
         }

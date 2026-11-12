@@ -1691,7 +1691,11 @@ fn xml_empty_primitive_is_reported() {
         &registry,
         r#"<Patient xmlns="http://hl7.org/fhir"><active/></Patient>"#,
     );
-    assert_eq!(errors, ["TYPE_001 Patient.active"]);
+    // ele-1: "All FHIR elements must have a @value or children".
+    assert_eq!(
+        errors,
+        ["TYPE_001 Patient.active", "INVARIANT_ele-1 Patient.active"],
+    );
 }
 
 #[test]
