@@ -445,13 +445,13 @@ Pour `toX()` et `convertsToX()` avec X parmi `Boolean`, `Integer`, `Decimal`, `D
 - `toDateTime` : `DateTime`, `Date`, `String` `YYYY[-MM[-DD]][Thh[:mm[:ss[.fff]]][Z|(+|-)hh:mm]]` avec un décalage d'au plus `14:00`.
 - `toTime` : `Time`, `String` `hh[:mm[:ss[.fff]]]`.
 
-Une date en `String` SHALL être une date calendaire réelle (année `0001` à `9999`, jour valide pour son mois, années bissextiles comprises). `toLong`/`convertsToLong` (absents de N1, FHIRPath 3.0 STU) suivent le modèle de `toInteger` : entrée singleton, sources `Integer`, `Long`, `Boolean` et `String` `(\+|-)?\d+` dans les bornes `i64`, sinon collection vide (`toLong`) ou `false` (`convertsToLong`). Une chaîne de chiffres au-delà de `f64` ne SHALL pas être convertie en infini par `toDecimal` ni `toQuantity`.
+Une date en `String` SHALL être une date calendaire réelle (année `0001` à `9999`, jour valide pour son mois, années bissextiles comprises). `toLong`/`convertsToLong` (absents de N1, FHIRPath 3.0 STU) suivent le modèle de `toInteger` : entrée singleton, sources `Integer`, `Long`, `Boolean` et `String` `(\+|-)?\d+` dans les bornes `i64`, sinon collection vide (`toLong`) ou `false` (`convertsToLong`). Une chaîne de chiffres au-delà de `f64` ne SHALL pas être convertie en infini par `toDecimal` ni `toQuantity`. De même, `toQuantity` ne SHALL pas convertir un `Decimal` non fini (littéral décimal au-delà de `f64`) : il donne une collection vide.
 
 `toQuantity([unit])` et `convertsToQuantity([unit])` suivent N1 §5.5.7 : `Integer` et `Decimal` donnent une quantité d'unité `'1'`, une `Quantity` est inchangée, un `Boolean` donne `1.0` ou `0.0` d'unité `'1'`, une `String` conforme à `(\+|-)?\d+(\.\d+)?\s*('unité'|mot-clé)?` est convertie (une unité sans guillemets SHALL être un mot-clé calendaire). Plusieurs éléments SHALL être une erreur, une entrée vide donne une collection vide, tout autre élément donne une collection vide (`toQuantity`) ou `false` (`convertsToQuantity`). Un argument `unit` ne conserve que l'unité propre de l'entrée (aucune conversion UCUM) : une autre unité donne une collection vide, un argument vide donne une collection vide et un argument non `String` est une erreur.
 
 Les unités calendaires des littéraux de quantité (`year`, `month`, `week`, `day`, `hour`, `minute`, `second`, `millisecond`, au singulier ou au pluriel) SHALL être stockées au singulier. `=` ne SHALL apparier une unité calendaire à son unité UCUM que pour `second`/`'s'` et `millisecond`/`'ms'` ; `~` SHALL les apparier toutes (`year`~`'a'`, `month`~`'mo'`, `week`~`'wk'`, `day`~`'d'`, `hour`~`'h'`, `minute`~`'min'`). Les comparaisons d'ordre SHALL accepter les mêmes paires que `=`.
 
-`toString()` et `convertsToString()` SHALL exiger une entrée singleton (plusieurs éléments : erreur). `String`, `Boolean`, `Integer`, `Long`, `Decimal`, `Date`, `DateTime`, `Time` et `Quantity` sont convertibles, tout autre élément non (collection vide pour `toString`, `false` pour `convertsToString`). Un `Decimal` SHALL toujours s'afficher avec une partie fractionnaire (`1.0` donne `'1.0'` ; `f64` ne conserve pas la précision du littéral, donc `1.50` donne `'1.5'`) et une `Quantity` SHALL s'afficher `valeur 'unité'`, unités calendaires comprises (`4 days` donne `"4 'day'"`). `convertsToString` sur une entrée vide SHALL donner une collection vide.
+`toString()` et `convertsToString()` SHALL exiger une entrée singleton (plusieurs éléments : erreur). `String`, `Boolean`, `Integer`, `Long`, `Decimal`, `Date`, `DateTime`, `Time` et `Quantity` sont convertibles, tout autre élément non (collection vide pour `toString`, `false` pour `convertsToString`). Un `Decimal` SHALL toujours s'afficher avec une partie fractionnaire (`1.0` donne `'1.0'` ; `f64` ne conserve pas la précision du littéral, donc `1.50` donne `'1.5'`) et une `Quantity` SHALL s'afficher `valeur 'unité'`, unités calendaires comprises (`4 days` donne `"4 'day'"`). `toString` d'un `Decimal` non fini (littéral décimal au-delà de `f64`) SHALL donner une collection vide. `convertsToString` sur une entrée vide SHALL donner une collection vide.
 
 #### Scenario: toInteger depuis une chaîne
 
@@ -532,6 +532,11 @@ Les unités calendaires des littéraux de quantité (`year`, `month`, `week`, `d
 
 - **WHEN** `1.0.toString()` puis `1.50.toString()` sont évalués
 - **THEN** les résultats SHALL être `[String('1.0')]` puis `[String('1.5')]`
+
+#### Scenario: Decimal non fini
+
+- **WHEN** `toQuantity()` ou `toString()` est évalué sur un littéral décimal au-delà de `f64` (au-dessus d'environ 1,8e308, par exemple 400 chiffres entiers)
+- **THEN** le résultat SHALL être une collection vide
 
 #### Scenario: toString d'une Quantity
 
@@ -626,6 +631,11 @@ Le système SHALL implémenter `aggregate(aggregator, init)`, `sum()`, `min()`, 
 
 - **WHEN** `(3 | 1 | 2).sort()` est évalué
 - **THEN** le résultat SHALL être `[1, 2, 3]` (ordre croissant)
+
+#### Scenario: $index dans la clé de sort
+
+- **WHEN** `(30 | 10 | 20).sort(-$index)` est évalué
+- **THEN** `$index` SHALL valoir la position (base 0, ordre d'entrée) de l'élément trié et le résultat SHALL être `[20, 10, 30]` ; un `sort` imbriqué dans une autre itération ne SHALL pas voir le `$index` externe
 
 ---
 
@@ -723,7 +733,7 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 #### Scenario: $index hors d'une itération
 
-- **WHEN** `$index` est évalué hors de `where`, `select`, `all`, `exists`, `repeat` et `aggregate` (ex. `$index`, `iif(true, $index, 0)`)
+- **WHEN** `$index` est évalué hors de `where`, `select`, `all`, `exists`, `repeat`, `aggregate` et de la clé de `sort` (ex. `$index`, `iif(true, $index, 0)`)
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))` (et non `UndefinedFunction`, de sorte que le validateur ne le traduise plus en `INVARIANT_SKIPPED`)
 
 #### Scenario: $total hors d'aggregate
