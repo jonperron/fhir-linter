@@ -4,7 +4,7 @@ use regex_lite::Regex;
 
 use crate::ast::Expr;
 use crate::error::EvalError;
-use crate::value::{Collection, Value, calendar_unit};
+use crate::value::{Collection, Value, calendar_unit, is_calendar_date};
 
 use super::Evaluator;
 use super::helpers::{check_arity, check_arity_range, singleton};
@@ -267,28 +267,6 @@ fn to_time(item: &Value) -> Option<Value> {
         Value::String(s) if full_match(&TIME, s) => Some(Value::Time(Arc::clone(s))),
         _ => None,
     }
-}
-
-/// Year 0001-9999 and a day that exists in its month, leap years included.
-/// Expects a string already matched by `DATE` or `DATE_TIME` (ASCII digits).
-/// Only the date before any `T` is read: in `2015T11:31` there is no month.
-fn is_calendar_date(s: &str) -> bool {
-    let date = s.split_once('T').map_or(s, |(date, _)| date);
-    let field = |range: std::ops::Range<usize>| date.get(range).and_then(|f| f.parse::<u32>().ok());
-    let Some(year) = field(0..4).filter(|y| *y > 0) else {
-        return false;
-    };
-    let (Some(month), Some(day)) = (field(5..7), field(8..10)) else {
-        return true; // partial date: the regex already bounds the month
-    };
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let days_in_month = match month {
-        2 if leap => 29,
-        2 => 28,
-        4 | 6 | 9 | 11 => 30,
-        _ => 31,
-    };
-    day <= days_in_month
 }
 
 const DATE_PART: &str = r"\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?)?";

@@ -97,6 +97,39 @@ fn string_functions_on_one_string_still_work() {
     assert_eq!(eval("'a,b'.split(',').count()"), integers(&[2]));
 }
 
+// ── Date literals ────────────────────────────────────────────────────────────
+
+// N1 grammar: the DATE token is not validated by the lexer, "that task is
+// for the parser or interpreter"; N1 §4.1.5: dates run @0001-01-01 to
+// @9999-12-31.
+#[test]
+fn date_literals_that_are_not_calendar_dates_are_syntax_errors() {
+    for expr in [
+        "@2023-02-29",
+        "@2023-04-31",
+        "@2023-13",
+        "@2023-00-10",
+        "@2023-01-00",
+        "@0000",
+        "@2023-02-29T10:00",
+        "@2023-13T",
+    ] {
+        assert!(
+            matches!(evaluate(expr, &[]), Err(fhir_fhirpath::EvalError::Parse(_))),
+            "{expr}"
+        );
+    }
+    for expr in [
+        "@2024-02-29",
+        "@2000-02-29",
+        "@2023-12-31T23:59",
+        "@2023-12",
+        "@0001",
+    ] {
+        assert_eq!(eval(expr).len(), 1, "{expr}");
+    }
+}
+
 // ── Conversions ──────────────────────────────────────────────────────────────
 
 fn quantity(value: f64, unit: &str) -> Vec<Value> {

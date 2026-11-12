@@ -112,11 +112,8 @@ fn build_expr(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         Rule::long_lit => parse_long(pair),
         Rule::decimal_lit => parse_decimal(pair),
         Rule::string_lit => Ok(Expr::String(unescape_string(pair.as_str()))),
-        Rule::date_lit => Ok(Expr::Temporal(TemporalKind::Date, trim_at(pair.as_str()))),
-        Rule::datetime_lit => Ok(Expr::Temporal(
-            TemporalKind::DateTime,
-            trim_at(pair.as_str()),
-        )),
+        Rule::date_lit => date_literal(TemporalKind::Date, pair.as_str()),
+        Rule::datetime_lit => date_literal(TemporalKind::DateTime, pair.as_str()),
         Rule::time_lit => Ok(Expr::Temporal(TemporalKind::Time, trim_at_t(pair.as_str()))),
         Rule::quantity_lit => parse_quantity(pair),
         Rule::ident => Ok(Expr::Ident(ident_name(&pair))),
@@ -409,6 +406,16 @@ fn parse_quantity(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             .ok_or_else(|| ParseError::Syntax(format!("invalid quantity unit: {rest}")))?,
     };
     Ok(Expr::Quantity(value, unit.to_owned()))
+}
+
+/// A Date or DateTime literal. The N1 grammar leaves date validity "for the
+/// parser or interpreter": a date that is not on the calendar is a syntax error.
+fn date_literal(kind: TemporalKind, raw: &str) -> Result<Expr, ParseError> {
+    let text = trim_at(raw);
+    if !crate::value::is_calendar_date(&text) {
+        return Err(ParseError::Syntax(format!("invalid date: {raw}")));
+    }
+    Ok(Expr::Temporal(kind, text))
 }
 
 /// Remove the leading `@` from a date/dateTime literal.
