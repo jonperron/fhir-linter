@@ -67,7 +67,15 @@ impl Evaluator<'_> {
         .eval(expr, std::slice::from_ref(item))
     }
 
+    /// Evaluate `expr`; every intermediate collection is checked against
+    /// [`helpers::MAX_COLLECTION_LEN`], so growth stops within one step.
     pub(super) fn eval(&self, expr: &Expr, ctx: &[Value]) -> Result<Collection, EvalError> {
+        let col = self.eval_expr(expr, ctx)?;
+        helpers::check_collection_len(col.len())?;
+        Ok(col)
+    }
+
+    fn eval_expr(&self, expr: &Expr, ctx: &[Value]) -> Result<Collection, EvalError> {
         match expr {
             // ── Literals ────────────────────────────────────────────────────
             Expr::Null => Ok(vec![]),

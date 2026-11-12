@@ -24,4 +24,7 @@ pub enum EvalError {
     DivisionByZero,
     #[error("parse error: {0}")]
     Parse(#[from] ParseError),
+    /// An intermediate collection would exceed the evaluator's size limit.
+    #[error("collection larger than {0} items")]
+    CollectionTooLarge(usize),
 }

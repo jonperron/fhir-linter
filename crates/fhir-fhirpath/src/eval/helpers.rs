@@ -5,6 +5,19 @@ use crate::ast::Expr;
 use crate::error::EvalError;
 use crate::value::{Collection, Value, same_quantity_unit};
 
+/// Largest collection an evaluation may build. N1 sets no limit; this one
+/// stops exponential growth (a `select($this.combine($this))` chain, or
+/// `aggregate($total.combine($total))`) before it exhausts memory.
+pub(super) const MAX_COLLECTION_LEN: usize = 100_000;
+
+/// `CollectionTooLarge` once a collection passes [`MAX_COLLECTION_LEN`].
+pub(super) fn check_collection_len(len: usize) -> Result<(), EvalError> {
+    if len > MAX_COLLECTION_LEN {
+        return Err(EvalError::CollectionTooLarge(MAX_COLLECTION_LEN));
+    }
+    Ok(())
+}
+
 /// Check that a function received the expected number of arguments.
 pub(super) fn check_arity(name: &str, args: &[Expr], expected: usize) -> Result<(), EvalError> {
     if args.len() != expected {

@@ -4,9 +4,9 @@ use crate::value::{Collection, Value};
 
 use super::Evaluator;
 use super::helpers::{
-    as_type, check_arity, check_arity_range, collect_descendants, compare_values, contains_value,
-    criteria_bool, distinct, eval_type_name, is_type, optional_integer, primitive_values,
-    value_is_type,
+    as_type, check_arity, check_arity_range, check_collection_len, collect_descendants,
+    compare_values, contains_value, criteria_bool, distinct, eval_type_name, is_type,
+    optional_integer, primitive_values, value_is_type,
 };
 
 impl Evaluator<'_> {
@@ -113,6 +113,7 @@ impl Evaluator<'_> {
                 let mut out = Vec::new();
                 for (index, item) in focus.iter().enumerate() {
                     out.extend(self.eval_item(&args[0], item, index)?);
+                    check_collection_len(out.len())?;
                 }
                 out
             }
@@ -132,6 +133,7 @@ impl Evaluator<'_> {
                                 next.push(v);
                             }
                         }
+                        check_collection_len(seen.len())?;
                     }
                     if next.is_empty() {
                         break;
