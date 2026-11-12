@@ -162,7 +162,9 @@ impl Evaluator<'_> {
                     if len_i <= 0 {
                         return Ok(Some(vec![Value::String(Arc::from(""))]));
                     }
-                    (start.saturating_add(len_i as usize)).min(chars.len())
+                    // Clamp: on 32-bit targets an i64 length can exceed usize.
+                    let len = usize::try_from(len_i).unwrap_or(usize::MAX);
+                    start.saturating_add(len).min(chars.len())
                 };
                 let sub: String = chars[start..end].iter().collect();
                 vec![Value::String(Arc::from(sub.as_str()))]

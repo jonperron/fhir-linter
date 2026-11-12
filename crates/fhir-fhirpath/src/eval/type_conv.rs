@@ -249,7 +249,8 @@ fn is_calendar_date(s: &str) -> bool {
 }
 
 const DATE_PART: &str = r"\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?)?";
-const TIME_PART: &str = r"([01]\d|2[0-3])(:[0-5]\d(:[0-5]\d(\.\d+)?)?)?";
+// Seconds up to 60 (leap second), as in the R5 time regex.
+const TIME_PART: &str = r"([01]\d|2[0-3])(:[0-5]\d(:([0-5]\d|60)(\.\d+)?)?)?";
 
 type Pattern = LazyLock<Option<Regex>>;
 

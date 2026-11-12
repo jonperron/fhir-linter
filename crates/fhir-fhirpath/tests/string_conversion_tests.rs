@@ -325,6 +325,29 @@ fn conversions_on_lone_null_yield_empty() {
     }
 }
 
+// Seconds go up to 60 (leap second), as in the R5 time and dateTime regexes.
+#[test]
+fn time_conversions_accept_a_leap_second() {
+    assert_eq!(eval("'23:59:60'.convertsToTime()"), boolean(true));
+    assert_eq!(
+        eval("'2016-12-31T23:59:60Z'.convertsToDateTime()"),
+        boolean(true)
+    );
+    assert_eq!(eval("'23:59:61'.convertsToTime()"), boolean(false));
+}
+
+// regex-lite's \d is ASCII only: non-ASCII digits never convert.
+#[test]
+fn temporal_conversions_reject_non_ascii_digits() {
+    for expr in [
+        "'\u{FF12}\u{FF10}\u{FF11}\u{FF15}'.convertsToDate()",
+        "'2015-02-0\u{0664}'.convertsToDate()",
+        "'1\u{0664}:00'.convertsToTime()",
+    ] {
+        assert_eq!(eval(expr), boolean(false), "{expr}");
+    }
+}
+
 // N1 time zones go up to +14:00, as in the FHIR dateTime format.
 #[test]
 fn to_datetime_bounds_the_time_zone_offset() {
