@@ -8,12 +8,24 @@ use regex_lite::Regex;
 
 use crate::diagnostic::Diagnostic;
 
+/// Primitive types with no hand-written check: their R5 regex and `maxLength` decide.
+const REGEX_CHECKED: [&str; 8] = [
+    "string",
+    "markdown",
+    "base64Binary",
+    "uri",
+    "url",
+    "canonical",
+    "oid",
+    "uuid",
+];
+
 /// Check one value against a primitive FHIR type, recursing into arrays.
 ///
-/// Emits `TYPE_001` through `TYPE_005` for format and type mismatches, and the
-/// `TYPE_006` warning for a control character in a string and the `TYPE_008` warning for
-/// a whitespace-only string. Types without a hand-written
-/// check are matched against their R5 regex and `maxLength` from `registry`.
+/// Emits `TYPE_001` through `TYPE_005` for format and type mismatches, the `TYPE_006`
+/// warning for a control character in a string, and the `TYPE_008` warning for a
+/// whitespace-only string. The `REGEX_CHECKED` types are matched against their R5 regex
+/// and `maxLength` from `registry`.
 pub(crate) fn check_type(
     value: &Value,
     fhir_type: &str,
@@ -96,12 +108,10 @@ pub(crate) fn check_type(
         },
         // No hand-written check: the R5 definition of the type decides. The decimal regex has
         // a typo and the date family needs range checks, so those stay hand-written above.
-        "string" | "markdown" | "base64Binary" | "uri" | "url" | "canonical" | "oid" | "uuid" => {
-            match value {
-                Value::Str(s) => registry_format_error(s, fhir_type, path, registry),
-                _ => Some(expected("string")),
-            }
-        }
+        t if REGEX_CHECKED.contains(&t) => match value {
+            Value::Str(s) => registry_format_error(s, fhir_type, path, registry),
+            _ => Some(expected("string")),
+        },
         // R5 publishes no regex for xhtml.
         "xhtml" if !matches!(value, Value::Str(_)) => Some(expected("string")),
         // Complex and unknown types — skip deep validation here.
@@ -113,7 +123,8 @@ pub(crate) fn check_type(
     } else if let Value::Str(s) = value {
         // datatypes.html: strings "SHOULD always contain non-whitespace content"; a SHOULD,
         // so a Warning (user decision, PLAN 11.7-A4 revised). Empty strings are TYPE_003.
-        if !s.is_empty() && s.trim().is_empty() {
+        // The hand-checked types reject whitespace already; xhtml has no such rule.
+        if REGEX_CHECKED.contains(&fhir_type) && !s.is_empty() && s.trim().is_empty() {
             diagnostics.push(
                 Diagnostic::warning(
                     "TYPE_008",
@@ -135,8 +146,8 @@ pub(crate) fn check_type(
 }
 
 /// The finding for string `s` of a type checked against its R5 definition in `registry`:
-/// empty (`TYPE_003`), more characters than the `<type>.value` element's `maxLength` (`TYPE_002`), or no match
-/// for the anchored R5 regex (`TYPE_003`).
+/// empty (`TYPE_003`), more characters than the `<type>.value` element's `maxLength`
+/// (`TYPE_002`), or no match for the anchored R5 regex (`TYPE_003`).
 fn registry_format_error(
     s: &str,
     fhir_type: &str,
@@ -368,6 +379,15 @@ mod tests {
             &mut d,
         );
         d
+    }
+
+    #[test]
+    fn whitespace_only_warning_is_limited_to_regex_checked_types() {
+        let blank = || Value::Str(Arc::from("  "));
+        assert!(check(blank(), "xhtml").is_empty());
+        assert!(check(blank(), "HumanName").is_empty());
+        let codes: Vec<_> = check(blank(), "uuid").into_iter().map(|d| d.code).collect();
+        assert_eq!(codes, [Arc::from("TYPE_003")]);
     }
 
     #[test]
