@@ -145,11 +145,13 @@ impl Evaluator<'_> {
             "ofType" => {
                 check_arity(name, args, 1)?;
                 let type_name = eval_type_name(&args[0])?;
-                focus
-                    .iter()
-                    .filter(|v| value_is_type(v, &type_name))
-                    .cloned()
-                    .collect()
+                let mut matching = Vec::new();
+                for v in focus {
+                    if value_is_type(v, &type_name)? {
+                        matching.push(v.clone());
+                    }
+                }
+                matching
             }
             "is" => {
                 check_arity(name, args, 1)?;

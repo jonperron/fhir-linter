@@ -44,8 +44,10 @@ use quick_xml::events::{BytesStart, Event};
 /// `%resource`, and choice navigation (8 wrong-reason passes lost: 5
 /// defineVariable cases now reach the unimplemented function, 3 `...Bad` cases
 /// need a static type check; 2 Quantity unit-vs-no-unit `=` cases now reach
-/// a real comparison gap).
-const MIN_PASSED: u32 = 943;
+/// a real comparison gap), then to 936 because is/as/ofType with a FHIR string
+/// subtype (code, id, url...) on a String is an error until `Value` carries the
+/// FHIR type (7 testInheritance cases had guessed `false`).
+const MIN_PASSED: u32 = 936;
 
 /// (run, skipped) case counts on the pinned fixtures, so loader drift or a
 /// broken skip filter cannot hide behind the floor.
