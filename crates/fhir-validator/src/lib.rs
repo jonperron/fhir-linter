@@ -100,7 +100,7 @@ fn validate_one<'a>(
     registry: &'a Registry,
     json: bool,
     path: &str,
-    container_ids: Option<Vec<std::sync::Arc<str>>>,
+    container_ids: Option<embedded::ContainedIds>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<embedded::Embedded<'a>> {
     let embedded = nested::validate(

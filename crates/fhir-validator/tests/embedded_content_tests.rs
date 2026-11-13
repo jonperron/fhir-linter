@@ -302,6 +302,50 @@ fn bundle_entry_resource_is_validated() -> TestResult {
 }
 
 #[test]
+fn bundle_entry_resource_values_are_typed_by_its_own_type() -> TestResult {
+    // app-5 holds as instants (05:00Z <= 06:00Z) but fails as text ("10" > "06"): the entry's
+    // instants must be typed through Appointment, not left as strings under `Resource`.
+    let found = json(
+        r#"{"resourceType":"Bundle","type":"collection","entry":[{"resource":
+        {"resourceType":"Appointment","status":"booked",
+        "start":"2020-01-01T10:00:00+05:00","end":"2020-01-01T06:00:00Z"}},
+        {"resource":{"resourceType":"Appointment","status":"booked",
+        "start":"2020-01-01T07:00:00Z","end":"2020-01-01T06:00:00Z"}}]}"#,
+    )?;
+    let app_5: Vec<_> = found
+        .iter()
+        .filter(|(c, _)| c == "INVARIANT_app-5")
+        .map(|(_, p)| p.as_str())
+        .collect();
+    assert_eq!(app_5, ["Bundle.entry[1].resource"], "{found:?}");
+    Ok(())
+}
+
+#[test]
+fn embedded_diagnostics_follow_document_order() -> TestResult {
+    // entry[0]'s contained resource comes before entry[1]: descendants precede later siblings.
+    let found = json(
+        r#"{"resourceType":"Bundle","type":"collection","entry":[{"resource":
+        {"resourceType":"Patient","bogus":1,"contained":[{"resourceType":"Patient","id":"c",
+        "bogus":2}]}},{"resource":{"resourceType":"Patient","bogus":3}}]}"#,
+    )?;
+    let order: Vec<_> = found
+        .iter()
+        .filter(|(c, _)| c == "STRUCTURE_001")
+        .map(|(_, p)| p.as_str())
+        .collect();
+    assert_eq!(
+        order,
+        [
+            "Bundle.entry[0].resource.bogus",
+            "Bundle.entry[0].resource.contained[0].bogus",
+            "Bundle.entry[1].resource.bogus",
+        ],
+    );
+    Ok(())
+}
+
+#[test]
 fn bundle_entry_hash_reference_is_its_own_root() -> TestResult {
     // A Bundle entry is not contained: `#` alone has no container.
     let found = json(

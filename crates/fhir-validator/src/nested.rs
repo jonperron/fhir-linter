@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
-use crate::embedded::{self, Embedded, child_element, holds_resource, typed_element};
+use crate::embedded::{self, ContainedIds, Embedded, child_element, holds_resource, typed_element};
 use crate::type_check::{check_type, is_valid_id};
 use crate::{invariants, references, terminology};
 
@@ -16,7 +16,7 @@ struct Walk<'a> {
     /// JSON input: array shapes are meaningful (`STRUCTURE_002`).
     json: bool,
     /// Where `#id` references resolve (see [`Embedded::container_ids`]).
-    contained_ids: Vec<Arc<str>>,
+    contained_ids: ContainedIds,
     /// Inside a contained resource, where `#` alone names the container.
     in_contained: bool,
     /// The resource `id`, which is lifted out of `fields`; it pairs with a root `_id`.
@@ -49,7 +49,7 @@ pub(crate) fn validate<'a>(
     registry: &'a Registry,
     json: bool,
     path: &str,
-    container_ids: Option<Vec<Arc<str>>>,
+    container_ids: Option<ContainedIds>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<Embedded<'a>> {
     // The parser lifts `id` out of `fields` (already rejecting non-strings), without a span.
@@ -73,7 +73,7 @@ pub(crate) fn validate<'a>(
     let context = Walk {
         registry,
         json,
-        contained_ids: container_ids.unwrap_or_else(|| references::contained_ids(resource)),
+        contained_ids: container_ids.unwrap_or_else(|| references::contained_ids(resource).into()),
         in_contained,
         root_id: resource.id.clone().map(Value::Str),
         root_path: path.to_owned(),
@@ -194,7 +194,7 @@ fn descend(
                 references::check(
                     node,
                     path,
-                    context.contained_ids.as_slice(),
+                    &context.contained_ids,
                     context.in_contained,
                     registry,
                     diagnostics,
@@ -306,7 +306,7 @@ fn walk(
         if holds_resource(&ty, context.registry) {
             // references.html: only `DomainResource.contained` holds contained resources.
             let contained = name == "contained" && !def_path.contains('.');
-            let ids = contained.then_some(context.contained_ids.as_slice());
+            let ids = contained.then_some(&context.contained_ids);
             let queue = &mut context.embedded.borrow_mut();
             embedded::queue(
                 node,

@@ -9,6 +9,10 @@ use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
 
+/// The ids of a resource's `contained` resources, shared by every contained resource
+/// (one allocation, not one copy per contained resource).
+pub(crate) type ContainedIds = Arc<[Arc<str>]>;
+
 /// A resource inside another one (`contained`, `Bundle.entry.resource`,
 /// `Parameters.parameter.resource`), to validate against its own type.
 pub(crate) struct Embedded<'a> {
@@ -20,7 +24,7 @@ pub(crate) struct Embedded<'a> {
     /// For a contained resource, the `contained` ids of its container: `#id` resolves there
     /// and `#` names the container (references.html, ref-1). `None` for a resource that is
     /// its own root (a Bundle entry), which resolves `#id` against its own `contained`.
-    pub container_ids: Option<Vec<Arc<str>>>,
+    pub container_ids: Option<ContainedIds>,
 }
 
 /// The concrete resource StructureDefinition of `resource_type`, or the `STRUCTURE_000`
@@ -110,7 +114,7 @@ pub(crate) fn holds_resource(ty: &str, registry: &Registry) -> bool {
 pub(crate) fn queue<'a>(
     node: &Node,
     typed: Option<&[FhirPathValue]>,
-    container_ids: Option<&[Arc<str>]>,
+    container_ids: Option<&ContainedIds>,
     registry: &'a Registry,
     path: &str,
     queue: &mut Vec<Embedded<'a>>,
@@ -194,7 +198,7 @@ pub(crate) fn queue<'a>(
             sd,
             path: item_path,
             // A resource contained in a contained one (dom-2) still resolves against the root.
-            container_ids: container_ids.map(<[_]>::to_vec),
+            container_ids: container_ids.cloned(),
         });
     }
 }
@@ -242,6 +246,33 @@ mod tests {
             target.types.first().map(|t| t.as_ref()),
             Some("BackboneElement")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn contained_resources_share_one_id_list() -> TestResult {
+        let registry = registry()?;
+        let resource = fhir_parser::parse_json(
+            r#"{"resourceType":"Patient","contained":[{"resourceType":"Patient","id":"a"},
+            {"resourceType":"Patient","id":"b"}]}"#,
+        )?;
+        let node = resource.fields.get("contained").ok_or("no contained")?;
+        let ids: ContainedIds = crate::references::contained_ids(&resource).into();
+        let (mut queued, mut found) = (Vec::new(), Vec::new());
+        queue(
+            node,
+            None,
+            Some(&ids),
+            &registry,
+            "Patient.contained",
+            &mut queued,
+            &mut found,
+        );
+        assert_eq!(queued.len(), 2, "{found:?}");
+        for embedded in &queued {
+            let shared = embedded.container_ids.as_ref().ok_or("not contained")?;
+            assert!(Arc::ptr_eq(shared, &ids));
+        }
         Ok(())
     }
 
