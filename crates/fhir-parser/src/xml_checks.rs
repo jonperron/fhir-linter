@@ -1,4 +1,4 @@
-//! Attribute, namespace and error helpers for the XML parser.
+//! Attribute, namespace, error and root id helpers for the XML parser.
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -238,4 +238,53 @@ pub(crate) fn div_has_control_reference(div: &str) -> bool {
             Ok(_) => {}
         }
     }
+}
+
+/// Take the root `id` element's `value` attribute out of `fields` as the resource id.
+///
+/// With an extension or element id (`<id value=".."><extension/></id>`) the rest stays as
+/// an `id` primitive object without `value`, which the validator reshapes into `_id` like
+/// any other primitive. The attribute shares its element's offset; a `<value>` child
+/// element does not, so it stays in the object for the validator to report.
+// shortcut: Resource has no span for the lifted id, so a trimmed resource id gets no
+// TYPE_007; add one when the validator's Resource constructors can change with it.
+pub(crate) fn lift_resource_id(
+    fields: &mut IndexMap<Arc<str>, Node>,
+    line_index: &LineIndex,
+) -> Result<Option<Arc<str>>, ParseError> {
+    let Some((index, key, node)) = fields.shift_remove_full("id") else {
+        return Ok(None);
+    };
+    let mut parts = match node.value {
+        Value::Str(id) => return Ok(Some(id)),
+        Value::Object(parts) => parts,
+        _ => IndexMap::new(),
+    };
+    let id = match parts.get("value") {
+        Some(Node {
+            value: Value::Str(id),
+            span,
+        }) if span.offset == node.span.offset => Some(Arc::clone(id)),
+        _ => None,
+    };
+    if id.is_some() {
+        parts.shift_remove("value");
+    }
+    // An empty `<id/>` or a repeated `<id>`: no single resource id to take.
+    if parts.is_empty() && id.is_none() {
+        let (line, col) = line_index.location(node.span.offset);
+        return Err(ParseError::XmlError {
+            message: "'id' element must be a primitive string value".into(),
+            line,
+            col,
+        });
+    }
+    if !parts.is_empty() {
+        let rest = Node {
+            value: Value::Object(parts),
+            span: node.span,
+        };
+        fields.shift_insert(index, key, rest);
+    }
+    Ok(id)
 }
