@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::{OnceLock, PoisonError, RwLock};
+use std::sync::{Arc, OnceLock, PoisonError, RwLock};
 
 use fhir_definitions::Registry;
 use fhir_parser::{Span, Value};
@@ -174,23 +174,28 @@ fn registry_format_error(
 /// A pattern regex-lite rejects matches everything; the per-type tests in
 /// `tests/primitive_format_tests.rs` prove every regex-checked R5 pattern compiles.
 fn matches_anchored(pattern: &str, s: &str) -> bool {
-    static CACHE: OnceLock<RwLock<HashMap<Box<str>, Option<Regex>>>> = OnceLock::new();
+    /// Compiled regex by pattern text; `None` when regex-lite rejects the pattern.
+    type RegexCache = RwLock<HashMap<Box<str>, Option<Arc<Regex>>>>;
+    static CACHE: OnceLock<RegexCache> = OnceLock::new();
     let cache = CACHE.get_or_init(RwLock::default);
-    let is_match = |regex: &Option<Regex>| regex.as_ref().is_none_or(|r| r.is_match(s));
-    if let Some(regex) = cache
+    // Share the regex out of the cache so no lock is held while matching. An `Arc`, not a
+    // `Regex` clone: a clone gets a fresh match-cache pool.
+    let cached = cache
         .read()
         .unwrap_or_else(PoisonError::into_inner)
         .get(pattern)
-    {
-        return is_match(regex);
-    }
-    let regex = Regex::new(&format!(r"\A(?:{pattern})\z")).ok();
-    let result = is_match(&regex);
-    cache
-        .write()
-        .unwrap_or_else(PoisonError::into_inner)
-        .insert(pattern.into(), regex);
-    result
+        .cloned();
+    let regex = cached.unwrap_or_else(|| {
+        let regex = Regex::new(&format!(r"\A(?:{pattern})\z"))
+            .ok()
+            .map(Arc::new);
+        cache
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(pattern.into(), regex.clone());
+        regex
+    });
+    regex.is_none_or(|r| r.is_match(s))
 }
 
 /// The `TYPE_006` Warning, without a location, when `s` holds a control character
@@ -324,7 +329,6 @@ pub(crate) fn is_valid_id(s: &str) -> bool {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use std::sync::Arc;
 
     use fhir_parser::{Node, Span};
 
