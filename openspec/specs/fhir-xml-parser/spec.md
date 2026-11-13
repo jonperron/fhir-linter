@@ -245,12 +245,17 @@ Le namespace XMLSchema-instance n'est pas une erreur de parse : il est enregistr
 
 ### Requirement: Épuration des valeurs d'attribut
 
-`parse_xml` SHALL retirer des valeurs d'attribut les blancs XML (espace, tabulation, CR, LF) en tête et en fin. Chaque attribut ainsi modifié SHALL être enregistré dans `Resource::trimmed_attributes` sous la forme (position en octets de l'élément, nom de l'attribut). Pour une ressource issue du JSON, `trimmed_attributes` SHALL être vide.
+`parse_xml` SHALL retirer des valeurs d'attribut les blancs XML (espace, tabulation, CR, LF) en tête et en fin. Chaque attribut ainsi modifié SHALL être enregistré dans `Resource::trimmed_attributes` sous la forme (position en octets de l'élément, nom de l'attribut). Exception : une valeur composée uniquement de blancs SHALL être conservée telle quelle (ni réduite à `""`, ni enregistrée dans `trimmed_attributes`, donc sans `TYPE_007`). Pour une ressource issue du JSON, `trimmed_attributes` SHALL être vide.
 
 #### Scenario: Valeur épurée
 
 - **WHEN** `parse_xml` reçoit `<active value=" true "/>`
 - **THEN** `active` SHALL valoir `Value::Str("true")` et `trimmed_attributes` SHALL contenir la position de `<active>` avec le nom `value`
+
+#### Scenario: Valeur composée uniquement de blancs
+
+- **WHEN** `parse_xml` reçoit `<valueString value="   "/>`
+- **THEN** la valeur SHALL rester `"   "` et `trimmed_attributes` SHALL être vide
 
 #### Scenario: Valeur sans blanc
 

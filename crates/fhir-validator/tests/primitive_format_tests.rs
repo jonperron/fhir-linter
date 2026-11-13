@@ -204,7 +204,7 @@ fn non_string_value_for_a_regex_checked_type_is_type_001() -> TestResult {
     let found = type_findings(r#"{"resourceType":"Patient","implicitRules":5}"#)?;
     assert_eq!(
         found,
-        [("TYPE_001".to_owned(), "Patient.implicitRules".to_owned())]
+        [("TYPE_001".to_owned(), "Patient.implicitRules".to_owned())],
     );
     Ok(())
 }

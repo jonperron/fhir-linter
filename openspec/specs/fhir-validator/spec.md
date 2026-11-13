@@ -307,7 +307,7 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_002` et severity `Err
 
 ### Requirement: Validation de type — format date/heure et expressions régulières R5 (TYPE_003)
 
-Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Error` lorsqu'une valeur de type `string`, `markdown`, `base64Binary`, `uri`, `url`, `canonical`, `oid` ou `uuid` ne correspond pas à l'expression régulière R5 du type, lue depuis le Registry et ancrée en `\A(?:...)\z`. Une valeur vide ou composée uniquement de whitespace pour ces types SHALL produire `TYPE_003` (décision utilisateur PLAN 11.7-A4 ; R5 datatypes.html : « strings SHOULD always contain non-whitespace content » ; le validateur Java ne donne qu'une information, donc `primitive-good-ws` et `params-ws` de la suite officielle sont des échecs attendus). Pour `base64Binary`, le whitespace ASCII SHALL être ignoré avant l'application de la regex (R5 datatypes.html, RFC 4648). `xhtml` n'a pas de regex R5 (chaîne uniquement). `decimal`, la famille des dates, les types entiers, `integer64`, `code` et `id` conservent des contrôles écrits à la main (la regex R5 de `decimal` contient une coquille).
+Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Error` lorsqu'une valeur de type `string`, `markdown`, `base64Binary`, `uri`, `url`, `canonical`, `oid` ou `uuid` ne correspond pas à l'expression régulière R5 du type, lue depuis le Registry et ancrée en `\A(?:...)\z`. Une chaîne vide pour ces types SHALL produire `TYPE_003` (R5 json.html : les valeurs de propriété string ne peuvent jamais être vides ; les regex `uri` et `base64Binary` acceptent `""`). Une valeur non vide composée uniquement de whitespace qui satisfait la regex (en pratique `string`, `markdown` et `base64Binary`, dont le whitespace est ignoré) SHALL produire `TYPE_008` et non `TYPE_003` (voir TYPE_008). Le message `TYPE_003` SHALL être `Invalid <type> format at '<path>': '<value>'`, sauf pour `base64Binary` : `Invalid base64Binary format at '<path>'` (sans la charge utile). Pour `base64Binary`, le whitespace ASCII SHALL être ignoré avant l'application de la regex (R5 datatypes.html, RFC 4648). `xhtml` n'a pas de regex R5 (chaîne uniquement). `decimal`, la famille des dates, les types entiers, `integer64`, `code` et `id` conservent des contrôles écrits à la main (la regex R5 de `decimal` contient une coquille).
 
 Pour les types date/heure, le format SHALL être conforme aux expressions régulières R5 :
 
@@ -366,10 +366,20 @@ Pour les types date/heure, le format SHALL être conforme aux expressions régul
 - **WHEN** un champ de type `oid` contient `"1.2.3"`
 - **THEN** un Diagnostic `TYPE_003` SHALL être émis
 
-#### Scenario: string vide ou whitespace seul
+#### Scenario: string vide
 
-- **WHEN** un champ de type `string` contient `""` ou `"   "`
+- **WHEN** un champ de type `string` contient `""`
 - **THEN** un Diagnostic `TYPE_003` SHALL être émis
+
+#### Scenario: string whitespace seul
+
+- **WHEN** un champ de type `string` contient `"   "`
+- **THEN** un Diagnostic `TYPE_008` de severity `Warning` SHALL être émis et aucun `TYPE_003`
+
+#### Scenario: Message base64Binary
+
+- **WHEN** un champ de type `base64Binary` contient `"not base64!"`
+- **THEN** le message `TYPE_003` SHALL être `Invalid base64Binary format at '<path>'`, sans la valeur
 
 #### Scenario: base64Binary avec whitespace ignoré
 
@@ -1030,6 +1040,35 @@ Pour une ressource XML, chaque valeur d'attribut épurée par le parseur (`Resou
 
 - **WHEN** `validate` reçoit un `id` épuré sur `<gender>` ou un `url` épuré sur une extension de `<birthDate>`
 - **THEN** un `TYPE_007` de severity `Warning` SHALL être émis au chemin respectif `Patient._gender.id` ou `Patient._birthDate.extension.url`
+
+### Requirement: Validation de type — whitespace seul dans une chaîne (TYPE_008)
+
+Le système SHALL émettre un `Diagnostic` avec code `TYPE_008` et severity `Warning` lorsqu'une valeur non vide de type `string`, `markdown` ou `base64Binary` est composée uniquement de whitespace et satisfait la regex R5 de son type (décision utilisateur PLAN 11.7-A4 révisée ; R5 datatypes.html : « SHOULD always contain non-whitespace content »). Le message SHALL être `<type> at '<path>' should contain non-whitespace content` et la localisation SHALL être celle de la valeur. `xhtml` et les types complexes ou inconnus SHALL NOT produire `TYPE_008`. `maxLength` (`TYPE_002`) SHALL être vérifié en premier : une chaîne whitespace seul trop longue produit `TYPE_002` uniquement. Les cas officiels `primitive-good-ws.json`, `primitive-good-ws.xml` et `params-ws.json` SHALL être sans erreur.
+
+#### Scenario: string whitespace seul
+
+- **WHEN** un champ `string` contient `"  "`
+- **THEN** un `TYPE_008` de severity `Warning` SHALL être émis avec le message `string at '<path>' should contain non-whitespace content` et la localisation de la valeur
+
+#### Scenario: Chaîne vide
+
+- **WHEN** un champ `string` contient `""`
+- **THEN** un `TYPE_003` SHALL être émis et aucun `TYPE_008`
+
+#### Scenario: xhtml et types complexes
+
+- **WHEN** une valeur `xhtml` ou d'un type complexe ne contient que du whitespace
+- **THEN** aucun `TYPE_008` ne SHALL être émis
+
+#### Scenario: maxLength dépassé
+
+- **WHEN** une chaîne whitespace seul dépasse `maxLength`
+- **THEN** seul un `TYPE_002` SHALL être émis
+
+#### Scenario: Fixtures officielles
+
+- **WHEN** `primitive-good-ws.json`, `primitive-good-ws.xml` et `params-ws.json` sont validés
+- **THEN** aucune erreur ne SHALL être émise
 
 ### Requirement: Validation structurelle — namespace schema instance XML (STRUCTURE_003)
 
