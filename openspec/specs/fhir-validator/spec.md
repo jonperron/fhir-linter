@@ -413,6 +413,11 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 - **WHEN** l'évaluation d'une contrainte retourne `EvalError::CollectionTooLarge` (collection intermédiaire de plus de 100 000 items)
 - **THEN** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` nommant la `key` de la contrainte et « collection larger than 100000 items » SHALL être émis
 
+#### Scenario: Chaîne FHIRPath trop longue signalée INVARIANT_SKIPPED
+
+- **WHEN** l'évaluation d'une contrainte retourne `EvalError::StringTooLong` (chaîne construite de plus de 1 048 576 caractères)
+- **THEN** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` nommant la `key` de la contrainte et « string longer than 1048576 characters » SHALL être émis
+
 #### Scenario: Expression non analysable signalée INVARIANT_SKIPPED
 
 - **WHEN** l'expression FHIRPath d'une contrainte ne peut pas être analysée (par ex. les variables d'environnement `%` telles que `%resource`, non encore supportées par le parseur, si bien que `dom-3` est toujours ignorée)

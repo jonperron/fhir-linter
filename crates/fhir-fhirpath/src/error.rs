@@ -28,4 +28,8 @@ pub enum EvalError {
     /// which the field holds (not the collection's actual size).
     #[error("collection larger than {0} items")]
     CollectionTooLarge(usize),
+    /// A String result would exceed the evaluator's length limit, in
+    /// characters, which the field holds (not the string's actual length).
+    #[error("string longer than {0} characters")]
+    StringTooLong(usize),
 }

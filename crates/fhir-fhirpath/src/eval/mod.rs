@@ -172,6 +172,7 @@ impl Evaluator<'_> {
                 singleton(&rs, "&")?;
                 let left = helpers::string_or_empty(&ls);
                 let right = helpers::string_or_empty(&rs);
+                helpers::check_string_len(left.chars().count() + right.chars().count())?;
                 Ok(vec![Value::String(Arc::from(
                     format!("{left}{right}").as_str(),
                 ))])

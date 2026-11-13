@@ -257,6 +257,33 @@ mod tests {
     }
 
     #[test]
+    fn oversized_string_reports_invariant_skipped_information() {
+        // 2^21 characters: past the evaluator's string cap.
+        let doubling = format!("'a'{}", ".select($this + $this)".repeat(21));
+        let expression = format!("{doubling}.exists()");
+        let sd = make_sd_with_constraints(
+            "Patient",
+            vec![make_constraint("test-9", "error", &expression)],
+        );
+        let mut d = vec![];
+        validate(
+            &make_empty_resource("Patient"),
+            &sd,
+            &|_, _| false,
+            &empty_root(),
+            &mut d,
+        );
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].code.as_ref(), "INVARIANT_SKIPPED");
+        assert_eq!(d[0].severity, Severity::Information);
+        assert!(
+            d[0].message.contains("string longer than"),
+            "{}",
+            d[0].message
+        );
+    }
+
+    #[test]
     fn unparsable_expression_reports_invariant_skipped_information() {
         let sd = make_sd_with_constraints(
             "Patient",
