@@ -1,23 +1,38 @@
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::sync::{OnceLock, PoisonError, RwLock};
+
+use fhir_definitions::Registry;
 use fhir_parser::{Span, Value};
+use regex_lite::Regex;
 
 use crate::diagnostic::Diagnostic;
 
 /// Check one value against a primitive FHIR type, recursing into arrays.
 ///
 /// Emits `TYPE_001` through `TYPE_005` for format and type mismatches, and the
-/// `TYPE_006` warning for a control character in a string.
+/// `TYPE_006` warning for a control character in a string. Types without a hand-written
+/// check are matched against their R5 regex and `maxLength` from `registry`.
 pub(crate) fn check_type(
     value: &Value,
     fhir_type: &str,
     path: &str,
     span: Span,
+    registry: &Registry,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     // Recurse into arrays.
     if let Value::Array(items) = value {
         for (i, item) in items.iter().enumerate() {
             let item_path = format!("{path}[{i}]");
-            check_type(&item.value, fhir_type, &item_path, item.span, diagnostics);
+            check_type(
+                &item.value,
+                fhir_type,
+                &item_path,
+                item.span,
+                registry,
+                diagnostics,
+            );
         }
         return;
     }
@@ -78,12 +93,16 @@ pub(crate) fn check_type(
             Value::Str(_) => None,
             _ => Some(expected("id string")),
         },
-        "string" | "markdown" | "base64Binary" | "xhtml" | "uri" | "url" | "canonical" | "oid"
-        | "uuid"
-            if !matches!(value, Value::Str(_)) =>
-        {
-            Some(expected("string"))
+        // No hand-written check: the R5 definition of the type decides. The decimal regex has
+        // a typo and the date family needs range checks, so those stay hand-written above.
+        "string" | "markdown" | "base64Binary" | "uri" | "url" | "canonical" | "oid" | "uuid" => {
+            match value {
+                Value::Str(s) => registry_format_error(s, fhir_type, path, registry),
+                _ => Some(expected("string")),
+            }
         }
+        // R5 publishes no regex for xhtml.
+        "xhtml" if !matches!(value, Value::Str(_)) => Some(expected("string")),
         // Complex and unknown types — skip deep validation here.
         _ => None,
     };
@@ -99,6 +118,79 @@ pub(crate) fn check_type(
             diagnostics.push(warning.with_location(span));
         }
     }
+}
+
+/// The finding for string `s` of a type checked against its R5 definition in `registry`:
+/// empty or whitespace-only (`TYPE_003`), more characters than the `<type>.value` element's
+/// `maxLength` (`TYPE_002`), or no match for the anchored R5 regex (`TYPE_003`).
+fn registry_format_error(
+    s: &str,
+    fhir_type: &str,
+    path: &str,
+    registry: &Registry,
+) -> Option<(&'static str, String)> {
+    // conformance-rules.html: "at least one character of non-whitespace content" (user
+    // decision, PLAN 11.7-A4); the string and markdown regex `^[\s\S]+$` accepts "   ".
+    if s.trim().is_empty() {
+        return Some((
+            "TYPE_003",
+            format!("{fhir_type} at '{path}' must contain non-whitespace content"),
+        ));
+    }
+    let sd = registry.structure_definition(&format!(
+        "http://hl7.org/fhir/StructureDefinition/{fhir_type}"
+    ))?;
+    let max_length = sd
+        .element(&format!("{fhir_type}.value"))
+        .and_then(|element| element.max_length)
+        .and_then(|max| usize::try_from(max).ok());
+    // datatypes.html counts characters; bytes bound them, so most strings skip the count.
+    if let Some(max) = max_length.filter(|&max| s.len() > max && s.chars().count() > max) {
+        return Some((
+            "TYPE_002",
+            format!("{fhir_type} at '{path}' exceeds the maximum length of {max} characters"),
+        ));
+    }
+    let pattern = sd.value_regex.as_deref()?;
+    // datatypes.html, base64Binary: "reading applications should ignore whitespace
+    // characters (per RFC 4648)".
+    let content: Cow<str> = if fhir_type == "base64Binary" {
+        s.chars().filter(|c| !c.is_ascii_whitespace()).collect()
+    } else {
+        Cow::Borrowed(s)
+    };
+    (!matches_anchored(pattern, &content)).then(|| {
+        (
+            "TYPE_003",
+            format!("Invalid {fhir_type} format at '{path}': '{s}'"),
+        )
+    })
+}
+
+/// Whether `s` matches the R5 `pattern` anchored as `\A(?:...)\z` (datatypes.html: the
+/// regexes "should be qualified with start of string and end of string anchors").
+///
+/// Each pattern compiles once per process, keyed by its text so any registry gets its own.
+/// A pattern regex-lite rejects matches everything; the per-type tests in
+/// `tests/primitive_format_tests.rs` prove every regex-checked R5 pattern compiles.
+fn matches_anchored(pattern: &str, s: &str) -> bool {
+    static CACHE: OnceLock<RwLock<HashMap<Box<str>, Option<Regex>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(RwLock::default);
+    let is_match = |regex: &Option<Regex>| regex.as_ref().is_none_or(|r| r.is_match(s));
+    if let Some(regex) = cache
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(pattern)
+    {
+        return is_match(regex);
+    }
+    let regex = Regex::new(&format!(r"\A(?:{pattern})\z")).ok();
+    let result = is_match(&regex);
+    cache
+        .write()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(pattern.into(), regex);
+    result
 }
 
 /// The `TYPE_006` Warning, without a location, when `s` holds a control character
@@ -231,13 +323,29 @@ pub(crate) fn is_valid_id(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use std::sync::Arc;
 
     use fhir_parser::{Node, Span};
 
+    fn registry() -> &'static Registry {
+        static REGISTRY: OnceLock<Registry> = OnceLock::new();
+        REGISTRY.get_or_init(|| {
+            let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5");
+            Registry::from_definitions_dir(dir).expect("bundled R5 definitions load")
+        })
+    }
+
     fn check(value: Value, fhir_type: &str) -> Vec<Diagnostic> {
         let mut d = vec![];
-        check_type(&value, fhir_type, "X.f", Span::default(), &mut d);
+        check_type(
+            &value,
+            fhir_type,
+            "X.f",
+            Span::default(),
+            registry(),
+            &mut d,
+        );
         d
     }
 
