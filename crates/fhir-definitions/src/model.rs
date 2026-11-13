@@ -14,6 +14,9 @@ pub struct StructureDefinition {
     pub kind: Arc<str>,
     pub is_abstract: bool,
     pub snapshot: Vec<ElementDefinition>,
+    /// For a primitive type, the `regex` extension on its `<type>.value` element, as published
+    /// (see [`crate::Registry::primitive_regex`]). `None` from [`StructureDefinition::new`].
+    pub value_regex: Option<Arc<str>>,
     /// Position in `snapshot` of the first element with each path.
     path_index: HashMap<Arc<str>, usize>,
 }
@@ -37,6 +40,7 @@ impl StructureDefinition {
             kind,
             is_abstract,
             snapshot,
+            value_regex: None,
             path_index,
         }
     }

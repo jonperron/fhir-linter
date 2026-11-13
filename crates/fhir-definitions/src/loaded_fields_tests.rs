@@ -214,3 +214,40 @@ fn content_reference_is_loaded_without_the_local_hash() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn primitive_regex_is_loaded_raw_from_the_value_element() -> TestResult {
+    let registry = registry()?;
+    assert_eq!(registry.primitive_regex("uri"), Some(r"\S*"));
+    assert_eq!(registry.primitive_regex("string"), Some(r"^[\s\S]+$"));
+    assert_eq!(
+        registry.primitive_regex("id"),
+        Some(r"[A-Za-z0-9\-\.]{1,64}")
+    );
+    assert_eq!(
+        registry.primitive_regex("oid"),
+        Some(r"urn:oid:[0-2](\.(0|[1-9][0-9]*))+"),
+    );
+    // Kept as published, typo included: `{1,9}}` (PLAN.md 11.2-A4).
+    assert_eq!(
+        registry.primitive_regex("decimal"),
+        Some(r"-?(0|[1-9][0-9]{0,17})(\.[0-9]{1,17})?([eE][+-]?[0-9]{1,9}})?"),
+    );
+    assert_eq!(registry.primitive_regex("xhtml"), None);
+    assert_eq!(registry.primitive_regex("HumanName"), None);
+    assert_eq!(registry.primitive_regex("Patient"), None);
+    assert_eq!(registry.primitive_regex("no-such-type"), None);
+
+    // Every R5 primitive but xhtml publishes one.
+    let primitives: Vec<_> = registry
+        .structure_definitions()
+        .filter(|sd| sd.kind.as_ref() == "primitive-type")
+        .collect();
+    assert_eq!(primitives.len(), 21);
+    let with_regex = primitives
+        .iter()
+        .filter(|sd| registry.primitive_regex(&sd.name).is_some())
+        .count();
+    assert_eq!(with_regex, 20);
+    Ok(())
+}
