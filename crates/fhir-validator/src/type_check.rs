@@ -11,7 +11,8 @@ use crate::diagnostic::Diagnostic;
 /// Check one value against a primitive FHIR type, recursing into arrays.
 ///
 /// Emits `TYPE_001` through `TYPE_005` for format and type mismatches, and the
-/// `TYPE_006` warning for a control character in a string. Types without a hand-written
+/// `TYPE_006` warning for a control character in a string and the `TYPE_008` warning for
+/// a whitespace-only string. Types without a hand-written
 /// check are matched against their R5 regex and `maxLength` from `registry`.
 pub(crate) fn check_type(
     value: &Value,
@@ -109,6 +110,19 @@ pub(crate) fn check_type(
 
     if let Some((code, message)) = error {
         diagnostics.push(Diagnostic::error(code, message, path.to_owned()).with_location(span));
+    } else if let Value::Str(s) = value {
+        // datatypes.html: strings "SHOULD always contain non-whitespace content"; a SHOULD,
+        // so a Warning (user decision, PLAN 11.7-A4 revised). Empty strings are TYPE_003.
+        if !s.is_empty() && s.trim().is_empty() {
+            diagnostics.push(
+                Diagnostic::warning(
+                    "TYPE_008",
+                    format!("{fhir_type} at '{path}' should contain non-whitespace content"),
+                    path.to_owned(),
+                )
+                .with_location(span),
+            );
+        }
     }
 
     // R5 datatypes.html: `string` (and its specialisations) SHOULD NOT hold controls
@@ -121,20 +135,20 @@ pub(crate) fn check_type(
 }
 
 /// The finding for string `s` of a type checked against its R5 definition in `registry`:
-/// empty or whitespace-only (`TYPE_003`), more characters than the `<type>.value` element's
-/// `maxLength` (`TYPE_002`), or no match for the anchored R5 regex (`TYPE_003`).
+/// empty (`TYPE_003`), more characters than the `<type>.value` element's `maxLength` (`TYPE_002`), or no match
+/// for the anchored R5 regex (`TYPE_003`).
 fn registry_format_error(
     s: &str,
     fhir_type: &str,
     path: &str,
     registry: &Registry,
 ) -> Option<(&'static str, String)> {
-    // conformance-rules.html: "at least one character of non-whitespace content" (user
-    // decision, PLAN 11.7-A4); the string and markdown regex `^[\s\S]+$` accepts "   ".
-    if s.trim().is_empty() {
+    // json.html: string property values "can never be empty"; the uri and base64Binary
+    // regexes accept "".
+    if s.is_empty() {
         return Some((
             "TYPE_003",
-            format!("{fhir_type} at '{path}' must contain non-whitespace content"),
+            format!("{fhir_type} at '{path}' must not be empty"),
         ));
     }
     let sd = registry.structure_definition(&format!(
@@ -160,10 +174,13 @@ fn registry_format_error(
         Cow::Borrowed(s)
     };
     (!matches_anchored(pattern, &content)).then(|| {
-        (
-            "TYPE_003",
-            format!("Invalid {fhir_type} format at '{path}': '{s}'"),
-        )
+        // A base64Binary payload can be megabytes of confidential data: name the path only.
+        let message = if fhir_type == "base64Binary" {
+            format!("Invalid {fhir_type} format at '{path}'")
+        } else {
+            format!("Invalid {fhir_type} format at '{path}': '{s}'")
+        };
+        ("TYPE_003", message)
     })
 }
 

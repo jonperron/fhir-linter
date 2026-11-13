@@ -99,7 +99,14 @@ pub(crate) fn collect_attrs(
                 }
             })?;
 
-        let value = val.trim_matches([' ', '\t', '\r', '\n']);
+        // A whitespace-only value is kept: trimming it would read as an empty value, while
+        // the validator judges it like the same JSON string (a Warning for `string`).
+        let trimmed_value = val.trim_matches([' ', '\t', '\r', '\n']);
+        let value = if trimmed_value.is_empty() {
+            val.as_ref()
+        } else {
+            trimmed_value
+        };
         if value.len() != val.len() {
             trimmed.push((pos, Arc::clone(&local)));
         }
