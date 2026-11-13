@@ -309,6 +309,7 @@ mod tests {
             &sd,
             &|_, _| false,
             &empty_root(),
+            "Patient",
             &mut d,
         );
         assert_eq!(d.len(), 1);
