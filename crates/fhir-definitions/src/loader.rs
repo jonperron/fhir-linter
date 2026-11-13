@@ -94,15 +94,18 @@ fn parse_structure_definition(
         .map_err(|message| format!("StructureDefinition {url}: {message}"))?
         .unwrap_or_default();
 
-    let mut sd =
-        StructureDefinition::new(url.into(), name.into(), kind.into(), is_abstract, snapshot);
-    if kind == "primitive-type" {
-        sd.value_regex = value_regex(resource);
-    }
-    Ok(Some(sd))
+    let value_regex = (kind == "primitive-type")
+        .then(|| value_regex(resource))
+        .flatten();
+    Ok(Some(
+        StructureDefinition::new(url.into(), name.into(), kind.into(), is_abstract, snapshot)
+            .with_value_regex(value_regex),
+    ))
 }
 
 /// The `regex` extension on a primitive definition's `<type>.value` element type, kept raw.
+/// A linear scan of the raw snapshot is fine here: it runs once per primitive definition at
+/// load, over its four elements (`<type>`, `.id`, `.extension`, `.value`).
 fn value_regex(resource: &Value) -> Option<Arc<str>> {
     let value_path = format!("{}.value", resource["type"].as_str()?);
     resource["snapshot"]["element"]
@@ -111,7 +114,7 @@ fn value_regex(resource: &Value) -> Option<Arc<str>> {
         .find(|elem| elem["path"].as_str() == Some(value_path.as_str()))?["type"]
         .as_array()?
         .iter()
-        .filter_map(|t| t["extension"].as_array())
+        .filter_map(|type_entry| type_entry["extension"].as_array())
         .flatten()
         .find(|ext| {
             ext["url"].as_str() == Some("http://hl7.org/fhir/StructureDefinition/regex")
