@@ -8,7 +8,7 @@ and write a new copy of this file with the same headings.
 
 ## Repository
 
-- GitHub: `jonperron/fihr-linter`
+- GitHub: `jonperron/fhir-linter`
 - Base branch: `main` (never commit on it, never merge into it locally)
 - Conventions: `CLAUDE.md`, `.claude/rules/*.md`
 - Commit messages: `.claude/rules/commit-messages.md`
@@ -123,9 +123,9 @@ subagent. Known unrelated failures to leave alone: `fhir-linter`,
 - Bot login: `sourcery-ai[bot]` (appears as `sourcery-ai` in some APIs)
 - It reviews every new PR within a few minutes; it rarely re-reviews a
   force-push.
-- Review comments: `gh api --paginate repos/jonperron/fihr-linter/pulls/<N>/comments`
+- Review comments: `gh api --paginate repos/jonperron/fhir-linter/pulls/<N>/comments`
   (and `.../reviews`). Always pass `--paginate`; the default page holds 30.
-- Reply: `gh api repos/jonperron/fihr-linter/pulls/<N>/comments/<id>/replies -f body=...`
+- Reply: `gh api repos/jonperron/fhir-linter/pulls/<N>/comments/<id>/replies -f body=...`
 
 ## Behaviour baseline
 
