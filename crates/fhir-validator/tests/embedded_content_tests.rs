@@ -184,6 +184,40 @@ fn contained_resource_references_resolve_against_the_container() -> TestResult {
 }
 
 #[test]
+fn contained_non_object_null_and_non_string_type_items_are_reported() -> TestResult {
+    let found = json(
+        r#"{"resourceType":"Patient","contained":[1,null,{"resourceType":5},
+        {"resourceType":"Practitioner","id":"ok"}]}"#,
+    )?;
+    assert!(has(&found, "TYPE_001", "Patient.contained[0]"), "{found:?}");
+    assert!(
+        has(&found, "STRUCTURE_000", "Patient.contained[2]"),
+        "{found:?}"
+    );
+    assert!(!found.iter().any(|(_, p)| p == "Patient.contained[1]"));
+    assert!(!has(&found, "STRUCTURE_000", "Patient.contained[3]"));
+    Ok(())
+}
+
+#[test]
+fn xml_contained_array_and_unknown_wrapper_are_handled() -> TestResult {
+    let found = xml(
+        r#"<Patient xmlns="http://hl7.org/fhir"><contained><Practitioner><active value="yes"/>
+        </Practitioner></contained><contained><Nope><x value="1"/></Nope></contained></Patient>"#,
+    )?;
+    assert!(
+        has(&found, "TYPE_001", "Patient.contained[0].active"),
+        "{found:?}"
+    );
+    // An unknown wrapper is kept as is, so it has no resourceType.
+    assert!(
+        has(&found, "STRUCTURE_000", "Patient.contained[1]"),
+        "{found:?}"
+    );
+    Ok(())
+}
+
+#[test]
 fn contained_resource_runs_its_root_invariants() -> TestResult {
     // org-1 on the contained Organization's own root; dom-2 on the container, and the
     // nested contained resource it reports is still validated.
