@@ -86,6 +86,22 @@ impl Registry {
         self.structure_definitions.get(url)
     }
 
+    /// The `regex` extension R5 publishes on the `<code>.value` element of the primitive type
+    /// `code` (`uri` gives `\S*`). `None` for complex types, resources, unknown codes and
+    /// `xhtml`, which publishes none.
+    ///
+    /// The text is kept exactly as published; the caller must:
+    /// - anchor it: R5 `datatypes.html` says the regexes "should be qualified with start of
+    ///   string and end of string anchors", so wrap it as `\A(?:...)\z` (`string` and
+    ///   `markdown` already carry `^...$`);
+    /// - not trust the `decimal` one: its exponent `[0-9]{1,9}}` has a stray `}` (a typo in
+    ///   R5), so an engine either rejects the pattern or makes every exponent end in `}`.
+    pub fn primitive_regex(&self, code: &str) -> Option<&str> {
+        self.structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{code}"))?
+            .value_regex
+            .as_deref()
+    }
+
     /// Whether `base` + `suffix` (`value` + `Quantity`) names a variant of a choice
     /// element: some loaded definition declares `base[x]` with a type whose
     /// capitalised code is `suffix`.
@@ -228,6 +244,12 @@ impl Registry {
     #[cfg(test)]
     pub(crate) fn structure_definition_count(&self) -> usize {
         self.structure_definitions.len()
+    }
+
+    /// Every indexed `StructureDefinition`.
+    #[cfg(test)]
+    pub(crate) fn structure_definitions(&self) -> impl Iterator<Item = &StructureDefinition> {
+        self.structure_definitions.values()
     }
 
     /// Every snapshot element of every indexed `StructureDefinition`.

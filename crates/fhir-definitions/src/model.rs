@@ -7,6 +7,20 @@ use fhir_fhirpath::{Expr, ParseError};
 ///
 /// Built with [`StructureDefinition::new`], which indexes the snapshot by path;
 /// the snapshot must not change afterwards (the registry only hands out `&` references).
+/// The private index means no struct literal can build one outside this crate, so adding a
+/// public field is not breaking:
+///
+/// ```compile_fail,E0451
+/// let _ = fhir_definitions::StructureDefinition {
+///     url: "u".into(),
+///     name: "n".into(),
+///     kind: "k".into(),
+///     is_abstract: false,
+///     snapshot: Vec::new(),
+///     value_regex: None,
+///     path_index: Default::default(),
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct StructureDefinition {
     pub url: Arc<str>,
@@ -14,6 +28,9 @@ pub struct StructureDefinition {
     pub kind: Arc<str>,
     pub is_abstract: bool,
     pub snapshot: Vec<ElementDefinition>,
+    /// For a primitive type, the `regex` extension on its `<type>.value` element, as published
+    /// (see [`crate::Registry::primitive_regex`]). `None` from [`StructureDefinition::new`].
+    pub value_regex: Option<Arc<str>>,
     /// Position in `snapshot` of the first element with each path.
     path_index: HashMap<Arc<str>, usize>,
 }
@@ -37,7 +54,16 @@ impl StructureDefinition {
             kind,
             is_abstract,
             snapshot,
+            value_regex: None,
             path_index,
+        }
+    }
+
+    /// The same definition with `value_regex` set.
+    pub(crate) fn with_value_regex(self, value_regex: Option<Arc<str>>) -> Self {
+        Self {
+            value_regex,
+            ..self
         }
     }
 

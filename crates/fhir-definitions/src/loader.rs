@@ -94,13 +94,33 @@ fn parse_structure_definition(
         .map_err(|message| format!("StructureDefinition {url}: {message}"))?
         .unwrap_or_default();
 
-    Ok(Some(StructureDefinition::new(
-        url.into(),
-        name.into(),
-        kind.into(),
-        is_abstract,
-        snapshot,
-    )))
+    let value_regex = (kind == "primitive-type")
+        .then(|| value_regex(resource))
+        .flatten();
+    Ok(Some(
+        StructureDefinition::new(url.into(), name.into(), kind.into(), is_abstract, snapshot)
+            .with_value_regex(value_regex),
+    ))
+}
+
+/// The `regex` extension on a primitive definition's `<type>.value` element type, kept raw.
+/// A linear scan of the raw snapshot is fine here: it runs once per primitive definition at
+/// load, over its four elements (`<type>`, `.id`, `.extension`, `.value`).
+fn value_regex(resource: &Value) -> Option<Arc<str>> {
+    let value_path = format!("{}.value", resource["type"].as_str()?);
+    resource["snapshot"]["element"]
+        .as_array()?
+        .iter()
+        .find(|elem| elem["path"].as_str() == Some(value_path.as_str()))?["type"]
+        .as_array()?
+        .iter()
+        .filter_map(|type_entry| type_entry["extension"].as_array())
+        .flatten()
+        .find(|ext| {
+            ext["url"].as_str() == Some("http://hl7.org/fhir/StructureDefinition/regex")
+        })?["valueString"]
+        .as_str()
+        .map(Arc::from)
 }
 
 /// `index` is the element's position in the snapshot, used to name it when `path` is missing.
@@ -541,6 +561,35 @@ mod tests {
         });
         let parsed = parse_element_definition(&elem, 0).expect("element should be parsed");
         assert_eq!(parsed.types[0].as_ref(), "id");
+    }
+
+    #[test]
+    fn value_regex_is_kept_only_for_primitive_types() -> std::result::Result<(), String> {
+        let definition = |kind: &str| {
+            serde_json::json!({
+                "url": "http://example.com/Thing", "name": "Thing", "kind": kind, "type": "thing",
+                "snapshot": {"element": [{
+                    "path": "thing.value", "min": 0, "max": "1",
+                    "type": [{
+                        "code": "http://hl7.org/fhirpath/System.String",
+                        "extension": [
+                            {"url": "http://example.com/other", "valueString": "no"},
+                            {"url": "http://hl7.org/fhir/StructureDefinition/regex",
+                                "valueString": "[a-z]+"}
+                        ]
+                    }]
+                }]}
+            })
+        };
+        let parse = |kind: &str| {
+            parse_structure_definition(&definition(kind))?.ok_or_else(|| "skipped".to_string())
+        };
+        assert_eq!(
+            parse("primitive-type")?.value_regex.as_deref(),
+            Some("[a-z]+")
+        );
+        assert_eq!(parse("complex-type")?.value_regex, None);
+        Ok(())
     }
 
     #[test]

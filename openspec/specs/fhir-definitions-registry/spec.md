@@ -358,3 +358,22 @@ Chaque `ElementDefinition` SHALL exposer `slicing: Option<Box<Slicing>>` avec `d
 
 - **WHEN** un discriminateur n'a pas de `path` ou de `type`
 - **THEN** le chargement SHALL échouer avec `MalformedBundle` nommant l'élément
+
+### Requirement: Regex des types primitifs
+
+`Registry::primitive_regex(code: &str) -> Option<&str>` SHALL retourner le texte brut de l'extension R5 `regex` (`http://hl7.org/fhir/StructureDefinition/regex`) portée par le type de l'élément snapshot `<type>.value` de la StructureDefinition primitive. Le champ `StructureDefinition::value_regex` SHALL être renseigné par le chargeur uniquement pour le kind `primitive-type`. Le texte SHALL être conservé tel que publié : l'appelant doit l'ancrer en `\A(?:...)\z` (R5 datatypes.html), et la regex R5 de `decimal` contient une coquille (`[0-9]{1,9}}`). Le validateur ne l'utilise pas encore.
+
+#### Scenario: Regex d'une primitive
+
+- **WHEN** `primitive_regex("uri")` est appelé sur le bundle R5
+- **THEN** le résultat SHALL être `Some("\S*")`
+
+#### Scenario: Types sans regex
+
+- **WHEN** `primitive_regex` reçoit un type complexe, une ressource, un code inconnu ou `xhtml`
+- **THEN** le résultat SHALL être `None`
+
+#### Scenario: Couverture du bundle R5
+
+- **WHEN** le bundle R5 est chargé
+- **THEN** 20 des 21 primitives SHALL exposer une regex
