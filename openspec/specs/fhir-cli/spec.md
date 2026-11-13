@@ -35,7 +35,7 @@ Le crate `fhir-cli` SHALL fournir le binaire `fhir-lint` acceptant :
 
 ### Requirement: Collecte des entrées
 
-Un fichier passé explicitement SHALL être analysé quelle que soit son extension. Un répertoire SHALL être parcouru récursivement, en ordre trié, pour les fichiers `*.json` et `*.xml` (extension insensible à la casse) ; les liens symboliques vers des répertoires SHALL être ignorés. Un fichier d'extension `.xml` SHALL être parsé en XML, tout autre fichier en JSON. Un chemin inexistant ou illisible SHALL être une erreur d'outil.
+Un fichier passé explicitement SHALL être analysé quelle que soit son extension. Un répertoire SHALL être parcouru récursivement, en ordre trié, pour les fichiers `*.json` et `*.xml` (extension insensible à la casse) ; les liens symboliques vers des répertoires SHALL être ignorés. Un fichier d'extension `.xml` SHALL être parsé en XML, tout autre fichier en JSON. Un chemin inexistant ou illisible SHALL être une erreur d'outil. Un fichier de plus de 64 MiB SHALL être refusé avant toute lecture en mémoire : erreur d'outil nommant le fichier et la « 64 MiB input limit », sans rapport.
 
 #### Scenario: Parcours récursif
 
@@ -53,6 +53,12 @@ Un fichier passé explicitement SHALL être analysé quelle que soit son extensi
 - **THEN** il SHALL être analysé une seule fois
 - **WHEN** un chemin explicite n'est ni un fichier régulier ni un répertoire (FIFO, périphérique)
 - **THEN** le code de sortie SHALL être 2 (erreur d'outil), sans lecture bloquante
+
+#### Scenario: Fichier trop volumineux
+
+- **WHEN** un fichier de plus de 64 MiB est passé
+- **THEN** le code de sortie SHALL être 2 et stderr SHALL nommer le fichier et `64 MiB input limit`
+- **THEN** aucun rapport SHALL être écrit
 
 #### Scenario: Chemin manquant
 
@@ -88,7 +94,7 @@ Pour chaque fichier, `fhir-lint` SHALL exécuter `fhir_validator::validate` puis
 
 La configuration SHALL être chargée et vérifiée avant la collecte des chemins : une configuration invalide SHALL être signalée même si un chemin est manquant. Si stdout est fermé par le lecteur (`BrokenPipe`), `fhir-lint` SHALL NOT paniquer et SHALL sortir avec le code du verdict.
 
-En cas d'erreur d'outil, `fhir-lint` SHALL écrire `fhir-lint: <message>` sur stderr et SHALL NOT produire de rapport.
+En cas d'erreur d'outil, `fhir-lint` SHALL écrire `fhir-lint: <message>` sur stderr et SHALL NOT produire de rapport. Le message SHALL avoir ses caractères de contrôle et de direction bidirectionnelle échappés (comme dans le format texte), afin qu'un nom de fichier ne puisse pas injecter de séquence d'échappement dans le terminal.
 
 #### Scenario: Avertissements seuls
 
@@ -104,6 +110,21 @@ En cas d'erreur d'outil, `fhir-lint` SHALL écrire `fhir-lint: <message>` sur st
 
 - **WHEN** `--definitions /nonexistent/definitions` est passé
 - **THEN** le code de sortie SHALL être 2
+
+#### Scenario: Information avec --strict
+
+- **WHEN** seul un diagnostic `information` est produit et `--strict` est passé
+- **THEN** le code de sortie SHALL être 0
+
+#### Scenario: Sévérité inconnue dans la configuration
+
+- **WHEN** `--config` contient une sévérité inconnue (par exemple `severity = "loud"`)
+- **THEN** le code de sortie SHALL être 2
+
+#### Scenario: Message d'erreur d'outil échappé
+
+- **WHEN** un chemin manquant contient `\u{1b}`
+- **THEN** stderr SHALL contenir le caractère échappé et aucun octet ESC brut
 
 #### Scenario: Règle inconnue dans la configuration
 
@@ -127,6 +148,11 @@ Le format `text` SHALL écrire une ligne par diagnostic : `fichier[:ligne:col]: 
 ### Requirement: Format JSON
 
 Le format `json` SHALL écrire un tableau d'objets `{file, severity, code, message, path, line, col, rule}` ; `line`, `col` et `rule` SHALL valoir `null` lorsqu'ils sont inconnus.
+
+#### Scenario: Sévérité hint de la configuration
+
+- **WHEN** `--config` fixe `severity = "hint"` pour une règle déclenchée
+- **THEN** le diagnostic SHALL avoir `severity = "information"` en `text` et en `json`, et `level = "note"` en `sarif`
 
 #### Scenario: Diagnostic de lint
 

@@ -47,8 +47,9 @@ fn text(findings: &[Finding]) -> String {
 }
 
 /// Fold multi-line text (e.g. FHIRPath parse errors) onto one line and escape
-/// control characters, so resource content cannot inject terminal sequences.
-fn terminal_safe(text: &str) -> String {
+/// control characters, so untrusted text (resource content, file names) cannot
+/// inject terminal sequences.
+pub fn terminal_safe(text: &str) -> String {
     let folded: Vec<&str> = text.lines().map(str::trim).collect();
     folded
         .join(" ")

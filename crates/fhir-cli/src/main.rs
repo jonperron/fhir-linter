@@ -9,7 +9,7 @@ mod files;
 mod output;
 
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -20,6 +20,9 @@ use fhir_parser::{ParseError, Resource, Span};
 use fhir_validator::{Diagnostic, Severity};
 
 use crate::output::Finding;
+
+/// Largest input file read, so one huge file cannot exhaust memory.
+const MAX_INPUT_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug, Parser)]
 #[command(name = "fhir-lint", version, about)]
@@ -60,7 +63,8 @@ fn main() -> ExitCode {
     match run(&Cli::parse()) {
         Ok(failed) => ExitCode::from(u8::from(failed)),
         Err(message) => {
-            eprintln!("fhir-lint: {message}");
+            // Messages quote user paths: a crafted file name must not drive the terminal.
+            eprintln!("fhir-lint: {}", output::terminal_safe(&message));
             ExitCode::from(2)
         }
     }
@@ -127,7 +131,7 @@ fn lint_file(
     registry: &Registry,
     config: &Config,
 ) -> Result<Vec<Diagnostic>, String> {
-    let bytes = fs::read(path).map_err(|e| format!("cannot read '{}': {e}", path.display()))?;
+    let bytes = read_input(path)?;
     let resource = match String::from_utf8(bytes) {
         Ok(text) => parse(path, &text),
         Err(e) => Err(parse_diagnostic(
@@ -142,6 +146,34 @@ fn lint_file(
     let mut diagnostics = fhir_validator::validate(&resource, registry);
     diagnostics.extend(rules.run(&resource, registry, config)?);
     Ok(diagnostics)
+}
+
+/// Read an input file, refusing one over `MAX_INPUT_BYTES` before it is
+/// loaded. The read itself is bounded, so a file that grows after the check
+/// cannot slip past the limit.
+fn read_input(path: &Path) -> Result<Vec<u8>, String> {
+    let read_error = |e: std::io::Error| format!("cannot read '{}': {e}", path.display());
+    let too_large = || {
+        format!(
+            "cannot read '{}': file is larger than the {} MiB input limit",
+            path.display(),
+            MAX_INPUT_BYTES / (1024 * 1024)
+        )
+    };
+    let file = fs::File::open(path).map_err(read_error)?;
+    let len = file.metadata().map_err(read_error)?.len();
+    if len > MAX_INPUT_BYTES {
+        return Err(too_large());
+    }
+    // Sized up front so the read does not double the allocation of a large file.
+    let mut bytes = Vec::with_capacity(len as usize);
+    file.take(MAX_INPUT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(read_error)?;
+    if bytes.len() as u64 > MAX_INPUT_BYTES {
+        return Err(too_large());
+    }
+    Ok(bytes)
 }
 
 fn parse(path: &Path, text: &str) -> Result<Resource, Diagnostic> {
