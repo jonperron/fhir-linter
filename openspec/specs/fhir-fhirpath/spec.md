@@ -725,7 +725,7 @@ Le système SHALL exposer `EvalError` couvrant toutes les erreurs d'exécution p
 #### Scenario: Variantes d'EvalError
 
 - **WHEN** une erreur se produit à l'évaluation
-- **THEN** `EvalError` SHALL avoir les variantes : `Type(String)` (erreur de type), `UndefinedFunction(String)` (fonction inconnue), `Arity { name, expected, got }` (mauvais nombre d'arguments), `DivisionByZero` (conservée pour la compatibilité de l'enum public mais plus jamais produite, la division par zéro donnant une collection vide), `Parse(ParseError)` (erreur de parse propagée), `CollectionTooLarge(usize)` (collection intermédiaire au-delà de `MAX_COLLECTION_LEN`, message « collection larger than 100000 items »), `StringTooLong(usize)` (chaîne construite au-delà de `MAX_STRING_LEN`, le champ portant la limite et non la longueur réelle, message « string longer than 1048576 characters »)
+- **THEN** `EvalError` SHALL avoir les variantes : `Type(String)` (erreur de type), `UndefinedFunction(String)` (fonction inconnue), `Arity { name, expected, got }` (mauvais nombre d'arguments), `DivisionByZero` (conservée pour la compatibilité de l'enum public mais plus jamais produite, la division par zéro donnant une collection vide), `Parse(ParseError)` (erreur de parse propagée), `CollectionTooLarge(usize)` (collection intermédiaire au-delà de `MAX_COLLECTION_LEN`, message « collection larger than 100000 items »), `StringTooLong(usize)` (chaîne construite au-delà de `MAX_STRING_LEN`, le champ portant la limite et non la longueur réelle, message « string longer than 1048576 characters »), `StringBudgetExceeded(usize)` (budget total de caractères de chaînes d'une évaluation dépassé, le champ portant la limite, message « evaluation built more than 16777216 characters of strings »)
 
 ### Requirement: Plafond de taille des collections
 
@@ -795,6 +795,30 @@ Le système SHALL définir la constante `MAX_STRING_LEN` = 1 048 576 caractères
 - **WHEN** l'évaluation d'une contrainte retourne `EvalError::StringTooLong`
 - **THEN** le validateur SHALL la signaler par un `INVARIANT_SKIPPED`
 
+### Requirement: Budget de caractères de chaînes par évaluation
+
+Le système SHALL définir la constante `MAX_EVAL_STRING_CHARS` = 16 777 216 (`crates/fhir-fhirpath/src/eval/helpers.rs`) : le nombre total de caractères de valeurs `String` qu'une évaluation (un appel à `evaluate`/`eval`) peut construire. Le compteur SHALL être partagé par tous les évaluateurs imbriqués (`select`, `where`, `aggregate`, ...). Lorsque le total dépasse la limite, l'évaluation SHALL s'arrêter avec `Err(EvalError::StringBudgetExceeded(limit))`, où `limit` est la limite. Le budget SHALL être débité pour chaque chaîne construite par les fonctions et opérateurs de chaînes (`+` et `&`, `join`, `replace`, `replaceMatches`, `upper`, `lower`, `trim`, `escape`, `unescape`, `encode`, `decode`) ainsi que par `substring`, `split` (toutes les parties), `toString` et `toQuantity` (unité), ces derniers restant exemptés de `MAX_STRING_LEN`. Le budget SHALL NOT être débité pour les chaînes lues dans la ressource (la navigation les partage), les littéraux chaîne et quantité, les noms retournés par `type()` ni les valeurs Date/DateTime/Time (tailles fixes et petites ; les débiter par item ferait sauter de vraies invariants sur de grandes collections). Les chaînes libérées SHALL NOT être remboursées : le compte est une borne supérieure de ce que l'évaluation a alloué.
+
+#### Scenario: Budget dépassé malgré les plafonds unitaires
+
+- **WHEN** 32 chaînes de 1 048 576 caractères sont reconstruites par `upper()` dans une même évaluation
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::StringBudgetExceeded(16777216))`, bien que chaque chaîne soit au plus `MAX_STRING_LEN` et la collection au plus `MAX_COLLECTION_LEN`
+
+#### Scenario: Sous le budget
+
+- **WHEN** 8 chaînes de 1 048 576 caractères sont reconstruites par `upper()` dans une même évaluation
+- **THEN** l'évaluateur SHALL retourner le résultat normalement
+
+#### Scenario: Références à une chaîne existante non débitées
+
+- **WHEN** 32 références à une même chaîne existante sont produites (par ex. par `combine`)
+- **THEN** le budget SHALL NOT être débité et l'évaluateur SHALL retourner le résultat normalement
+
+#### Scenario: Budget dépassé signalé INVARIANT_SKIPPED
+
+- **WHEN** l'évaluation d'une contrainte retourne `EvalError::StringBudgetExceeded`
+- **THEN** le validateur SHALL la signaler par un `INVARIANT_SKIPPED` (traitement générique d'`EvalError`)
+
 ### Requirement: Limitations connues
 
 Le système SHALL documenter les limitations suivantes de l'implémentation actuelle.
@@ -823,7 +847,7 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 #### Scenario: Mémoire totale hors des plafonds
 
 - **WHEN** une expression construit une collection de jusqu'à 100 000 chaînes distinctes de jusqu'à 1 048 576 caractères chacune (par ex. `select($this + big)`)
-- **THEN** `MAX_COLLECTION_LEN` et `MAX_STRING_LEN` SHALL NOT borner la mémoire totale de l'évaluation ; ce cas est une limitation connue
+- **THEN** `MAX_COLLECTION_LEN` et `MAX_STRING_LEN` SHALL NOT borner la mémoire totale ; seul `MAX_EVAL_STRING_CHARS` la borne, pour les chaînes construites uniquement (les chaînes de la ressource et les littéraux ne sont pas débités)
 
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 

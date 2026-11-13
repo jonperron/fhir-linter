@@ -8,7 +8,7 @@ use super::Evaluator;
 use super::base64::{base64_decode, base64_decode_url, base64_encode, base64_encode_url};
 use super::helpers::{
     check_arity, check_arity_range, check_string_len, eval_string_arg, json_unescape,
-    single_integer, string_input, string_transform, string_value,
+    single_integer, string_input,
 };
 use super::regex::{regex_matches, regex_matches_full, regex_replace_all};
 
@@ -58,15 +58,21 @@ impl Evaluator<'_> {
             }
             "upper" => {
                 check_arity(name, args, 0)?;
-                return string_transform(focus, name, str::to_uppercase).map(Some);
+                return self
+                    .string_transform(focus, name, str::to_uppercase)
+                    .map(Some);
             }
             "lower" => {
                 check_arity(name, args, 0)?;
-                return string_transform(focus, name, str::to_lowercase).map(Some);
+                return self
+                    .string_transform(focus, name, str::to_lowercase)
+                    .map(Some);
             }
             "trim" => {
                 check_arity(name, args, 0)?;
-                return string_transform(focus, name, |s| s.trim().to_owned()).map(Some);
+                return self
+                    .string_transform(focus, name, |s| s.trim().to_owned())
+                    .map(Some);
             }
             "escape" => {
                 check_arity(name, args, 1)?;
@@ -92,7 +98,7 @@ impl Evaluator<'_> {
                                 )));
                             }
                         };
-                        vec![string_value(&result)?]
+                        vec![self.string_value(&result)?]
                     }
                     None => vec![],
                 }
@@ -116,7 +122,7 @@ impl Evaluator<'_> {
                                 )));
                             }
                         };
-                        vec![string_value(&result)?]
+                        vec![self.string_value(&result)?]
                     }
                     None => vec![],
                 }
@@ -153,7 +159,8 @@ impl Evaluator<'_> {
                     start.saturating_add(len).min(chars.len())
                 };
                 let sub: String = chars[start..end].iter().collect();
-                vec![Value::String(Arc::from(sub.as_str()))]
+                // Part of the input: charged, but exempt from MAX_STRING_LEN.
+                self.charged(vec![Value::String(Arc::from(sub.as_str()))])?
             }
             "replace" => {
                 check_arity(name, args, 2)?;
@@ -173,7 +180,7 @@ impl Evaluator<'_> {
                             kept.saturating_add(hits.saturating_mul(replacement.chars().count())),
                         )?;
                         let result = s.replace(pattern.as_ref(), replacement.as_ref());
-                        vec![string_value(&result)?]
+                        vec![self.string_value(&result)?]
                     }
                     _ => vec![],
                 }
@@ -207,7 +214,7 @@ impl Evaluator<'_> {
                 match (string_input(focus, name)?, pattern, replacement) {
                     (Some(s), Some(pattern), Some(replacement)) => {
                         let result = regex_replace_all(&s, &pattern, &replacement, &flags)?;
-                        vec![string_value(&result)?]
+                        vec![self.string_value(&result)?]
                     }
                     _ => vec![],
                 }
@@ -266,10 +273,11 @@ impl Evaluator<'_> {
                 check_arity(name, args, 1)?;
                 let sep = eval_string_arg(&self.eval(&args[0], ctx)?, "split")?;
                 match string_input(focus, name)? {
-                    Some(s) => s
-                        .split(sep.as_ref())
-                        .map(|part| Value::String(Arc::from(part)))
-                        .collect(),
+                    Some(s) => self.charged(
+                        s.split(sep.as_ref())
+                            .map(|part| Value::String(Arc::from(part)))
+                            .collect(),
+                    )?,
                     None => vec![],
                 }
             }
@@ -290,7 +298,7 @@ impl Evaluator<'_> {
                     usize::saturating_add,
                 );
                 check_string_len(total)?;
-                vec![Value::String(Arc::from(joined.join(sep.as_ref()).as_str()))]
+                vec![self.string_value(&joined.join(sep.as_ref()))?]
             }
             "encode" => {
                 check_arity(name, args, 1)?;
@@ -306,7 +314,7 @@ impl Evaluator<'_> {
                                 )));
                             }
                         };
-                        vec![string_value(&result)?]
+                        vec![self.string_value(&result)?]
                     }
                     None => vec![],
                 }
@@ -331,7 +339,7 @@ impl Evaluator<'_> {
                                 String::from_utf8(b)
                                     .map_err(|_| EvalError::Type("decode: invalid UTF-8".into()))
                             })?;
-                        vec![string_value(&decoded)?]
+                        vec![self.string_value(&decoded)?]
                     }
                     None => vec![],
                 }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::ArithOp;
+use super::{ArithOp, Evaluator};
 use crate::ast::Expr;
 use crate::error::EvalError;
 use crate::value::{Collection, Value, same_quantity_unit};
@@ -31,10 +31,61 @@ pub(super) fn check_string_len(chars: usize) -> Result<(), EvalError> {
     Ok(())
 }
 
-/// A built String as a value, or `StringTooLong` past [`MAX_STRING_LEN`].
-pub(super) fn string_value(s: &str) -> Result<Value, EvalError> {
-    check_string_len(s.chars().count())?;
-    Ok(Value::String(Arc::from(s)))
+/// Most characters of String values one evaluation may build, in total.
+/// [`MAX_STRING_LEN`] and [`MAX_COLLECTION_LEN`] alone still allow 100,000
+/// strings of 1,048,576 characters. Freed strings are not given back: an
+/// evaluation is short-lived, so the count bounds what it allocated.
+/// Only text derived from the input is charged. Literals (at most
+/// `MAX_INPUT_LEN` characters), `type()` names and Date, DateTime and Time
+/// values have a fixed small size, and charging them on each item of a
+/// `where` would skip real invariants on large collections.
+pub(super) const MAX_EVAL_STRING_CHARS: usize = 16_777_216;
+
+impl Evaluator<'_> {
+    /// Count `chars` newly built characters against
+    /// [`MAX_EVAL_STRING_CHARS`]; `StringBudgetExceeded` once past it.
+    pub(super) fn charge_chars(&self, chars: usize) -> Result<(), EvalError> {
+        let used = self.string_chars.get().saturating_add(chars);
+        self.string_chars.set(used);
+        if used > MAX_EVAL_STRING_CHARS {
+            return Err(EvalError::StringBudgetExceeded(MAX_EVAL_STRING_CHARS));
+        }
+        Ok(())
+    }
+
+    /// Charge every String (and Quantity unit) of a newly built collection.
+    pub(super) fn charged(&self, col: Collection) -> Result<Collection, EvalError> {
+        let chars = col
+            .iter()
+            .map(|v| match v {
+                Value::String(s) | Value::Quantity(_, s) => s.chars().count(),
+                _ => 0,
+            })
+            .fold(0, usize::saturating_add);
+        self.charge_chars(chars)?;
+        Ok(col)
+    }
+
+    /// A built String as a value: `StringTooLong` past [`MAX_STRING_LEN`],
+    /// and charged against [`MAX_EVAL_STRING_CHARS`].
+    pub(super) fn string_value(&self, s: &str) -> Result<Value, EvalError> {
+        let chars = s.chars().count();
+        check_string_len(chars)?;
+        self.charge_chars(chars)?;
+        Ok(Value::String(Arc::from(s)))
+    }
+
+    pub(super) fn string_transform(
+        &self,
+        focus: &[Value],
+        name: &str,
+        f: impl Fn(&str) -> String,
+    ) -> Result<Collection, EvalError> {
+        string_input(focus, name)?
+            .map(|s| self.string_value(&f(&s)))
+            .into_iter()
+            .collect()
+    }
 }
 
 /// Check that a function received the expected number of arguments.
@@ -52,10 +103,6 @@ pub(super) fn check_arity(name: &str, args: &[Expr], expected: usize) -> Result<
 // ── Arithmetic ────────────────────────────────────────────────────────────────
 
 pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collection, EvalError> {
-    if let (Value::String(a), Value::String(b), ArithOp::Add) = (lv, rv, &op) {
-        check_string_len(a.chars().count() + b.chars().count())?;
-        return Ok(vec![Value::String(Arc::from(format!("{a}{b}")))]);
-    }
     if let Some(result) = integer_op(lv, rv, &op)? {
         return Ok(vec![result]);
     }
@@ -460,17 +507,6 @@ pub(super) fn string_input(focus: &[Value], name: &str) -> Result<Option<Arc<str
             v.type_name()
         ))),
     }
-}
-
-pub(super) fn string_transform(
-    focus: &[Value],
-    name: &str,
-    f: impl Fn(&str) -> String,
-) -> Result<Collection, EvalError> {
-    string_input(focus, name)?
-        .map(|s| string_value(&f(&s)))
-        .into_iter()
-        .collect()
 }
 
 /// Single-pass JSON string unescape (FHIRPath 3.0 `unescape('json')`).

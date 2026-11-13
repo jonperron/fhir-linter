@@ -3,6 +3,7 @@
 /// The evaluator walks an [`Expr`] AST and produces a [`Collection`].
 /// Implemented functions are grouped by category; any other function name
 /// yields [`EvalError::UndefinedFunction`].
+use std::cell::Cell;
 use std::sync::Arc;
 
 use crate::ast::{Expr, TemporalKind};
@@ -39,12 +40,16 @@ pub fn eval(
         is_choice_variant,
         total: None,
         index: None,
+        string_chars: &Cell::new(0),
     }
     .eval(expr, context)
 }
 
 pub(super) struct Evaluator<'a> {
     is_choice_variant: &'a dyn Fn(&str, &str) -> bool,
+    /// Characters of String values built so far, shared by every nested
+    /// evaluator (see [`helpers::MAX_EVAL_STRING_CHARS`]).
+    string_chars: &'a Cell<usize>,
     /// `$total` while an `aggregate()` expression is evaluated.
     total: Option<&'a [Value]>,
     /// `$index` while an expression parameter is evaluated for one item.
@@ -173,9 +178,7 @@ impl Evaluator<'_> {
                 let left = helpers::string_or_empty(&ls);
                 let right = helpers::string_or_empty(&rs);
                 helpers::check_string_len(left.chars().count() + right.chars().count())?;
-                Ok(vec![Value::String(Arc::from(
-                    format!("{left}{right}").as_str(),
-                ))])
+                Ok(vec![self.string_value(&format!("{left}{right}"))?])
             }
 
             // ── Comparisons ─────────────────────────────────────────────────
@@ -329,6 +332,10 @@ impl Evaluator<'_> {
         else {
             return Ok(vec![]);
         };
+        if let (Value::String(a), Value::String(b), ArithOp::Add) = (lv, rv, &op) {
+            helpers::check_string_len(a.chars().count() + b.chars().count())?;
+            return Ok(vec![self.string_value(&format!("{a}{b}"))?]);
+        }
         match op {
             ArithOp::Add | ArithOp::Sub | ArithOp::Mul | ArithOp::Div | ArithOp::Mod => {
                 numeric_op(lv, rv, op)
