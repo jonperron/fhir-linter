@@ -270,8 +270,8 @@ fn hint_severity_is_reported_as_information_in_every_format() {
         .assert()
         .code(0)
         .stdout(predicate::str::contains(": information LINT_003 "));
-    let diags = stdout_json(&mut with_hint("json"));
-    let lint = diags
+    let diagnostics = stdout_json(&mut with_hint("json"));
+    let lint = diagnostics
         .as_array()
         .unwrap()
         .iter()
@@ -336,11 +336,17 @@ fn input_over_size_limit_is_tool_error() {
 
 #[test]
 fn input_at_size_limit_is_linted() {
-    let path = sparse_file("at-limit.json", MAX_INPUT_BYTES);
+    // Valid JSON only if read in full: the closing brace is the very last byte.
+    let head = br#"{"resourceType":"Patient""#;
+    let padding = MAX_INPUT_BYTES as usize - head.len() - 1;
+    let content = [&head[..], &vec![b' '; padding], b"}"].concat();
+    let path = temp_path("at-limit.json");
+    std::fs::write(&path, &content).unwrap();
     let result = fhir_lint().arg(&path).assert();
     let _ = std::fs::remove_file(&path);
-    // NUL bytes are not JSON: a parse diagnostic, not a size refusal.
-    result.code(1).stdout(predicate::str::contains("PARSE_001"));
+    result
+        .code(0)
+        .stdout(predicate::str::contains("PARSE_001").not());
 }
 
 // Windows file names cannot hold control characters.
