@@ -32,4 +32,8 @@ pub enum EvalError {
     /// characters, which the field holds (not the string's actual length).
     #[error("string longer than {0} characters")]
     StringTooLong(usize),
+    /// One evaluation built more characters of String values, in total, than
+    /// the evaluator's budget, which the field holds.
+    #[error("evaluation built more than {0} characters of strings")]
+    StringBudgetExceeded(usize),
 }

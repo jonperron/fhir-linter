@@ -47,7 +47,7 @@ impl Evaluator<'_> {
             "convertsToBoolean" => converts(name, args, focus, to_boolean)?,
 
             // ── String ────────────────────────────────────────────────────
-            "toString" => convert(name, args, focus, to_string)?,
+            "toString" => self.charged(convert(name, args, focus, to_string)?)?,
             "convertsToString" => converts(name, args, focus, to_string)?,
 
             // ── Date / DateTime / Time ─────────────────────────────────────
@@ -86,7 +86,7 @@ impl Evaluator<'_> {
                     _ => true,
                 });
                 if name == "toQuantity" {
-                    quantity.into_iter().collect()
+                    self.charged(quantity.into_iter().collect())?
                 } else {
                     vec![Value::Bool(quantity.is_some())]
                 }
