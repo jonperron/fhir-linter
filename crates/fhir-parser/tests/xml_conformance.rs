@@ -267,3 +267,85 @@ fn documents_without_the_schema_instance_namespace_record_nothing() {
             .is_empty()
     );
 }
+
+/// A `<Patient>` whose `<id>` has `id_attrs` and one extension holding `extension_value`.
+fn patient_with_id(id_attrs: &str, extension_value: &str) -> String {
+    format!(
+        "<Patient {FHIR_NS}><id {id_attrs}><extension url=\"http://x\">{extension_value}{}",
+        "</extension></id></Patient>"
+    )
+}
+
+/// A resource `id` with an extension keeps its value as `Resource::id` and the rest
+/// as an `id` primitive object without `value`, which the validator reshapes into `_id`.
+#[test]
+fn resource_id_with_an_extension_parses() {
+    let source = patient_with_id("id=\"e1\" value=\"p1\"", "<valueString value=\"v\"/>");
+    let resource = parse_xml(&source).expect("parses");
+    assert_eq!(resource.id.as_deref(), Some("p1"));
+    let kept = &resource.fields["id"];
+    let Value::Object(parts) = &kept.value else {
+        panic!("expected the id element to be kept as an object, got {kept:?}");
+    };
+    assert!(
+        !parts.contains_key("value"),
+        "the value is lifted to Resource::id"
+    );
+    assert!(matches!(&parts["id"].value, Value::Str(s) if s.as_ref() == "e1"));
+    let Value::Object(extension) = &parts["extension"].value else {
+        panic!("expected the extension to be reachable");
+    };
+    assert!(matches!(&extension["url"].value, Value::Str(s) if s.as_ref() == "http://x"));
+    // The kept element carries the id element's span, at its `<id` tag.
+    assert_eq!(&source[kept.span.offset as usize..][..3], "<id");
+}
+
+#[test]
+fn plain_resource_id_is_lifted_out_of_the_fields() {
+    let resource =
+        parse_xml(&format!("<Patient {FHIR_NS}><id value=\"p1\"/></Patient>")).expect("parses");
+    assert_eq!(resource.id.as_deref(), Some("p1"));
+    assert!(resource.fields.is_empty());
+}
+
+#[test]
+fn repeated_resource_id_is_rejected() {
+    let source = format!("<Patient {FHIR_NS}><id value=\"a\"/><id value=\"b\"/></Patient>");
+    assert!(xml_error(&source).contains("'id'"));
+}
+
+#[test]
+fn resource_id_value_child_element_is_not_lifted() {
+    let source = format!("<Patient {FHIR_NS}><id><value value=\"p1\"/></id></Patient>");
+    let resource = parse_xml(&source).expect("parses");
+    assert_eq!(resource.id, None);
+    let Value::Object(parts) = &resource.fields["id"].value else {
+        panic!("expected the id element to be kept");
+    };
+    assert!(
+        parts.contains_key("value"),
+        "left for the validator to report"
+    );
+}
+
+#[test]
+fn empty_resource_id_is_rejected() {
+    let source = format!("<Patient {FHIR_NS}><id/></Patient>");
+    assert!(xml_error(&source).contains("'id'"));
+}
+
+#[test]
+fn resource_id_with_only_an_element_id_is_kept_for_the_validator() {
+    let source = format!("<Patient {FHIR_NS}><id id=\"e1\"/></Patient>");
+    let resource = parse_xml(&source).expect("parses");
+    assert_eq!(resource.id, None);
+    assert!(
+        matches!(&resource.fields["id"].value, Value::Object(parts) if parts.contains_key("id"))
+    );
+}
+
+#[test]
+fn control_character_in_a_resource_id_extension_is_rejected() {
+    let source = patient_with_id("value=\"p1\"", "<valueString value=\"a&#1;b\"/>");
+    assert!(xml_error(&source).contains("control"));
+}
