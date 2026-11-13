@@ -99,7 +99,8 @@ fn parse_structure_definition(
         .flatten();
     Ok(Some(
         StructureDefinition::new(url.into(), name.into(), kind.into(), is_abstract, snapshot)
-            .with_value_regex(value_regex),
+            .with_value_regex(value_regex)
+            .with_version(resource["version"].as_str().map(Arc::from)),
     ))
 }
 

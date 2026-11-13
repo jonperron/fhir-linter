@@ -322,8 +322,12 @@ fn walk(
 
         // Element.id is a `string`; R5 snapshots label many as `id` in the fhir-type extension.
         let check_as = if name == "id" { "string" } else { ty.as_ref() };
+        let extension = is_primitive(&ty)
+            .then(|| fields.get(format!("_{name}").as_str()))
+            .flatten();
         check_type(
             &node.value,
+            extension.map(|n| &n.value),
             check_as,
             &child_path,
             node.span,
@@ -332,7 +336,6 @@ fn walk(
         );
         terminology::check(node, elem, &ty, &child_path, context.registry, diagnostics);
         if is_primitive(&ty) {
-            let extension = fields.get(format!("_{name}").as_str());
             check_primitive(
                 Some(node),
                 extension,
