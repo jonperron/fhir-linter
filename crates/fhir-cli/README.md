@@ -37,6 +37,8 @@ the repository, pass `--definitions` or set `FHIR_DEFINITIONS_DIR`.
   `*.xml` (any case) are picked up. Symlinked directories are skipped.
 - `.xml` files are parsed as XML, everything else as JSON.
 - A file reached twice (e.g. `dir` and `dir/a.json`) is checked once.
+- A file larger than 64 MiB is refused before it is read: a tool error
+  (exit 2).
 
 Each file is validated (structure, cardinality, types, terminology,
 FHIRPath invariants) and then linted. A file that does not parse, or is not
@@ -112,7 +114,8 @@ Nothing is printed when there are no findings.
 |------|---------|
 | `0` | No errors (warnings allowed unless `--strict`) |
 | `1` | At least one `fatal` or `error`, or a `warning` with `--strict` |
-| `2` | Tool error: bad arguments, missing or unreadable path, invalid config, definitions not loadable |
+| `2` | Tool error: bad arguments, missing or unreadable path, input over 64 MiB, invalid config (including an unknown severity), definitions not loadable |
 
-`information` never fails the run. On a tool error, `fhir-lint`
-prints `fhir-lint: <message>` to stderr and no report.
+`information` never fails the run, even with `--strict`. On a tool error,
+`fhir-lint` prints `fhir-lint: <message>` to stderr and no report; control
+characters in the message (from a file name, for example) are escaped.

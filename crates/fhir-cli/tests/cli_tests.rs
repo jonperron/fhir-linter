@@ -258,6 +258,106 @@ fn config_with_unknown_rule_is_tool_error() {
 }
 
 #[test]
+fn hint_severity_is_reported_as_information_in_every_format() {
+    let with_hint = |format: &str| {
+        let mut cmd = fhir_lint();
+        cmd.args(["--format", format, "--config"])
+            .arg(fixture("hint-meta-profile.toml"))
+            .arg(fixture("warnings.json"));
+        cmd
+    };
+    with_hint("text")
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains(": information LINT_003 "));
+    let diags = stdout_json(&mut with_hint("json"));
+    let lint = diags
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["code"] == "LINT_003")
+        .expect("LINT_003 present");
+    assert_eq!(lint["severity"], "information");
+    let log = stdout_json(&mut with_hint("sarif"));
+    let results = log["runs"][0]["results"].as_array().unwrap();
+    let lint = results.iter().find(|r| r["ruleId"] == "LINT_003").unwrap();
+    assert_eq!(lint["level"], "note");
+}
+
+#[test]
+fn strict_does_not_fail_on_information() {
+    fhir_lint()
+        .arg("--strict")
+        .arg("--config")
+        .arg(fixture("hint-meta-profile.toml"))
+        .arg(fixture("no-profile.json"))
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains(": information LINT_003 "));
+}
+
+#[test]
+fn config_with_unknown_severity_is_tool_error() {
+    fhir_lint()
+        .arg("--config")
+        .arg(fixture("unknown-severity.toml"))
+        .arg(fixture("warnings.json"))
+        .assert()
+        .code(2)
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::contains("invalid severity 'critical'"));
+}
+
+/// A path in the system temp dir, unique to this test process.
+fn temp_path(name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("fhir-lint-{}-{name}", std::process::id()))
+}
+
+/// A sparse file of `len` bytes: cheap to create whatever its size.
+fn sparse_file(name: &str, len: u64) -> PathBuf {
+    let path = temp_path(name);
+    std::fs::File::create(&path).unwrap().set_len(len).unwrap();
+    path
+}
+
+const MAX_INPUT_BYTES: u64 = 64 * 1024 * 1024;
+
+#[test]
+fn input_over_size_limit_is_tool_error() {
+    let path = sparse_file("too-big.json", MAX_INPUT_BYTES + 1);
+    let result = fhir_lint().arg(&path).assert();
+    let _ = std::fs::remove_file(&path);
+    result
+        .code(2)
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::contains("too-big.json"))
+        .stderr(predicate::str::contains("64 MiB"));
+}
+
+#[test]
+fn input_at_size_limit_is_linted() {
+    let path = sparse_file("at-limit.json", MAX_INPUT_BYTES);
+    let result = fhir_lint().arg(&path).assert();
+    let _ = std::fs::remove_file(&path);
+    // NUL bytes are not JSON: a parse diagnostic, not a size refusal.
+    result.code(1).stdout(predicate::str::contains("PARSE_001"));
+}
+
+// Windows file names cannot hold control characters.
+#[cfg(unix)]
+#[test]
+fn control_characters_in_paths_are_escaped_on_stderr() {
+    let path = temp_path("evil\x1b[2J\x07.json");
+    fhir_lint()
+        .arg(&path)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("\x1b").not())
+        .stderr(predicate::str::contains("\x07").not())
+        .stderr(predicate::str::contains("evil\\u{1b}[2J\\u{7}.json"));
+}
+
+#[test]
 fn repeated_input_is_linted_once() {
     let once = stdout_json(
         fhir_lint()
