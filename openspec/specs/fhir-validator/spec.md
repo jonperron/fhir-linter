@@ -227,6 +227,8 @@ Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_002` et severi
 
 Le système SHALL émettre un `Diagnostic` avec code `TYPE_001` et severity `Error` lorsqu'une valeur n'est pas du type JSON attendu par la StructureDefinition (ex. : nombre fourni pour un champ `string`, ou chaîne pour un champ `boolean`). Pour un champ polymorphique de premier niveau (`value[x]`), le type vérifié SHALL être celui sélectionné par le suffixe du champ. Une valeur scalaire (chaîne, nombre, booléen ou `null`) fournie pour un élément dont le type est un datatype complexe, `BackboneElement` ou `Element` SHALL produire `TYPE_001` avec le message `Expected <type> object at '<path>'` ; un tableau SHALL être vérifié élément par élément.
 
+Les types `string`, `markdown`, `base64Binary`, `uri`, `url`, `canonical`, `oid`, `uuid` et `xhtml` SHALL recevoir une chaîne JSON ; toute autre valeur JSON SHALL produire `TYPE_001`.
+
 #### Scenario: Champ polymorphique typé par son suffixe
 
 - **WHEN** une Observation contient `valueBoolean` avec une valeur JSON string
@@ -262,9 +264,14 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_001` et severity `Err
 - **WHEN** un champ de type `integer` contient le littéral JSON `-0` (parsé en `Value::Decimal(-0.0)`)
 - **THEN** un Diagnostic `TYPE_001` SHALL être émis
 
+#### Scenario: uri attendue, nombre reçu
+
+- **WHEN** un champ de type `uri`, `markdown`, `oid` ou `uuid` contient une valeur JSON numérique
+- **THEN** un Diagnostic `TYPE_001` SHALL être émis
+
 ### Requirement: Validation de type — contrainte de valeur entière (TYPE_002)
 
-Le système SHALL émettre un `Diagnostic` avec code `TYPE_002` et severity `Error` lorsqu'une valeur entière viole une contrainte de valeur : valeur négative pour `unsignedInt`, valeur inférieure ou égale à zéro pour `positiveInt`, ou valeur d'un `integer`, `unsignedInt` ou `positiveInt` hors de la plage des entiers signés 32 bits (maximum `2147483647` ; minimum `-2147483648` pour `integer`).
+Le système SHALL émettre un `Diagnostic` avec code `TYPE_002` et severity `Error` lorsqu'une valeur entière viole une contrainte de valeur : valeur négative pour `unsignedInt`, valeur inférieure ou égale à zéro pour `positiveInt`, ou valeur d'un `integer`, `unsignedInt` ou `positiveInt` hors de la plage des entiers signés 32 bits (maximum `2147483647` ; minimum `-2147483648` pour `integer`). Une valeur de type chaîne SHALL aussi produire `TYPE_002` lorsque son nombre de caractères (et non d'octets) dépasse le `maxLength` de `<type>.value` dans le Registry (R5 : `string`, 1 048 576) ; `Element.id` étant vérifié comme `string`, la limite s'y applique aussi.
 
 #### Scenario: unsignedInt négatif
 
@@ -281,11 +288,28 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_002` et severity `Err
 - **WHEN** `valueInteger` contient la valeur JSON `2147483648`
 - **THEN** un Diagnostic `TYPE_002` SHALL être émis
 
+#### Scenario: string plus longue que maxLength
+
+- **WHEN** un champ de type `string` contient 1 048 577 caractères
+- **THEN** un Diagnostic `TYPE_002` SHALL être émis
+
+#### Scenario: maxLength compté en caractères
+
+- **WHEN** un champ de type `string` contient 1 048 576 caractères multi-octets (par exemple `é`)
+- **THEN** aucun Diagnostic `TYPE_002` ne SHALL être émis
+
+#### Scenario: Element.id plus long que maxLength
+
+- **WHEN** un `Element.id` contient plus de 1 048 576 caractères
+- **THEN** un Diagnostic `TYPE_002` SHALL être émis
+
 ---
 
-### Requirement: Validation de type — format date/heure (TYPE_003)
+### Requirement: Validation de type — format date/heure et expressions régulières R5 (TYPE_003)
 
-Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Error` lorsqu'une valeur de type `date`, `dateTime`, `instant` ou `time` ne respecte pas le format attendu, conforme aux expressions régulières R5 :
+Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Error` lorsqu'une valeur de type `string`, `markdown`, `base64Binary`, `uri`, `url`, `canonical`, `oid` ou `uuid` ne correspond pas à l'expression régulière R5 du type, lue depuis le Registry et ancrée en `\A(?:...)\z`. Une valeur vide ou composée uniquement de whitespace pour ces types SHALL produire `TYPE_003` (décision utilisateur PLAN 11.7-A4 ; R5 datatypes.html : « strings SHOULD always contain non-whitespace content » ; le validateur Java ne donne qu'une information, donc `primitive-good-ws` et `params-ws` de la suite officielle sont des échecs attendus). Pour `base64Binary`, le whitespace ASCII SHALL être ignoré avant l'application de la regex (R5 datatypes.html, RFC 4648). `xhtml` n'a pas de regex R5 (chaîne uniquement). `decimal`, la famille des dates, les types entiers, `integer64`, `code` et `id` conservent des contrôles écrits à la main (la regex R5 de `decimal` contient une coquille).
+
+Pour les types date/heure, le format SHALL être conforme aux expressions régulières R5 :
 
 - `date` : `YYYY(-MM(-DD)?)?`, année de `0001` à `9999`, jour valide pour le mois (années bissextiles comprises) ;
 - `dateTime` : une `date`, ou une date complète suivie de `Thh:mm:ss(.f{1,9})?` et d'un fuseau obligatoire `Z` ou `(+|-)hh:mm` (décalage au plus `14:00`) ; conformément à la regex R5, un fuseau SHALL être accepté sur une valeur réduite à une année-mois ou à une date complète (`2020-01Z`, `2020-01-01+02:00`), mais SHALL être rejeté sur une année seule (`2020Z`) ; une heure sans fuseau SHALL être rejetée ;
@@ -325,6 +349,36 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Err
 #### Scenario: dateTime réduit à l'année avec fuseau
 
 - **WHEN** un champ de type `dateTime` contient `"2020Z"`
+- **THEN** un Diagnostic `TYPE_003` SHALL être émis
+
+#### Scenario: uri avec espace
+
+- **WHEN** un champ de type `uri` contient `"http://a b"`
+- **THEN** un Diagnostic `TYPE_003` SHALL être émis
+
+#### Scenario: oid valide
+
+- **WHEN** un champ de type `oid` contient `"urn:oid:1.2.3"`
+- **THEN** aucun Diagnostic `TYPE_003` ne SHALL être émis
+
+#### Scenario: oid invalide
+
+- **WHEN** un champ de type `oid` contient `"1.2.3"`
+- **THEN** un Diagnostic `TYPE_003` SHALL être émis
+
+#### Scenario: string vide ou whitespace seul
+
+- **WHEN** un champ de type `string` contient `""` ou `"   "`
+- **THEN** un Diagnostic `TYPE_003` SHALL être émis
+
+#### Scenario: base64Binary avec whitespace ignoré
+
+- **WHEN** un champ de type `base64Binary` contient `"aGVs bG8="` ou une valeur base64 coupée par des sauts de ligne
+- **THEN** aucun Diagnostic `TYPE_003` ne SHALL être émis
+
+#### Scenario: base64Binary invalide
+
+- **WHEN** un champ de type `base64Binary` contient `"not base64!"`
 - **THEN** un Diagnostic `TYPE_003` SHALL être émis
 
 ---
