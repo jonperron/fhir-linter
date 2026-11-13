@@ -40,7 +40,6 @@ fn many_large_strings_stop_at_the_budget() {
         "replaceMatches('a', 'b')",
         "substring(0)",
         "replace('a', 'b')",
-        "toString()",
         "split('-')",
     ] {
         assert!(
@@ -55,6 +54,12 @@ fn many_large_strings_stop_at_the_budget() {
         ".select($this.combine($this))".repeat(5),
     );
     assert!(is_over_budget(&expr), "concatenation");
+    // toString() of 64 copies of a Quantity whose unit holds 2^19 characters.
+    let quantity = format!(
+        "('1 \\'' + {half} + '\\'').toQuantity(){}.select($this.toString())",
+        ".select($this.combine($this))".repeat(6),
+    );
+    assert!(is_over_budget(&quantity), "toString");
 }
 
 #[test]
@@ -74,6 +79,13 @@ fn navigating_existing_strings_does_not_count() -> Result<(), EvalError> {
     // 32 references to one String are not 32 new Strings.
     let expr = format!(
         "{}{}.count()",
+        full_string(),
+        ".select($this.combine($this))".repeat(5),
+    );
+    assert_eq!(evaluate(&expr, &[])?, vec![Value::Integer(32)]);
+    // toString() of a String returns it as is: nothing new to charge.
+    let expr = format!(
+        "{}{}.select($this.toString()).count()",
         full_string(),
         ".select($this.combine($this))".repeat(5),
     );

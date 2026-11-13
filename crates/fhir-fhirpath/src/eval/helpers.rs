@@ -53,12 +53,16 @@ impl Evaluator<'_> {
         Ok(())
     }
 
-    /// Charge every String (and Quantity unit) of a newly built collection.
+    /// Charge every String (and Quantity unit) a function just built into
+    /// `col`. A text held elsewhere too (`toString()` of a String returns
+    /// the same `Arc`) allocated nothing, so it is not charged.
     pub(super) fn charged(&self, col: Collection) -> Result<Collection, EvalError> {
         let chars = col
             .iter()
             .map(|v| match v {
-                Value::String(s) | Value::Quantity(_, s) => s.chars().count(),
+                Value::String(s) | Value::Quantity(_, s) if Arc::strong_count(s) == 1 => {
+                    s.chars().count()
+                }
                 _ => 0,
             })
             .fold(0, usize::saturating_add);
