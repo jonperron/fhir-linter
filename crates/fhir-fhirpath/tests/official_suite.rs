@@ -11,7 +11,8 @@
 //! lenient cases run alike (some pairs cannot both pass), and an `invalid`
 //! case also passes when the error is an unimplemented function.
 //! Inputs are typed with the R5 `Registry` (`resource_to_typed_value`), as in
-//! the validator; there is no choice navigation.
+//! the validator, with the validator's choice navigation (`Observation.value`
+//! finds `valueQuantity`); the input resource is `%resource`.
 //! The test fails when the pass count drops below `MIN_PASSED`.
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -19,7 +20,10 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use fhir_definitions::Registry;
-use fhir_fhirpath::{Collection, EvalError, Value, evaluate, resource_to_typed_value};
+use fhir_fhirpath::{
+    Collection, Environment, EvalError, Value, evaluate_parsed_with_environment, parse,
+    resource_to_typed_value,
+};
 use fhir_parser::{parse_json, parse_xml};
 use quick_xml::Reader;
 use quick_xml::escape::resolve_predefined_entity;
@@ -28,7 +32,7 @@ use quick_xml::events::{BytesStart, Event};
 /// Regression floor (passed cases on the pinned fixtures); raise it as the
 /// evaluator improves. Lowered from 757 when the fake stubs (htmlChecks,
 /// precision, now, today) and the `is` operator's empty-input `false` stopped
-/// passing cases for the wrong reason; this suite runs without choice navigation.
+/// passing cases for the wrong reason.
 /// Raised to 817 by the operator semantics fixes, then to 839 by the N1
 /// empty-input rules for string functions (F8), then to 865 by the N1
 /// conversion rules (F9), then to 877 by the FHIR data model mapping (F10:
@@ -36,8 +40,12 @@ use quick_xml::events::{BytesStart, Event};
 /// with an empty count, then to 884 by the string function singleton rule,
 /// then to 911 by the N1 conversions (toQuantity, calendar duration units,
 /// Decimal toString), then to 915 by `$total` in aggregate(), then to 916
-/// by `$index`.
-const MIN_PASSED: u32 = 916;
+/// by `$index`, then to 943 by `%` environment variables, with the input as
+/// `%resource`, and choice navigation (8 wrong-reason passes lost: 5
+/// defineVariable cases now reach the unimplemented function, 3 `...Bad` cases
+/// need a static type check; 2 Quantity unit-vs-no-unit `=` cases now reach
+/// a real comparison gap).
+const MIN_PASSED: u32 = 943;
 
 /// (run, skipped) case counts on the pinned fixtures, so loader drift or a
 /// broken skip filter cannot hide behind the floor.
@@ -256,11 +264,25 @@ fn run_case(
         }
         None => Vec::new(),
     };
-    let context = match &case.context {
-        Some(path) => evaluate(path, &context).map_err(|e| format!("context `{path}`: {e}"))?,
-        None => context,
+    // The input file is `%resource`, also when `context` selects a node in it.
+    let environment = Environment {
+        resource: context.first(),
+        root_resource: None,
     };
-    let actual = match (evaluate(&case.expression, &context), case.invalid) {
+    // Choice elements navigate as in the validator (`Observation.effective`).
+    let registry = registry()?;
+    let is_choice_variant = |base: &str, suffix: &str| registry.is_choice_variant(base, suffix);
+    let run = |expression: &str, input: &[Value]| {
+        parse(expression).map_err(EvalError::from).and_then(|expr| {
+            evaluate_parsed_with_environment(&expr, input, &is_choice_variant, &environment)
+        })
+    };
+    let expression_context = match &case.context {
+        Some(path) => run(path, &context).map_err(|e| format!("context `{path}`: {e}"))?,
+        None => context.clone(),
+    };
+    let result = run(&case.expression, &expression_context);
+    let actual = match (result, case.invalid) {
         // A missing function does not prove the expression invalid.
         (Err(EvalError::UndefinedFunction(name)), true) => {
             return Err(format!(

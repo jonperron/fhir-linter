@@ -26,6 +26,8 @@ pub enum Expr {
     DollarIndex,
     /// `$total`, the running total inside `aggregate()`
     DollarTotal,
+    /// `%name` or `%'name'`, an environment variable, stored without the `%`.
+    External(String),
     /// Identifier (path step, e.g. `name`, `Patient`).
     Ident(String),
     /// `.field` navigation applied to a base expression.

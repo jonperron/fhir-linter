@@ -65,7 +65,10 @@ index_step   =  { "[" ~ expression_inner ~ "]" }
 expression_inner = { implies_expr }
 
 // ── Primary ────────────────────────────────────────────────────────────────
-primary_expr = _{ paren_expr | literal | func_call | ident | dollar_this | dollar_index | dollar_total }
+primary_expr = _{ paren_expr | literal | func_call | ident | dollar_this | dollar_index | dollar_total | external_constant }
+
+// externalConstant: '%' (identifier | STRING)
+external_constant = ${ "%" ~ (ident | string_lit) }
 
 paren_expr  =  { "(" ~ expression_inner ~ ")" }
 dollar_this =  { "$this" }
