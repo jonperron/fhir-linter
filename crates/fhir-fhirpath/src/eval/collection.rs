@@ -4,9 +4,9 @@ use crate::value::{Collection, Value};
 
 use super::Evaluator;
 use super::helpers::{
-    as_type, check_arity, check_arity_range, collect_descendants, compare_values, contains_value,
-    criteria_bool, distinct, eval_type_name, is_type, primitive_values, single_integer,
-    value_is_type,
+    as_type, check_arity, check_arity_range, check_collection_len, collect_descendants,
+    compare_values, contains_value, criteria_bool, distinct, eval_type_name, is_type,
+    optional_integer, primitive_values, value_is_type,
 };
 
 impl Evaluator<'_> {
@@ -50,8 +50,8 @@ impl Evaluator<'_> {
                 }
                 check_arity(name, args, 1)?;
                 let mut result = false;
-                for item in focus {
-                    let col = self.eval(&args[0], std::slice::from_ref(item))?;
+                for (index, item) in focus.iter().enumerate() {
+                    let col = self.eval_item(&args[0], item, index)?;
                     if criteria_bool(&col, name)? == Some(true) {
                         result = true;
                         break;
@@ -65,8 +65,8 @@ impl Evaluator<'_> {
                     return Ok(Some(vec![Value::Bool(true)]));
                 }
                 let mut result = true;
-                for item in focus {
-                    let col = self.eval(&args[0], std::slice::from_ref(item))?;
+                for (index, item) in focus.iter().enumerate() {
+                    let col = self.eval_item(&args[0], item, index)?;
                     if criteria_bool(&col, name)? != Some(true) {
                         result = false;
                         break;
@@ -100,8 +100,8 @@ impl Evaluator<'_> {
             "where" => {
                 check_arity(name, args, 1)?;
                 let mut out = Vec::new();
-                for item in focus {
-                    let col = self.eval(&args[0], std::slice::from_ref(item))?;
+                for (index, item) in focus.iter().enumerate() {
+                    let col = self.eval_item(&args[0], item, index)?;
                     if criteria_bool(&col, name)? == Some(true) {
                         out.push(item.clone());
                     }
@@ -111,9 +111,9 @@ impl Evaluator<'_> {
             "select" => {
                 check_arity(name, args, 1)?;
                 let mut out = Vec::new();
-                for item in focus {
-                    let col = self.eval(&args[0], std::slice::from_ref(item))?;
-                    out.extend(col);
+                for (index, item) in focus.iter().enumerate() {
+                    out.extend(self.eval_item(&args[0], item, index)?);
+                    check_collection_len(out.len())?;
                 }
                 out
             }
@@ -124,14 +124,16 @@ impl Evaluator<'_> {
                 let mut frontier = focus.to_vec();
                 loop {
                     let mut next = Vec::new();
-                    for item in &frontier {
-                        let col = self.eval(&args[0], std::slice::from_ref(item))?;
-                        for v in col {
+                    // shortcut: N1 does not say what $index is in repeat(); each
+                    // round indexes its own items. Revisit if a later release defines it.
+                    for (index, item) in frontier.iter().enumerate() {
+                        for v in self.eval_item(&args[0], item, index)? {
                             if !contains_value(&seen, &v) {
                                 seen.push(v.clone());
                                 next.push(v);
                             }
                         }
+                        check_collection_len(seen.len())?;
                     }
                     if next.is_empty() {
                         break;
@@ -175,15 +177,19 @@ impl Evaluator<'_> {
                 check_arity(name, args, 0)?;
                 focus.iter().skip(1).cloned().collect()
             }
-            "skip" => {
+            "skip" | "take" => {
                 check_arity(name, args, 1)?;
-                let n = single_integer(&self.eval(&args[0], ctx)?, "skip")?;
-                focus.iter().skip(n.max(0) as usize).cloned().collect()
-            }
-            "take" => {
-                check_arity(name, args, 1)?;
-                let n = single_integer(&self.eval(&args[0], ctx)?, "take")?;
-                focus.iter().take(n.max(0) as usize).cloned().collect()
+                // N1 §4.4.1: an empty count gives empty.
+                let Some(n) = optional_integer(&self.eval(&args[0], ctx)?, name)? else {
+                    return Ok(Some(vec![]));
+                };
+                // Clamp: on 32-bit targets an i64 count can exceed usize.
+                let n = usize::try_from(n.max(0)).unwrap_or(usize::MAX);
+                if name == "skip" {
+                    focus.iter().skip(n).cloned().collect()
+                } else {
+                    focus.iter().take(n).cloned().collect()
+                }
             }
             "single" => {
                 check_arity(name, args, 0)?;
@@ -263,9 +269,12 @@ impl Evaluator<'_> {
                 } else {
                     vec![]
                 };
-                for item in focus {
-                    let item_ctx: Collection = vec![item.clone()];
-                    total = self.eval(&args[0], &item_ctx)?;
+                for (index, item) in focus.iter().enumerate() {
+                    let step = Evaluator {
+                        total: Some(&total),
+                        ..*self
+                    };
+                    total = step.eval_item(&args[0], item, index)?;
                 }
                 total
             }
@@ -362,8 +371,8 @@ impl Evaluator<'_> {
                     items
                 } else {
                     let mut keys: Vec<Value> = Vec::with_capacity(items.len());
-                    for item in &items {
-                        let key_col = self.eval(&args[0], std::slice::from_ref(item))?;
+                    for (index, item) in items.iter().enumerate() {
+                        let key_col = self.eval_item(&args[0], item, index)?;
                         keys.push(key_col.into_iter().next().unwrap_or(Value::Null));
                     }
                     let mut indices: Vec<usize> = (0..items.len()).collect();
@@ -382,19 +391,23 @@ impl Evaluator<'_> {
             }
 
             // ── Navigation ────────────────────────────────────────────────
+            // Checked per item: many copies of one node would otherwise expand
+            // past the cap before the result is checked.
             "children" => {
                 check_arity(name, args, 0)?;
-                focus
-                    .iter()
-                    .flat_map(Value::child_elements)
-                    .cloned()
-                    .collect()
+                let mut out = Vec::new();
+                for item in focus {
+                    out.extend(item.child_elements().cloned());
+                    check_collection_len(out.len())?;
+                }
+                out
             }
             "descendants" => {
                 check_arity(name, args, 0)?;
                 let mut out = Vec::new();
                 for item in focus {
                     collect_descendants(item, &mut out);
+                    check_collection_len(out.len())?;
                 }
                 out
             }

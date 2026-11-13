@@ -32,8 +32,12 @@ use quick_xml::events::{BytesStart, Event};
 /// Raised to 817 by the operator semantics fixes, then to 839 by the N1
 /// empty-input rules for string functions (F8), then to 865 by the N1
 /// conversion rules (F9), then to 877 by the FHIR data model mapping (F10:
-/// typed inputs, primitive extensions, hasValue).
-const MIN_PASSED: u32 = 877;
+/// typed inputs, primitive extensions, hasValue), then to 881 by skip/take
+/// with an empty count, then to 884 by the string function singleton rule,
+/// then to 911 by the N1 conversions (toQuantity, calendar duration units,
+/// Decimal toString), then to 915 by `$total` in aggregate(), then to 916
+/// by `$index`.
+const MIN_PASSED: u32 = 916;
 
 /// (run, skipped) case counts on the pinned fixtures, so loader drift or a
 /// broken skip filter cannot hide behind the floor.

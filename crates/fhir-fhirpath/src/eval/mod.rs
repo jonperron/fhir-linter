@@ -35,15 +35,49 @@ pub fn eval(
     context: &[Value],
     is_choice_variant: &dyn Fn(&str, &str) -> bool,
 ) -> Result<Collection, EvalError> {
-    Evaluator { is_choice_variant }.eval(expr, context)
+    Evaluator {
+        is_choice_variant,
+        total: None,
+        index: None,
+    }
+    .eval(expr, context)
 }
 
 pub(super) struct Evaluator<'a> {
     is_choice_variant: &'a dyn Fn(&str, &str) -> bool,
+    /// `$total` while an `aggregate()` expression is evaluated.
+    total: Option<&'a [Value]>,
+    /// `$index` while an expression parameter is evaluated for one item.
+    index: Option<usize>,
 }
 
 impl Evaluator<'_> {
+    /// Evaluate an expression parameter for the input item at `index`, which
+    /// becomes `$this` and `$index` (N1 §5).
+    pub(super) fn eval_item(
+        &self,
+        expr: &Expr,
+        item: &Value,
+        index: usize,
+    ) -> Result<Collection, EvalError> {
+        Evaluator {
+            index: Some(index),
+            ..*self
+        }
+        .eval(expr, std::slice::from_ref(item))
+    }
+
+    /// Evaluate `expr`; every intermediate collection is checked against
+    /// [`helpers::MAX_COLLECTION_LEN`]. Producers that iterate their focus
+    /// also check per item, so a step overshoots by at most one item's output
+    /// (or the other side of a combine or union).
     pub(super) fn eval(&self, expr: &Expr, ctx: &[Value]) -> Result<Collection, EvalError> {
+        let col = self.eval_expr(expr, ctx)?;
+        helpers::check_collection_len(col.len())?;
+        Ok(col)
+    }
+
+    fn eval_expr(&self, expr: &Expr, ctx: &[Value]) -> Result<Collection, EvalError> {
         match expr {
             // ── Literals ────────────────────────────────────────────────────
             Expr::Null => Ok(vec![]),
@@ -64,9 +98,14 @@ impl Evaluator<'_> {
 
             // ── Context / root ──────────────────────────────────────────────
             Expr::DollarThis => Ok(ctx.to_vec()),
-            Expr::DollarIndex => Err(EvalError::UndefinedFunction(
-                "$index is not supported outside of iteration context".to_owned(),
-            )),
+            Expr::DollarIndex => self
+                .index
+                .map(|i| vec![Value::Integer(i as i64)])
+                .ok_or_else(|| EvalError::Type("$index outside an iteration".to_owned())),
+            Expr::DollarTotal => self
+                .total
+                .map(<[Value]>::to_vec)
+                .ok_or_else(|| EvalError::Type("$total outside aggregate()".to_owned())),
 
             // ── Identifier / path step ─────────────────────────────────────
             Expr::Ident(name) => self.eval_ident(name, ctx, true),
@@ -219,6 +258,8 @@ impl Evaluator<'_> {
                     result.push(item.clone());
                 }
             }
+            // Per item, so many copies of one node cannot expand past the cap.
+            helpers::check_collection_len(result.len())?;
         }
         Ok(result)
     }
@@ -263,7 +304,7 @@ impl Evaluator<'_> {
         if let Some(r) = self.call_math_function(name, args, &values, ctx) {
             return r;
         }
-        if let Some(r) = self.call_type_function(name, args, &values) {
+        if let Some(r) = self.call_type_function(name, args, &values, ctx) {
             return r;
         }
         if let Some(r) = self.call_misc_function(name, args, focus, ctx) {

@@ -3,7 +3,20 @@ use std::sync::Arc;
 use super::ArithOp;
 use crate::ast::Expr;
 use crate::error::EvalError;
-use crate::value::{Collection, Value};
+use crate::value::{Collection, Value, same_quantity_unit};
+
+/// Largest collection an evaluation may build. N1 sets no limit; this one
+/// stops exponential growth (a `select($this.combine($this))` chain, or
+/// `aggregate($total.combine($total))`) before it exhausts memory.
+pub(super) const MAX_COLLECTION_LEN: usize = 100_000;
+
+/// `CollectionTooLarge` once a collection passes [`MAX_COLLECTION_LEN`].
+pub(super) fn check_collection_len(len: usize) -> Result<(), EvalError> {
+    if len > MAX_COLLECTION_LEN {
+        return Err(EvalError::CollectionTooLarge(MAX_COLLECTION_LEN));
+    }
+    Ok(())
+}
 
 /// Check that a function received the expected number of arguments.
 pub(super) fn check_arity(name: &str, args: &[Expr], expected: usize) -> Result<(), EvalError> {
@@ -87,7 +100,9 @@ pub(super) fn values_equal(a: &Value, b: &Value) -> Option<bool> {
         (Value::Long(x), Value::Decimal(y)) => Some(*x as f64 == *y),
         (Value::Decimal(x), Value::Long(y)) => Some(*x == *y as f64),
         (Value::String(x), Value::String(y)) => Some(x == y),
-        (Value::Quantity(xv, xu), Value::Quantity(yv, yu)) => Some(xv == yv && xu == yu),
+        (Value::Quantity(xv, xu), Value::Quantity(yv, yu)) => {
+            Some(xv == yv && same_quantity_unit(xu, yu, false))
+        }
         // N1 §6.1.1: complex values are equal when all their properties are.
         (Value::Object(x), Value::Object(y)) => objects_match(x, y, false),
         // A complex value never equals a primitive. Without type knowledge an XML
@@ -238,6 +253,9 @@ pub(super) fn values_equivalent(a: &Value, b: &Value) -> bool {
             _ => false,
         },
         (Value::Object(x), Value::Object(y)) => objects_match(x, y, true) == Some(true),
+        (Value::Quantity(xv, xu), Value::Quantity(yv, yu)) => {
+            xv == yv && same_quantity_unit(xu, yu, true)
+        }
         _ => values_equal(a, b).unwrap_or(false),
     }
 }
@@ -270,7 +288,7 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
         | (Value::DateTime(x), Value::DateTime(y))
         | (Value::Time(x), Value::Time(y)) => Ok(x.cmp(y)),
         (Value::Quantity(xv, xu), Value::Quantity(yv, yu)) => {
-            if xu != yu {
+            if !same_quantity_unit(xu, yu, false) {
                 return Err(EvalError::Type(format!(
                     "cannot compare quantities with different units: '{xu}' vs '{yu}'"
                 )));
@@ -411,14 +429,28 @@ pub(super) fn string_or_empty(col: &[Value]) -> Arc<str> {
         .unwrap_or_else(|| Arc::from(""))
 }
 
+/// N1 §5.6 input of a string function: `None` when empty; several items or
+/// an item that is not a String are an error.
+pub(super) fn string_input(focus: &[Value], name: &str) -> Result<Option<Arc<str>>, EvalError> {
+    match singleton(focus, name)? {
+        None => Ok(None),
+        Some(Value::String(s)) => Ok(Some(Arc::clone(s))),
+        Some(v) => Err(EvalError::Type(format!(
+            "{name}() requires a String input, got {}",
+            v.type_name()
+        ))),
+    }
+}
+
 pub(super) fn string_transform(
     focus: &[Value],
+    name: &str,
     f: impl Fn(&str) -> String,
 ) -> Result<Collection, EvalError> {
-    match focus.first().and_then(|v| v.as_string()) {
-        Some(s) => Ok(vec![Value::String(Arc::from(f(&s)))]),
-        None => Ok(vec![]),
-    }
+    Ok(string_input(focus, name)?
+        .map(|s| Value::String(Arc::from(f(&s))))
+        .into_iter()
+        .collect())
 }
 
 /// Single-pass JSON string unescape (FHIRPath 3.0 `unescape('json')`).
@@ -450,14 +482,19 @@ pub(super) fn json_unescape(s: &str) -> String {
 // ── Argument extraction ───────────────────────────────────────────────────────
 
 pub(super) fn single_integer(col: &Collection, context: &str) -> Result<i64, EvalError> {
-    match col.first().map(Value::primitive_value) {
-        Some(Value::Integer(n)) => Ok(*n),
+    optional_integer(col, context)?
+        .ok_or_else(|| EvalError::Type(format!("{context}: expected Integer, got empty")))
+}
+
+/// An Integer argument that may be empty (N1 §4.4.1); several items or a
+/// non-Integer item are an error (N1 §5).
+pub(super) fn optional_integer(col: &[Value], context: &str) -> Result<Option<i64>, EvalError> {
+    match singleton(col, context)? {
+        None => Ok(None),
+        Some(Value::Integer(n)) => Ok(Some(*n)),
         Some(v) => Err(EvalError::Type(format!(
             "{context}: expected Integer, got {}",
             v.type_name()
-        ))),
-        None => Err(EvalError::Type(format!(
-            "{context}: expected Integer, got empty"
         ))),
     }
 }

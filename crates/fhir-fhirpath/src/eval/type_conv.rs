@@ -4,10 +4,10 @@ use regex_lite::Regex;
 
 use crate::ast::Expr;
 use crate::error::EvalError;
-use crate::value::{Collection, Value};
+use crate::value::{Collection, Value, calendar_unit, is_calendar_date};
 
 use super::Evaluator;
-use super::helpers::{check_arity, singleton};
+use super::helpers::{check_arity, check_arity_range, singleton};
 
 impl Evaluator<'_> {
     /// Handle type conversion and type-checking functions.
@@ -17,16 +17,17 @@ impl Evaluator<'_> {
         name: &str,
         args: &[Expr],
         focus: &[Value],
+        ctx: &[Value],
     ) -> Option<Result<Collection, EvalError>> {
-        self.try_type_conv(name, args, focus).transpose()
+        self.try_type_conv(name, args, focus, ctx).transpose()
     }
 
-    #[allow(clippy::too_many_lines)]
     fn try_type_conv(
         &self,
         name: &str,
         args: &[Expr],
         focus: &[Value],
+        ctx: &[Value],
     ) -> Result<Option<Collection>, EvalError> {
         let col: Collection = match name {
             // ── Integer ───────────────────────────────────────────────────
@@ -34,34 +35,8 @@ impl Evaluator<'_> {
             "convertsToInteger" => converts(name, args, focus, to_integer)?,
 
             // ── Long ──────────────────────────────────────────────────────
-            "toLong" => {
-                check_arity(name, args, 0)?;
-                match focus.first() {
-                    Some(Value::Long(n)) => vec![Value::Long(*n)],
-                    Some(Value::Integer(n)) => vec![Value::Long(*n)],
-                    Some(Value::Bool(b)) => vec![Value::Long(if *b { 1 } else { 0 })],
-                    Some(Value::String(s)) => match s.parse::<i64>() {
-                        Ok(n) => vec![Value::Long(n)],
-                        Err(_) => vec![],
-                    },
-                    None => vec![],
-                    Some(v) => {
-                        return Err(EvalError::Type(format!(
-                            "toLong() cannot convert {}",
-                            v.type_name()
-                        )));
-                    }
-                }
-            }
-            "convertsToLong" => {
-                check_arity(name, args, 0)?;
-                let result = match focus.first() {
-                    Some(Value::Long(_) | Value::Integer(_) | Value::Bool(_)) => true,
-                    Some(Value::String(s)) => s.parse::<i64>().is_ok(),
-                    _ => false,
-                };
-                vec![Value::Bool(result)]
-            }
+            "toLong" => convert(name, args, focus, to_long)?,
+            "convertsToLong" => converts(name, args, focus, to_long)?,
 
             // ── Decimal ───────────────────────────────────────────────────
             "toDecimal" => convert(name, args, focus, to_decimal)?,
@@ -72,10 +47,8 @@ impl Evaluator<'_> {
             "convertsToBoolean" => converts(name, args, focus, to_boolean)?,
 
             // ── String ────────────────────────────────────────────────────
-            "convertsToString" => {
-                check_arity(name, args, 0)?;
-                vec![Value::Bool(!focus.is_empty())]
-            }
+            "toString" => convert(name, args, focus, to_string)?,
+            "convertsToString" => converts(name, args, focus, to_string)?,
 
             // ── Date / DateTime / Time ─────────────────────────────────────
             "toDate" => convert(name, args, focus, to_date)?,
@@ -86,29 +59,37 @@ impl Evaluator<'_> {
             "convertsToTime" => converts(name, args, focus, to_time)?,
 
             // ── Quantity ──────────────────────────────────────────────────
-            "toQuantity" => {
-                if args.len() > 1 {
-                    return Err(EvalError::Arity {
-                        name: name.to_owned(),
-                        expected: 1,
-                        got: args.len(),
-                    });
+            "toQuantity" | "convertsToQuantity" => {
+                check_arity_range(name, args, 0, 1)?;
+                // N1 §5.5.7: without UCUM conversion, only the input's own unit
+                // converts; an empty unit argument gives empty (N1 §4.4.1).
+                let unit = match args.first() {
+                    Some(arg) => match singleton(&self.eval(arg, ctx)?, name)? {
+                        None => return Ok(Some(vec![])),
+                        Some(Value::String(unit)) => Some(Arc::clone(unit)),
+                        Some(v) => {
+                            return Err(EvalError::Type(format!(
+                                "{name}() unit must be a String, got {}",
+                                v.type_name()
+                            )));
+                        }
+                    },
+                    None => None,
+                };
+                let Some(item) = singleton(focus, name)? else {
+                    return Ok(Some(vec![]));
+                };
+                let quantity = to_quantity(item).filter(|q| match (&unit, q) {
+                    (Some(unit), Value::Quantity(_, own)) => {
+                        calendar_unit(unit).unwrap_or(unit) == &**own
+                    }
+                    _ => true,
+                });
+                if name == "toQuantity" {
+                    quantity.into_iter().collect()
+                } else {
+                    vec![Value::Bool(quantity.is_some())]
                 }
-                focus
-                    .iter()
-                    .filter_map(|v| match v {
-                        Value::Quantity(_, _) => Some(v.clone()),
-                        _ => None,
-                    })
-                    .collect()
-            }
-            "convertsToQuantity" => {
-                check_arity(name, args, 0)?;
-                let result = focus
-                    .first()
-                    .map(|v| matches!(v, Value::Quantity(_, _)))
-                    .unwrap_or(false);
-                vec![Value::Bool(result)]
             }
 
             _ => return Ok(None),
@@ -157,6 +138,73 @@ fn to_integer(item: &Value) -> Option<Value> {
     }
 }
 
+/// toLong is not in N1 (FHIRPath 3.0 STU); it follows toInteger: Integer,
+/// Long, Boolean, or a String in the form `(\+|-)?\d+` that fits in 64 bits.
+fn to_long(item: &Value) -> Option<Value> {
+    match item {
+        Value::Integer(n) | Value::Long(n) => Some(Value::Long(*n)),
+        Value::Bool(b) => Some(Value::Long(i64::from(*b))),
+        Value::String(s) => s.parse().ok().map(Value::Long),
+        _ => None,
+    }
+}
+
+/// N1 §5.5.7: Integer or Decimal (unit `'1'`), Quantity, Boolean (`1.0 '1'`
+/// or `0.0 '1'`), or a String matching `QUANTITY`. An unquoted unit must be
+/// a calendar duration keyword, the only unquoted unit N1 §4.1.8 allows.
+fn to_quantity(item: &Value) -> Option<Value> {
+    let (value, unit) = match item {
+        Value::Quantity(..) => return Some(item.clone()),
+        Value::Integer(n) => (*n as f64, "1"),
+        Value::Decimal(d) if d.is_finite() => (*d, "1"),
+        Value::Bool(b) => (f64::from(u8::from(*b)), "1"),
+        Value::String(s) => {
+            let captures = QUANTITY.as_ref()?.captures(s)?;
+            let unit = match (captures.get(3), captures.get(4)) {
+                (Some(ucum), _) => ucum.as_str(),
+                (None, Some(keyword)) => calendar_unit(keyword.as_str())?,
+                (None, None) => "1",
+            };
+            (finite(captures.get(1)?.as_str())?, unit)
+        }
+        _ => return None,
+    };
+    Some(Value::Quantity(value, Arc::from(unit)))
+}
+
+/// N1 §5.5.8: the String form of a String, Integer, Decimal, Date, Time,
+/// DateTime, Quantity or Boolean; anything else does not convert.
+fn to_string(item: &Value) -> Option<Value> {
+    let text = match item {
+        Value::String(_) => return Some(item.clone()),
+        Value::Bool(b) => b.to_string(),
+        Value::Integer(n) | Value::Long(n) => n.to_string(),
+        Value::Decimal(d) if d.is_finite() => decimal_text(*d),
+        Value::Date(s) | Value::DateTime(s) | Value::Time(s) => s.to_string(),
+        Value::Quantity(value, unit) => format!("{value} '{unit}'"),
+        _ => return None,
+    };
+    Some(Value::String(Arc::from(text)))
+}
+
+/// A digit string as a Decimal; `None` beyond f64 instead of infinity.
+fn finite(digits: &str) -> Option<f64> {
+    digits.parse::<f64>().ok().filter(|d| d.is_finite())
+}
+
+/// A Decimal as `(\+|-)?\d+(.\d+)?`, always with a fraction so it stays
+/// distinct from an Integer (`1.0.toString()` is `'1.0'`).
+// shortcut: f64 keeps no literal precision, so `1.50` renders as `1.5`;
+// upgrade with a real decimal type.
+fn decimal_text(d: f64) -> String {
+    let text = d.to_string();
+    if text.contains('.') {
+        text
+    } else {
+        format!("{text}.0")
+    }
+}
+
 /// N1 §5.5.4: Integer, Decimal, Boolean, or a String in the form
 /// `(\+|-)?\d+(\.\d+)?`.
 fn to_decimal(item: &Value) -> Option<Value> {
@@ -164,7 +212,7 @@ fn to_decimal(item: &Value) -> Option<Value> {
         Value::Decimal(d) => Some(Value::Decimal(*d)),
         Value::Integer(n) => Some(Value::Decimal(*n as f64)),
         Value::Bool(b) => Some(Value::Decimal(if *b { 1.0 } else { 0.0 })),
-        Value::String(s) if full_match(&DECIMAL, s) => s.parse().ok().map(Value::Decimal),
+        Value::String(s) if full_match(&DECIMAL, s) => finite(s).map(Value::Decimal),
         _ => None,
     }
 }
@@ -226,28 +274,6 @@ fn to_time(item: &Value) -> Option<Value> {
     }
 }
 
-/// Year 0001-9999 and a day that exists in its month, leap years included.
-/// Expects a string already matched by `DATE` or `DATE_TIME` (ASCII digits).
-/// Only the date before any `T` is read: in `2015T11:31` there is no month.
-fn is_calendar_date(s: &str) -> bool {
-    let date = s.split_once('T').map_or(s, |(date, _)| date);
-    let field = |range: std::ops::Range<usize>| date.get(range).and_then(|f| f.parse::<u32>().ok());
-    let Some(year) = field(0..4).filter(|y| *y > 0) else {
-        return false;
-    };
-    let (Some(month), Some(day)) = (field(5..7), field(8..10)) else {
-        return true; // partial date: the regex already bounds the month
-    };
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let days_in_month = match month {
-        2 if leap => 29,
-        2 => 28,
-        4 | 6 | 9 | 11 => 30,
-        _ => 31,
-    };
-    day <= days_in_month
-}
-
 const DATE_PART: &str = r"\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?)?";
 // Seconds up to 60 (leap second), as in the R5 time regex.
 const TIME_PART: &str = r"([01]\d|2[0-3])(:[0-5]\d(:([0-5]\d|60)(\.\d+)?)?)?";
@@ -255,6 +281,9 @@ const TIME_PART: &str = r"([01]\d|2[0-3])(:[0-5]\d(:([0-5]\d|60)(\.\d+)?)?)?";
 type Pattern = LazyLock<Option<Regex>>;
 
 static DECIMAL: Pattern = LazyLock::new(|| anchored(r"[+-]?\d+(\.\d+)?"));
+// N1 §5.5.7: `(?'value'(\+|-)?\d+(\.\d+)?)\s*('(?'unit'[^']+)'|(?'time'[a-zA-Z]+))?`
+static QUANTITY: Pattern =
+    LazyLock::new(|| anchored(r"([+-]?\d+(\.\d+)?)\s*(?:'([^']+)'|([a-zA-Z]+))?"));
 static DATE: Pattern = LazyLock::new(|| anchored(DATE_PART));
 static DATE_TIME: Pattern = LazyLock::new(|| {
     anchored(&format!(

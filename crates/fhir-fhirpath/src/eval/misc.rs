@@ -6,7 +6,8 @@ use crate::value::{Collection, Value};
 
 use super::Evaluator;
 use super::helpers::{
-    check_arity, check_arity_range, criteria_bool, eval_string_arg, singleton, singleton_bool,
+    check_arity, check_arity_range, check_collection_len, criteria_bool, eval_string_arg,
+    singleton, singleton_bool,
 };
 
 impl Evaluator<'_> {
@@ -82,6 +83,8 @@ impl Evaluator<'_> {
                             }
                         }
                     }
+                    // Per item, so many copies of one node cannot expand past the cap.
+                    check_collection_len(out.len())?;
                 }
                 out
             }

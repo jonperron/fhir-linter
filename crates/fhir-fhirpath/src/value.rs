@@ -22,7 +22,8 @@ pub enum Value {
     Date(Arc<str>),
     DateTime(Arc<str>),
     Time(Arc<str>),
-    /// Quantity with a UCUM unit.
+    /// Quantity with a UCUM unit, or a calendar duration unit given by its
+    /// singular keyword (N1 §4.1.8: `4 days` has the unit `'day'`).
     Quantity(f64, Arc<str>),
     /// An object node (maps field name → collection).
     Object(Arc<IndexMap<Arc<str>, Collection>>),
@@ -128,6 +129,67 @@ impl fmt::Display for Value {
             Value::Primitive(value, _) => write!(f, "{value}"),
         }
     }
+}
+
+/// Year 0001-9999 (N1 §4.1.5), month 01-12 and a day that exists in its
+/// month, leap years included, for a (partial) date text in the form
+/// `YYYY(-MM(-DD)?)?` with ASCII digits. Only the date before any `T` is
+/// read: in `2015T11:31` there is no month.
+pub(crate) fn is_calendar_date(s: &str) -> bool {
+    let date = s.split_once('T').map_or(s, |(date, _)| date);
+    let field = |range: std::ops::Range<usize>| date.get(range).and_then(|f| f.parse::<u32>().ok());
+    let Some(year) = field(0..4).filter(|y| *y > 0) else {
+        return false;
+    };
+    let Some(month) = field(5..7) else {
+        return true;
+    };
+    if !(1..=12).contains(&month) {
+        return false;
+    }
+    let Some(day) = field(8..10) else {
+        return true;
+    };
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days_in_month = match month {
+        2 if leap => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    };
+    (1..=days_in_month).contains(&day)
+}
+
+/// N1 §4.1.8 calendar durations: (singular keyword, definite UCUM unit).
+const CALENDAR_DURATIONS: [(&str, &str); 8] = [
+    ("year", "a"),
+    ("month", "mo"),
+    ("week", "wk"),
+    ("day", "d"),
+    ("hour", "h"),
+    ("minute", "min"),
+    ("second", "s"),
+    ("millisecond", "ms"),
+];
+
+/// The unit a calendar duration keyword (singular or plural) stands for.
+pub(crate) fn calendar_unit(keyword: &str) -> Option<&'static str> {
+    let singular = keyword.strip_suffix('s').unwrap_or(keyword);
+    CALENDAR_DURATIONS
+        .iter()
+        .find(|(unit, _)| *unit == singular)
+        .map(|(unit, _)| *unit)
+}
+
+/// Whether two quantity units match (N1 §6.1.1, §6.1.2): the same unit, or
+/// a calendar duration and its UCUM unit. Under `=` that pairing holds only
+/// for seconds and below; under `~` it always holds.
+pub(crate) fn same_quantity_unit(a: &str, b: &str, equivalent: bool) -> bool {
+    a == b
+        || CALENDAR_DURATIONS.iter().any(|(calendar, ucum)| {
+            (equivalent || matches!(*calendar, "second" | "millisecond"))
+                && ((a, b) == (*calendar, *ucum) || (b, a) == (*calendar, *ucum))
+        })
 }
 
 /// FHIR type knowledge for building values: for the child `name` of the

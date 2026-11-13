@@ -964,15 +964,6 @@ fn undefined_function_returns_error() {
 
 // ── $index ────────────────────────────────────────────────────────────────────
 
-#[test]
-fn dollar_index_returns_undefined_function_error() {
-    let result = evaluate("$index", &[]);
-    assert!(matches!(
-        result,
-        Err(fhir_fhirpath::EvalError::UndefinedFunction(_))
-    ));
-}
-
 // ── Three-valued logic ────────────────────────────────────────────────────────
 
 #[test]
@@ -1382,8 +1373,13 @@ fn converts_to_string_true_for_non_empty_focus() {
 }
 
 #[test]
-fn converts_to_string_false_for_empty_collection() {
-    assert!(!eval_bool("{}.convertsToString()"));
+fn converts_to_string_empty_for_empty_collection() -> Result<(), fhir_fhirpath::EvalError> {
+    // N1 §5.5: "If the input collection is empty, the result is empty."
+    assert_eq!(
+        fhir_fhirpath::evaluate("{}.convertsToString()", &[])?,
+        vec![]
+    );
+    Ok(())
 }
 
 #[test]
@@ -2133,10 +2129,7 @@ fn single_on_multi_returns_error() {
 #[test]
 fn dollar_index_outside_iteration_returns_error() {
     let err = evaluate("$index", &[]).unwrap_err();
-    assert!(matches!(
-        err,
-        fhir_fhirpath::EvalError::UndefinedFunction(_)
-    ));
+    assert!(matches!(err, fhir_fhirpath::EvalError::Type(_)));
 }
 
 // ── parse error on empty input ───────────────────────────────────────────────
@@ -2151,13 +2144,10 @@ fn parse_empty_string_returns_error() {
 
 #[test]
 fn exists_propagates_eval_error_from_predicate() {
-    // $index in a predicate should error rather than silently return false
+    // An error in a predicate should surface rather than silently return false
     let col = vec![Value::Integer(1)];
-    let err = evaluate("$this.exists($index > 0)", &col).unwrap_err();
-    assert!(matches!(
-        err,
-        fhir_fhirpath::EvalError::UndefinedFunction(_)
-    ));
+    let err = evaluate("$this.exists(($this + 'a') > 0)", &col).unwrap_err();
+    assert!(matches!(err, fhir_fhirpath::EvalError::Type(_)));
 }
 
 // ── Concat operator ───────────────────────────────────────────────────────────

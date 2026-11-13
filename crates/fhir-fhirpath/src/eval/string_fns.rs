@@ -7,7 +7,7 @@ use crate::value::{Collection, Value};
 use super::Evaluator;
 use super::base64::{base64_decode, base64_decode_url, base64_encode, base64_encode_url};
 use super::helpers::{
-    check_arity, check_arity_range, eval_string_arg, json_unescape, single_integer,
+    check_arity, check_arity_range, eval_string_arg, json_unescape, single_integer, string_input,
     string_transform,
 };
 use super::regex::{regex_matches, regex_matches_full, regex_replace_all};
@@ -34,57 +34,44 @@ impl Evaluator<'_> {
         ctx: &[Value],
     ) -> Result<Option<Collection>, EvalError> {
         let col: Collection = match name {
-            "toString" => {
-                check_arity(name, args, 0)?;
-                focus
-                    .iter()
-                    .map(|v| Value::String(Arc::from(v.to_string().as_str())))
-                    .collect()
-            }
             "length" => {
                 check_arity(name, args, 0)?;
-                match focus.first() {
-                    Some(Value::String(s)) => vec![Value::Integer(s.chars().count() as i64)],
-                    Some(v) => {
-                        return Err(EvalError::Type(format!(
-                            "length() requires String, got {}",
-                            v.type_name()
-                        )));
-                    }
-                    None => vec![],
-                }
+                string_input(focus, name)?
+                    .map(|s| Value::Integer(s.chars().count() as i64))
+                    .into_iter()
+                    .collect()
             }
             "startsWith" => {
                 check_arity(name, args, 1)?;
                 let prefix = optional_string_arg(&self.eval(&args[0], ctx)?, "startsWith")?;
-                string_predicate(focus, prefix, |s, prefix| s.starts_with(prefix))
+                string_predicate(focus, name, prefix, |s, prefix| s.starts_with(prefix))?
             }
             "endsWith" => {
                 check_arity(name, args, 1)?;
                 let suffix = optional_string_arg(&self.eval(&args[0], ctx)?, "endsWith")?;
-                string_predicate(focus, suffix, |s, suffix| s.ends_with(suffix))
+                string_predicate(focus, name, suffix, |s, suffix| s.ends_with(suffix))?
             }
             "contains" => {
                 check_arity(name, args, 1)?;
                 let sub = optional_string_arg(&self.eval(&args[0], ctx)?, "contains")?;
-                string_predicate(focus, sub, |s, sub| s.contains(sub))
+                string_predicate(focus, name, sub, |s, sub| s.contains(sub))?
             }
             "upper" => {
                 check_arity(name, args, 0)?;
-                return string_transform(focus, |s| s.to_uppercase()).map(Some);
+                return string_transform(focus, name, str::to_uppercase).map(Some);
             }
             "lower" => {
                 check_arity(name, args, 0)?;
-                return string_transform(focus, |s| s.to_lowercase()).map(Some);
+                return string_transform(focus, name, str::to_lowercase).map(Some);
             }
             "trim" => {
                 check_arity(name, args, 0)?;
-                return string_transform(focus, |s| s.trim().to_owned()).map(Some);
+                return string_transform(focus, name, |s| s.trim().to_owned()).map(Some);
             }
             "escape" => {
                 check_arity(name, args, 1)?;
                 let target = eval_string_arg(&self.eval(&args[0], ctx)?, "escape")?;
-                match focus.first().and_then(|v| v.as_string()) {
+                match string_input(focus, name)? {
                     Some(s) => {
                         let result = match target.as_ref() {
                             "html" => s
@@ -113,7 +100,7 @@ impl Evaluator<'_> {
             "unescape" => {
                 check_arity(name, args, 1)?;
                 let target = eval_string_arg(&self.eval(&args[0], ctx)?, "unescape")?;
-                match focus.first().and_then(|v| v.as_string()) {
+                match string_input(focus, name)? {
                     Some(s) => {
                         let result = match target.as_ref() {
                             "html" => s
@@ -136,9 +123,8 @@ impl Evaluator<'_> {
             }
             "substring" => {
                 check_arity_range(name, args, 1, 2)?;
-                let s = match focus.first().and_then(|v| v.as_string()) {
-                    Some(s) => s,
-                    None => return Ok(Some(vec![])),
+                let Some(s) = string_input(focus, name)? else {
+                    return Ok(Some(vec![]));
                 };
                 let chars: Vec<char> = s.chars().collect();
                 let start_col = self.eval(&args[0], ctx)?;
@@ -174,11 +160,7 @@ impl Evaluator<'_> {
                 let pattern = optional_string_arg(&self.eval(&args[0], ctx)?, "replace pattern")?;
                 let replacement =
                     optional_string_arg(&self.eval(&args[1], ctx)?, "replace replacement")?;
-                match (
-                    focus.first().and_then(|v| v.as_string()),
-                    pattern,
-                    replacement,
-                ) {
+                match (string_input(focus, name)?, pattern, replacement) {
                     (Some(s), Some(pattern), Some(replacement)) => {
                         let result = s.replace(pattern.as_ref(), replacement.as_ref());
                         vec![Value::String(Arc::from(result.as_str()))]
@@ -194,9 +176,8 @@ impl Evaluator<'_> {
                 } else {
                     Arc::from("")
                 };
-                match (focus.first(), pattern) {
-                    (Some(item), Some(pattern)) => {
-                        let text = item.as_string().unwrap_or_else(|| Arc::from(""));
+                match (string_input(focus, name)?, pattern) {
+                    (Some(text), Some(pattern)) => {
                         vec![Value::Bool(regex_matches(&text, &pattern, &flags)?)]
                     }
                     _ => vec![],
@@ -213,11 +194,7 @@ impl Evaluator<'_> {
                 } else {
                     Arc::from("")
                 };
-                match (
-                    focus.first().and_then(|v| v.as_string()),
-                    pattern,
-                    replacement,
-                ) {
+                match (string_input(focus, name)?, pattern, replacement) {
                     (Some(s), Some(pattern), Some(replacement)) => {
                         let result = regex_replace_all(&s, &pattern, &replacement, &flags)?;
                         vec![Value::String(Arc::from(result.as_str()))]
@@ -234,9 +211,8 @@ impl Evaluator<'_> {
                 } else {
                     Arc::from("")
                 };
-                match (focus.first(), pattern) {
-                    (Some(item), Some(pattern)) => {
-                        let text = item.as_string().unwrap_or_else(|| Arc::from(""));
+                match (string_input(focus, name)?, pattern) {
+                    (Some(text), Some(pattern)) => {
                         vec![Value::Bool(regex_matches_full(&text, &pattern, &flags)?)]
                     }
                     _ => vec![],
@@ -245,51 +221,41 @@ impl Evaluator<'_> {
             "indexOf" => {
                 check_arity(name, args, 1)?;
                 let sub = optional_string_arg(&self.eval(&args[0], ctx)?, "indexOf")?;
-                let (Some(item), Some(sub)) = (focus.first(), sub) else {
+                let (Some(s), Some(sub)) = (string_input(focus, name)?, sub) else {
                     return Ok(Some(vec![]));
                 };
-                match item.as_string() {
-                    Some(s) => {
-                        let idx = s
-                            .char_indices()
-                            .enumerate()
-                            .find(|(_, (byte_pos, _))| s[*byte_pos..].starts_with(sub.as_ref()))
-                            .map(|(char_idx, _)| char_idx as i64)
-                            .unwrap_or(-1);
-                        vec![Value::Integer(idx)]
-                    }
-                    None => vec![Value::Integer(-1)],
-                }
+                let idx = s
+                    .char_indices()
+                    .enumerate()
+                    .find(|(_, (byte_pos, _))| s[*byte_pos..].starts_with(sub.as_ref()))
+                    .map(|(char_idx, _)| char_idx as i64)
+                    .unwrap_or(-1);
+                vec![Value::Integer(idx)]
             }
             "lastIndexOf" => {
                 check_arity(name, args, 1)?;
                 let sub = optional_string_arg(&self.eval(&args[0], ctx)?, "lastIndexOf")?;
-                let (Some(item), Some(sub)) = (focus.first(), sub) else {
+                let (Some(s), Some(sub)) = (string_input(focus, name)?, sub) else {
                     return Ok(Some(vec![]));
                 };
-                match item.as_string() {
-                    Some(s) => {
-                        let chars: Vec<char> = s.chars().collect();
-                        let sub_chars: Vec<char> = sub.chars().collect();
-                        let mut last: i64 = -1;
-                        if !sub_chars.is_empty() && sub_chars.len() <= chars.len() {
-                            for i in 0..=(chars.len() - sub_chars.len()) {
-                                if chars[i..i + sub_chars.len()] == sub_chars[..] {
-                                    last = i as i64;
-                                }
-                            }
-                        } else if sub_chars.is_empty() {
-                            last = chars.len() as i64;
+                let chars: Vec<char> = s.chars().collect();
+                let sub_chars: Vec<char> = sub.chars().collect();
+                let mut last: i64 = -1;
+                if !sub_chars.is_empty() && sub_chars.len() <= chars.len() {
+                    for i in 0..=(chars.len() - sub_chars.len()) {
+                        if chars[i..i + sub_chars.len()] == sub_chars[..] {
+                            last = i as i64;
                         }
-                        vec![Value::Integer(last)]
                     }
-                    None => vec![Value::Integer(-1)],
+                } else if sub_chars.is_empty() {
+                    last = chars.len() as i64;
                 }
+                vec![Value::Integer(last)]
             }
             "split" => {
                 check_arity(name, args, 1)?;
                 let sep = eval_string_arg(&self.eval(&args[0], ctx)?, "split")?;
-                match focus.first().and_then(|v| v.as_string()) {
+                match string_input(focus, name)? {
                     Some(s) => s
                         .split(sep.as_ref())
                         .map(|part| Value::String(Arc::from(part)))
@@ -317,7 +283,7 @@ impl Evaluator<'_> {
             "encode" => {
                 check_arity(name, args, 1)?;
                 let format = eval_string_arg(&self.eval(&args[0], ctx)?, "encode")?;
-                match focus.first().and_then(|v| v.as_string()) {
+                match string_input(focus, name)? {
                     Some(s) => {
                         let result = match format.as_ref() {
                             "base64" => base64_encode(s.as_bytes()),
@@ -336,7 +302,7 @@ impl Evaluator<'_> {
             "decode" => {
                 check_arity(name, args, 1)?;
                 let format = eval_string_arg(&self.eval(&args[0], ctx)?, "decode")?;
-                match focus.first().and_then(|v| v.as_string()) {
+                match string_input(focus, name)? {
                     Some(s) => {
                         let bytes = match format.as_ref() {
                             "base64" => base64_decode(s.as_bytes()),
@@ -377,15 +343,12 @@ fn optional_string_arg(col: &Collection, context: &str) -> Result<Option<Arc<str
 /// startsWith / endsWith / contains: empty input or argument gives empty.
 fn string_predicate(
     focus: &[Value],
+    name: &str,
     arg: Option<Arc<str>>,
     test: impl Fn(&str, &str) -> bool,
-) -> Collection {
-    match (focus.first(), arg) {
-        (Some(item), Some(arg)) => {
-            vec![Value::Bool(
-                item.as_string().is_some_and(|s| test(&s, &arg)),
-            )]
-        }
+) -> Result<Collection, EvalError> {
+    Ok(match (string_input(focus, name)?, arg) {
+        (Some(s), Some(arg)) => vec![Value::Bool(test(&s, &arg))],
         _ => vec![],
-    }
+    })
 }
