@@ -255,6 +255,15 @@ fn attribute_values_are_trimmed_on_read() {
 }
 
 #[test]
+fn whitespace_only_attribute_values_are_kept_as_read() {
+    let source = format!("<Patient {FHIR_NS}><gender value=\" \t \"/></Patient>");
+    let resource = parse_xml(&source).expect("parses");
+    // Attribute normalization turns the tab into a space; no trim, so no empty value.
+    assert!(matches!(&resource.fields["gender"].value, Value::Str(s) if s.as_ref() == "   "));
+    assert!(resource.trimmed_attributes.is_empty());
+}
+
+#[test]
 fn documents_without_the_schema_instance_namespace_record_nothing() {
     let source = format!(
         "<Patient {FHIR_NS} xmlns:s=\"{}\"><active value=\"true\"/></Patient>",

@@ -331,6 +331,7 @@ dependencies = [
  "fhir-fhirpath",
  "fhir-parser",
  "indexmap",
+ "regex-lite",
  "serde_json",
 ]
 
