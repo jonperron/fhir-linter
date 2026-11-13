@@ -39,7 +39,7 @@ Usage: [Python](bindings/python/README.md) ·
 
 ```bash
 git clone --recurse-submodules <repo-url>
-cd fihr-linter
+cd fhir-linter
 ./scripts/download-definitions.sh   # fetches FHIR R5 definitions, SHA-256 verified
 cargo build --workspace
 cargo test --workspace
