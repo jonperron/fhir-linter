@@ -9,10 +9,12 @@ use crate::nested::check_children_cardinality;
 /// Profiles known to the registry are checked for resource-type match
 /// (`PROFILE_002`) and their cardinality rules are applied. Unknown profiles
 /// produce a `PROFILE_001` warning because they cannot be validated against.
+/// `resource_path` is the resource's instance path.
 pub fn validate(
     resource: &Resource,
     base: &StructureDefinition,
     registry: &Registry,
+    resource_path: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let resource_type = resource.resource_type.as_ref();
@@ -27,7 +29,7 @@ pub fn validate(
         let Value::Str(url) = &node.value else {
             continue;
         };
-        let path = format!("{resource_type}.meta.profile[{i}]");
+        let path = format!("{resource_path}.meta.profile[{i}]");
         // Strip the optional `|version` suffix.
         let canonical = url.split('|').next().unwrap_or(url);
         let Some(sd) = registry.structure_definition(canonical) else {
@@ -55,7 +57,7 @@ pub fn validate(
                 &resource.fields,
                 sd,
                 resource_type,
-                resource_type,
+                resource_path,
                 &mut found,
             );
             found.retain(|f| {
