@@ -63,8 +63,9 @@ pub(super) fn regex_replace_all(
     for caps in re.captures_iter(text) {
         let Some(found) = caps.get(0) else { continue };
         let gap = &text[last..found.start()];
-        result.push_str(gap);
         chars += gap.chars().count();
+        check_string_len(chars)?;
+        result.push_str(gap);
         for piece in &pieces {
             let before = result.len();
             caps.expand(piece, &mut result);
@@ -84,6 +85,8 @@ pub(super) fn regex_replace_all(
 /// expanding the pieces in turn gives the same text as the whole.
 fn replacement_pieces(replacement: &str) -> Vec<&str> {
     let bytes = replacement.as_bytes();
+    // Every `}` position, found once: a rescan per `${` would be quadratic.
+    let closes: Vec<usize> = replacement.match_indices('}').map(|(at, _)| at).collect();
     let mut starts = vec![0];
     let mut index = 0;
     while index < bytes.len() {
@@ -97,10 +100,9 @@ fn replacement_pieces(replacement: &str) -> Vec<&str> {
         index += match bytes.get(index + 1) {
             Some(b'$') => 2,
             // An unclosed `${` is a literal `$`: what follows may hold references.
-            Some(b'{') => bytes[index..]
-                .iter()
-                .position(|b| *b == b'}')
-                .map_or(1, |end| end + 1),
+            Some(b'{') => closes
+                .get(closes.partition_point(|close| *close < index))
+                .map_or(1, |close| close - index + 1),
             _ => 1,
         };
     }
@@ -141,5 +143,26 @@ mod tests {
     fn unclosed_brace_does_not_merge_references() {
         assert_eq!(replacement_pieces("${$1$1"), ["${", "$1", "$1"]);
         assert_eq!(replacement_pieces("a${b}$1"), ["a", "${b}", "$1"]);
+    }
+
+    // Many unclosed `${` must not rescan the rest of the replacement each
+    // time: 200,000 of them took seconds when the split was quadratic.
+    #[test]
+    fn unclosed_braces_split_in_linear_time() {
+        let replacement = "${".repeat(200_000);
+        let started = std::time::Instant::now();
+        assert_eq!(replacement_pieces(&replacement).len(), 200_000);
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    }
+
+    // Multi-digit group numbers stay one reference: `$10` is group 10.
+    #[test]
+    fn multi_digit_group_reference_expands_whole() -> Result<(), EvalError> {
+        let pattern = "(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)";
+        assert_eq!(
+            regex_replace_all("abcdefghij", pattern, "[$10|${1}0]", "")?,
+            "[j|a0]"
+        );
+        Ok(())
     }
 }
