@@ -22,10 +22,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
+use crate::embedded::{concrete_resource, holds_resource, typed_element};
 use crate::nested::{complex_type, is_primitive, resolve};
-
-// shortcut: contentReference and contained resources are not reshaped, matching nested::walk,
-// which does not descend into them either; upgrade together with it.
 
 type Fields = IndexMap<Arc<str>, Node>;
 
@@ -102,13 +100,19 @@ impl Shaper<'_> {
         let prefix = format!("{def_path}.");
         let mut out = Fields::with_capacity(fields.len());
         for (name, node) in fields {
-            let Some((elem, Some(ty))) = resolve(sd, &format!("{prefix}{name}"), name) else {
+            let found = resolve(sd, &format!("{prefix}{name}"), name)
+                .and_then(|(elem, ty)| typed_element(self.registry, sd, elem, ty));
+            let Some((elem, sd, ty)) = found else {
                 out.insert(Arc::clone(name), node.clone());
                 continue;
             };
             let child_path = format!("{path}.{name}");
             for (item, item_path) in items(node, &child_path) {
                 self.check_form(item, name, elem.xml_attr, parent, &item_path);
+            }
+            if holds_resource(&ty, self.registry) {
+                out.insert(Arc::clone(name), self.embedded(node, &child_path));
+                continue;
             }
             if is_primitive(&ty) {
                 let extension_path = format!("{path}._{name}");
@@ -151,6 +155,49 @@ impl Shaper<'_> {
             out.insert(Arc::clone(name), reshaped);
         }
         out
+    }
+
+    /// Unwrap the resources of an element typed `Resource` (references.html: XML
+    /// `<contained><Practitioner>...</Practitioner></contained>`) into the JSON form: an
+    /// object whose `resourceType` names the wrapping element, its content reshaped against
+    /// that resource's definition. Anything else is kept for the walk to report.
+    fn embedded(&mut self, node: &Node, path: &str) -> Node {
+        let value = match &node.value {
+            Value::Array(items) => Value::Array(
+                items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, item)| self.embedded(item, &format!("{path}[{i}]")))
+                    .collect(),
+            ),
+            Value::Object(wrapper) => match wrapper.iter().collect::<Vec<_>>().as_slice() {
+                [(resource_type, inner)] => match (
+                    &inner.value,
+                    concrete_resource(self.registry, resource_type),
+                ) {
+                    (Value::Object(fields), Ok(sd)) => {
+                        let reshaped =
+                            self.fields(fields, sd, resource_type, path, Some(inner.span.offset));
+                        let type_node = Node {
+                            value: Value::Str(Arc::clone(resource_type)),
+                            span: inner.span,
+                        };
+                        Value::Object(
+                            std::iter::once((Arc::from("resourceType"), type_node))
+                                .chain(reshaped)
+                                .collect(),
+                        )
+                    }
+                    _ => node.value.clone(),
+                },
+                _ => node.value.clone(),
+            },
+            other => other.clone(),
+        };
+        Node {
+            value,
+            span: node.span,
+        }
     }
 
     fn complex(

@@ -2,9 +2,11 @@ use fhir_definitions::{ElementDefinition, Registry, StructureDefinition};
 use fhir_fhirpath::{Collection, Value as FhirPathValue};
 use fhir_parser::{Node, Resource, Span, Value};
 use indexmap::IndexMap;
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
+use crate::embedded::{self, Embedded, child_element, holds_resource, typed_element};
 use crate::type_check::{check_type, is_valid_id};
 use crate::{invariants, references, terminology};
 
@@ -13,67 +15,80 @@ struct Walk<'a> {
     registry: &'a Registry,
     /// JSON input: array shapes are meaningful (`STRUCTURE_002`).
     json: bool,
-    /// Ids of the root's contained resources, for `#id` references.
-    contained_ids: Vec<&'a str>,
-    /// The root `id`, which the parser lifts out of `fields`; it pairs with a root `_id`.
+    /// Where `#id` references resolve (see [`Embedded::container_ids`]).
+    contained_ids: Vec<Arc<str>>,
+    /// Inside a contained resource, where `#` alone names the container.
+    in_contained: bool,
+    /// The resource `id`, which is lifted out of `fields`; it pairs with a root `_id`.
     root_id: Option<Value>,
+    /// The instance path of the resource being walked.
+    root_path: String,
+    /// Resources met in `Resource`-typed elements, validated after this one.
+    embedded: RefCell<Vec<Embedded<'a>>>,
 }
 
-/// Validate the resource's elements at every depth, starting at the top level.
+/// Validate the resource's elements at every depth, starting at the top level (instance
+/// `path`), and return the resources embedded in it, for the caller to validate in turn.
 ///
 /// Applies the structural (`STRUCTURE_001`, and `STRUCTURE_002` array shape when `json`),
 /// cardinality (`CARDINALITY_001/002/003`), primitive type (`TYPE_*`), terminology
 /// (`TERMINOLOGY_*`), reference (`REFERENCE_*`) and invariant (`INVARIANT_*`) checks
-/// recursively into backbone elements and complex types. Each node gets the constraints of
-/// its element and of its type's root element (`qty-3` on every Quantity), once per key.
-/// The root's own invariants and the profile layer run outside the walk. `root` is the
-/// resource's FHIRPath value (`resource_to_typed_value`); each object's part of it is handed
-/// down the walk, so the tree is converted once.
+/// recursively into backbone elements, complex types and `contentReference` targets. Each
+/// node gets the constraints of its element and of its type's root element (`qty-3` on
+/// every Quantity), once per key. The root's own invariants and the profile layer run
+/// outside the walk. `root` is the resource's FHIRPath value (`resource_to_typed_value`);
+/// each object's part of it is handed down the walk, so the tree is converted once.
 ///
-/// shortcut: `contentReference` elements (skipped silently) and contained/embedded resources are
-/// not descended into; upgrade when recursive structures need validating.
-pub fn validate(
+/// A `contentReference` can refer to its own ancestor (`Questionnaire.item.item`); the
+/// recursion follows the instance data, which the parsers cap at `MAX_DEPTH` levels.
+#[allow(clippy::too_many_arguments)] // the resource, its definition and its place
+pub(crate) fn validate<'a>(
     resource: &Resource,
     root: &FhirPathValue,
     sd: &StructureDefinition,
-    registry: &Registry,
+    registry: &'a Registry,
     json: bool,
+    path: &str,
+    container_ids: Option<Vec<Arc<str>>>,
     diagnostics: &mut Vec<Diagnostic>,
-) {
-    let resource_type = resource.resource_type.as_ref();
-
+) -> Vec<Embedded<'a>> {
     // The parser lifts `id` out of `fields` (already rejecting non-strings), without a span.
     if let Some(id) = resource.id.as_deref().filter(|id| !is_valid_id(id)) {
-        let path = format!("{resource_type}.id");
+        let id_path = format!("{path}.id");
         diagnostics.push(Diagnostic::error(
             "TYPE_005",
-            format!("Invalid id format at '{path}': '{id}'"),
-            path,
+            format!("Invalid id format at '{id_path}': '{id}'"),
+            id_path,
         ));
     }
     if let Some(warning) = resource
         .id
         .as_deref()
-        .and_then(|id| crate::type_check::control_char_warning(id, &format!("{resource_type}.id")))
+        .and_then(|id| crate::type_check::control_char_warning(id, &format!("{path}.id")))
     {
         diagnostics.push(warning);
     }
 
+    let in_contained = container_ids.is_some();
     let context = Walk {
         registry,
         json,
-        contained_ids: references::contained_ids(resource, registry),
+        contained_ids: container_ids.unwrap_or_else(|| references::contained_ids(resource)),
+        in_contained,
         root_id: resource.id.clone().map(Value::Str),
+        root_path: path.to_owned(),
+        embedded: RefCell::new(Vec::new()),
     };
     walk(
         &resource.fields,
         typed_fields(std::slice::from_ref(root)),
         sd,
-        resource_type,
+        &resource.resource_type,
         &context,
-        resource_type,
+        path,
         diagnostics,
     );
+    context.embedded.into_inner()
 }
 
 /// The FHIRPath children of a single object value.
@@ -176,7 +191,14 @@ fn descend(
             };
             check_invariants(value, elem, ty, path, node.span, registry, diagnostics);
             if ty == "Reference" {
-                references::check(node, path, &context.contained_ids, registry, diagnostics);
+                references::check(
+                    node,
+                    path,
+                    context.contained_ids.as_slice(),
+                    context.in_contained,
+                    registry,
+                    diagnostics,
+                );
             }
             let typed = typed_fields(value);
             match type_sd.filter(|_| !backbone) {
@@ -241,8 +263,8 @@ fn walk(
                 // A primitive with a value is checked with its `_name` when the value is reached.
                 if !fields.contains_key(bare) {
                     let bare_path = format!("{path}.{bare}");
-                    // Only the root path has no '.', and only its `id` is lifted.
-                    let lifted = (bare == "id" && !path.contains('.'))
+                    // Only the resource's own `id` is lifted.
+                    let lifted = (bare == "id" && path == context.root_path)
                         .then(|| context.root_id.clone())
                         .flatten();
                     let value = lifted.map(|value| Node {
@@ -277,8 +299,26 @@ fn walk(
         if context.json {
             check_array_shape(node, elem, &child_path, diagnostics);
         }
-        // contentReference element: no type to check here.
-        let Some(ty) = ty else { continue };
+        let Some((elem, sd, ty)) = typed_element(context.registry, sd, elem, ty) else {
+            continue;
+        };
+        let typed = typed.and_then(|typed| typed.get(name)).map(Vec::as_slice);
+        if holds_resource(&ty, context.registry) {
+            // references.html: only `DomainResource.contained` holds contained resources.
+            let contained = name == "contained" && !def_path.contains('.');
+            let ids = contained.then_some(context.contained_ids.as_slice());
+            let queue = &mut context.embedded.borrow_mut();
+            embedded::queue(
+                node,
+                typed,
+                ids,
+                context.registry,
+                &child_path,
+                queue,
+                diagnostics,
+            );
+            continue;
+        }
 
         // Element.id is a `string`; R5 snapshots label many as `id` in the fhir-type extension.
         let check_as = if name == "id" { "string" } else { ty.as_ref() };
@@ -296,7 +336,6 @@ fn walk(
                 diagnostics,
             );
         }
-        let typed = typed.and_then(|typed| typed.get(name)).map(Vec::as_slice);
         descend(
             node,
             typed,
@@ -367,7 +406,7 @@ fn node_value(
         value.map(|n| &n.value),
         extension.map(|n| &n.value),
         Some(&(Arc::from(definition), Arc::from(ty))),
-        &|parent, name| registry.child_element(parent, name),
+        &|parent, name| child_element(registry, parent, name),
     )
 }
 
@@ -678,91 +717,5 @@ fn check_cardinality(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn elem(path: &str, min: u32) -> ElementDefinition {
-        ElementDefinition {
-            path: Arc::from(path),
-            min,
-            max: Arc::from("1"),
-            types: vec![],
-            constraints: vec![],
-            binding: None,
-            slice_name: None,
-            xml_attr: false,
-            content_reference: None,
-            type_profiles: vec![],
-            fixed: None,
-            pattern: None,
-            slicing: None,
-            max_length: None,
-            min_value: None,
-            max_value: None,
-        }
-    }
-
-    #[test]
-    fn children_cardinality_checks_direct_children_only() {
-        let sd = StructureDefinition::new(
-            Arc::from("http://example.org/StructureDefinition/obs-profile"),
-            Arc::from("ObsProfile"),
-            Arc::from("resource"),
-            false,
-            vec![
-                elem("Observation", 0),
-                elem("Observation.subject", 1),
-                elem("Observation.value[x]", 1),
-                elem("Observation.component.code", 1),
-            ],
-        );
-        let mut found = vec![];
-        check_children_cardinality(
-            &IndexMap::new(),
-            &sd,
-            "Observation",
-            "Observation",
-            &mut found,
-        );
-        let found: Vec<_> = found
-            .iter()
-            .map(|d| (d.code.as_ref(), d.path.as_str()))
-            .collect();
-        // A missing required choice is reported at its placeholder path.
-        assert_eq!(
-            found,
-            [
-                ("CARDINALITY_001", "Observation.subject"),
-                ("CARDINALITY_001", "Observation.value[x]"),
-            ],
-        );
-    }
-
-    #[test]
-    fn children_cardinality_skips_choice_slices() {
-        let slice = ElementDefinition {
-            slice_name: Some(Arc::from("valueQuantity")),
-            ..elem("Observation.value[x]", 1)
-        };
-        let sd = StructureDefinition::new(
-            Arc::from("http://example.org/StructureDefinition/obs-profile"),
-            Arc::from("ObsProfile"),
-            Arc::from("resource"),
-            false,
-            vec![
-                elem("Observation", 0),
-                elem("Observation.value[x]", 0),
-                slice,
-            ],
-        );
-        let mut found = vec![];
-        check_children_cardinality(
-            &IndexMap::new(),
-            &sd,
-            "Observation",
-            "Observation",
-            &mut found,
-        );
-        assert!(found.is_empty(), "{found:?}");
-    }
-}
+#[path = "nested_tests.rs"]
+mod tests;

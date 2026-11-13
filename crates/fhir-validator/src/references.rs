@@ -1,12 +1,20 @@
+use std::sync::Arc;
+
 use fhir_definitions::Registry;
 use fhir_parser::{Node, Resource, Value};
 
 use crate::diagnostic::Diagnostic;
 
-/// The ids of the root resource's `contained` resources, which `#id` references resolve to.
+/// The ids of the resource's `contained` resources, which `#id` references resolve to.
 /// A single XML `<contained>` stays an object (the reshape keeps XML grouping).
-pub(crate) fn contained_ids<'a>(resource: &'a Resource, registry: &Registry) -> Vec<&'a str> {
-    let id = |node| contained_id(node, registry);
+pub(crate) fn contained_ids(resource: &Resource) -> Vec<Arc<str>> {
+    let id = |node: &Node| match &node.value {
+        Value::Object(fields) => match fields.get("id").map(|n| &n.value) {
+            Some(Value::Str(id)) => Some(Arc::clone(id)),
+            _ => None,
+        },
+        _ => None,
+    };
     match resource.fields.get("contained") {
         Some(Node {
             value: Value::Array(items),
@@ -17,34 +25,21 @@ pub(crate) fn contained_ids<'a>(resource: &'a Resource, registry: &Registry) -> 
     }
 }
 
-/// The id of one contained resource: JSON `{"resourceType", "id"}`, or XML
-/// `<contained><Type><id value=""/></Type></contained>`, where the type element wraps it.
-fn contained_id<'a>(node: &'a Node, registry: &Registry) -> Option<&'a str> {
-    string_field(node, "id").or_else(|| match &node.value {
-        Value::Object(fields) => match fields.iter().collect::<Vec<_>>().as_slice() {
-            [(type_name, inner)] if is_resource_type(registry, type_name) => {
-                string_field(inner, "id")
-            }
-            _ => None,
-        },
-        _ => None,
-    })
-}
-
 /// Validate the `reference` string of one `Reference` value `item` (instance
 /// `path`). The walk in `nested.rs` calls it for every Reference, at every depth.
 ///
 /// Emits `REFERENCE_001` for a relative reference whose type is not a known
 /// resource type, and `REFERENCE_002` for a `#id` reference with no matching
-/// entry in the root's `contained` or a bare `#` (contained resources are not
-/// walked, so every reference belongs to the root). Absolute URLs and `urn:`
+/// entry in `contained_ids`, or a bare `#` outside a contained resource
+/// (`in_contained`), where it would name a container. Absolute URLs and `urn:`
 /// references are not resolved. `REFERENCE_003` reports a `Reference.type` that
 /// disagrees with the type of a FHIR URL reference, and `REFERENCE_004`
 /// (warning) a malformed relative reference.
 pub(crate) fn check(
     item: &Node,
     path: &str,
-    contained_ids: &[&str],
+    contained_ids: &[Arc<str>],
+    in_contained: bool,
     registry: &Registry,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -52,7 +47,7 @@ pub(crate) fn check(
         return;
     };
     let ref_path = format!("{path}.reference");
-    if let Some(problem) = check_target(reference, contained_ids, registry) {
+    if let Some(problem) = check_target(reference, contained_ids, in_contained, registry) {
         diagnostics.push(
             Diagnostic::error(problem.0, problem.1, ref_path.clone()).with_location(item.span),
         );
@@ -158,16 +153,17 @@ fn string_field<'a>(node: &'a Node, key: &str) -> Option<&'a str> {
 
 fn check_target(
     reference: &str,
-    contained: &[&str],
+    contained: &[Arc<str>],
+    in_contained: bool,
     registry: &Registry,
 ) -> Option<(&'static str, String)> {
     if let Some(id) = reference.strip_prefix('#') {
-        // ref-1: "#" alone points at the container, and this resource is the root.
+        // ref-1: "#" alone points at the container (`%rootResource != %resource`).
         if id.is_empty() {
             let message = "Reference '#' points at a containing resource, but this is the root";
-            return Some(("REFERENCE_002", message.to_owned()));
+            return (!in_contained).then(|| ("REFERENCE_002", message.to_owned()));
         }
-        return (!contained.contains(&id)).then(|| {
+        return (!contained.iter().any(|c| c.as_ref() == id)).then(|| {
             (
                 "REFERENCE_002",
                 format!("Contained resource '{id}' not found"),
