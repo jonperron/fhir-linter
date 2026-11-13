@@ -493,7 +493,7 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 
 ### Requirement: Validation terminologique — binding required (TERMINOLOGY_001)
 
-Le système SHALL émettre `TERMINOLOGY_001` lorsqu'un élément, à toute profondeur (y compris dans un datatype, ex. `HumanName.use`, et pour une variante de choix dont le binding s'applique au type résolu de la variante, ex. `versionAlgorithmCoding`), de type `code`, `Coding` ou `CodeableConcept`, possède un binding de force `required` (Diagnostic d'erreur) ou `extensible` (Diagnostic de sévérité warning) dont le ValueSet est connu et que le code est prouvé hors du ValueSet. Les contentReference, les ressources contenues et les autres forces de binding (`preferred`, `example`) SHALL être ignorés. Un `Coding` sans `system` NE DOIT JAMAIS être considéré comme membre du ValueSet : il compte comme hors du ValueSet, même lorsque l'appartenance serait autrement indécidable. Hors de ce cas, une appartenance indécidable (`Registry::value_set_contains` retourne `None`) NE DOIT JAMAIS être signalée. Pour un `CodeableConcept`, un seul `coding` appartenant au ValueSet suffit ; le Diagnostic n'est émis que si tous les `coding` portant un code sont hors du ValueSet. Sous un binding `required`, un `CodeableConcept` sans aucun `coding` portant un code (texte seul) SHALL être signalé avec un message commençant par `CodeableConcept with no coded Coding at` (terminologies.html 4.1.4.2.1) ; sous un binding `extensible`, le texte seul SHALL être accepté (4.1.4.2.2). Un `coding` unique non encapsulé dans un tableau (un seul `<coding>` en XML) SHALL être lu comme un tableau d'un élément.
+Le système SHALL émettre `TERMINOLOGY_001` lorsqu'un élément, à toute profondeur (y compris dans un datatype, ex. `HumanName.use`, et pour une variante de choix dont le binding s'applique au type résolu de la variante, ex. `versionAlgorithmCoding`), de type `code`, `Coding` ou `CodeableConcept`, possède un binding de force `required` (Diagnostic d'erreur) ou `extensible` (Diagnostic de sévérité warning) dont le ValueSet est connu et que le code est prouvé hors du ValueSet. Les éléments sous un `contentReference` et dans les ressources embarquées SHALL être vérifiés comme tout autre élément (parcours unique) ; les autres forces de binding (`preferred`, `example`) SHALL être ignorées. Un `Coding` sans `system` NE DOIT JAMAIS être considéré comme membre du ValueSet : il compte comme hors du ValueSet, même lorsque l'appartenance serait autrement indécidable. Hors de ce cas, une appartenance indécidable (`Registry::value_set_contains` retourne `None`) NE DOIT JAMAIS être signalée. Pour un `CodeableConcept`, un seul `coding` appartenant au ValueSet suffit ; le Diagnostic n'est émis que si tous les `coding` portant un code sont hors du ValueSet. Sous un binding `required`, un `CodeableConcept` sans aucun `coding` portant un code (texte seul) SHALL être signalé avec un message commençant par `CodeableConcept with no coded Coding at` (terminologies.html 4.1.4.2.1) ; sous un binding `extensible`, le texte seul SHALL être accepté (4.1.4.2.2). Un `coding` unique non encapsulé dans un tableau (un seul `<coding>` en XML) SHALL être lu comme un tableau d'un élément.
 
 #### Scenario: Code hors du ValueSet requis
 
@@ -581,7 +581,7 @@ Le système SHALL émettre `REFERENCE_001` (erreur) lorsque `Reference.reference
 
 ### Requirement: Validation des références — ressource contenue absente (REFERENCE_002)
 
-Le système SHALL émettre `REFERENCE_002` (erreur) lorsqu'une référence `#id` ne correspond à aucun `id` dans `contained`, ou lorsque la référence est `#` seule : ref-1 n'autorise `#` que si `%rootResource != %resource`, et le validateur ne valide que la ressource racine. `#id` SHALL être résolu contre les `id` contenus de la ressource racine, quelle que soit la profondeur de la référence. En XML, un `<contained>` unique SHALL être accepté non encapsulé et l'`id` de chaque ressource contenue SHALL être lu à l'intérieur de son élément de type de ressource.
+Le système SHALL émettre `REFERENCE_002` (erreur) lorsqu'une référence `#id` ne correspond à aucun `id` dans `contained`, ou lorsque la référence est `#` seule hors d'une ressource contenue (ref-1 n'autorise `#` que si `%rootResource != %resource`). Une ressource contenue SHALL résoudre `#id` contre les `id` contenus de son conteneur, et `#` seul y SHALL être accepté. Une entrée de Bundle ou une ressource de Parameters est sa propre racine : `#id` SHALL être résolu contre son propre `contained` et `#` seul SHALL produire `REFERENCE_002`. `#id` SHALL être résolu quelle que soit la profondeur de la référence. En XML, un `<contained>` unique SHALL être accepté non encapsulé ; l'encapsulation `<contained><X>` étant dépliée au remodelage, aucune lecture XML spécifique des `id` contenus n'existe. `%rootResource` et `%resource` n'étant pas gérés par le moteur FHIRPath, ref-1 et dom-3 restent `INVARIANT_SKIPPED`.
 
 #### Scenario: Contained introuvable
 
@@ -596,6 +596,16 @@ Le système SHALL émettre `REFERENCE_002` (erreur) lorsqu'une référence `#id`
 #### Scenario: Dièse seul à la racine
 
 - **WHEN** `reference` vaut `#` dans la ressource racine
+- **THEN** un Diagnostic `REFERENCE_002` SHALL être émis
+
+#### Scenario: Dièse seul dans une ressource contenue
+
+- **WHEN** `reference` vaut `#` dans `Patient.contained[0]`
+- **THEN** aucun Diagnostic `REFERENCE_002` SHALL être émis
+
+#### Scenario: Dièse seul dans une entrée de Bundle
+
+- **WHEN** `reference` vaut `#` dans `Bundle.entry[0].resource`
 - **THEN** un Diagnostic `REFERENCE_002` SHALL être émis
 
 #### Scenario: Contained résolu depuis un nœud imbriqué
@@ -674,7 +684,9 @@ Le système SHALL appliquer les vérifications de type à chaque élément d'un 
 
 ### Requirement: Validation des éléments imbriqués
 
-Un seul parcours récursif SHALL appliquer ces vérifications, en partant du premier niveau de la ressource ; il s'exécute avant les invariants de la ressource racine et la couche profil. À toute profondeur, un champ `_nom` SHALL être accepté seulement si `nom` résout un élément (ou une variante de choix) de type primitif, sinon `STRUCTURE_001` au chemin de `_nom` (ex. `Patient.name[0]._bogus`). Un `_nom` accepté SHALL être parcouru via la StructureDefinition du type complexe `Element` (contrôle de `id` et `extension`) ; un tableau SHALL être parcouru élément par élément (index dans le `path`, éléments `null` ignorés) ; une valeur non objet, ou un élément de tableau ni objet ni `null`, SHALL produire `TYPE_001` (ex. `"_birthDate": "x"` → `Patient._birthDate`, `"_given": [1]` → `Patient.name[0]._given[0]`). Le champ `_nom` lui-même n'est pas soumis à STRUCTURE_002 ; son contenu l'est pour une entrée JSON. Les champs `extension` et `modifierExtension` SHALL être traités comme tout autre élément de type `Extension`, à toute profondeur : résolus dans le snapshot (STRUCTURE_001 s'ils n'y figurent pas, ex. `Patient.name[0].modifierExtension`), puis parcourus via la StructureDefinition `Extension` (cardinalité de `url`, type de `value[x]`, extensions imbriquées). Un élément `[x]` SHALL être vérifié comme un tout, au premier niveau comme en profondeur : requis sans variante → `CARDINALITY_001` (au chemin `…[x]`), deux variantes → `CARDINALITY_002`, une variante présente soumise à `CARDINALITY_002` selon son `max`. Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001, et STRUCTURE_002 pour les entrées JSON), de cardinalité (CARDINALITY_001/002/003) et de type (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants et références s'exécutent à toute profondeur sur ce même parcours ; seule la couche profil reste limitée au premier niveau ; les `contentReference` (ignorés sans erreur, jamais signalés STRUCTURE_001) et les ressources contenues ne sont pas parcourus. La règle `_nom` s'applique à toute profondeur : un enfant requis présent uniquement sous la forme `_nom` SHALL être considéré présent seulement si son type est primitif et si `_nom` est un objet ou un tableau d'objets et de `null` contenant au moins un objet, et un `_nom` en tableau au-delà du maximum fini SHALL produire `CARDINALITY_002`.
+Un seul parcours récursif SHALL appliquer ces vérifications, en partant du premier niveau de la ressource ; il s'exécute avant les invariants de la ressource racine et la couche profil. À toute profondeur, un champ `_nom` SHALL être accepté seulement si `nom` résout un élément (ou une variante de choix) de type primitif, sinon `STRUCTURE_001` au chemin de `_nom` (ex. `Patient.name[0]._bogus`). Un `_nom` accepté SHALL être parcouru via la StructureDefinition du type complexe `Element` (contrôle de `id` et `extension`) ; un tableau SHALL être parcouru élément par élément (index dans le `path`, éléments `null` ignorés) ; une valeur non objet, ou un élément de tableau ni objet ni `null`, SHALL produire `TYPE_001` (ex. `"_birthDate": "x"` → `Patient._birthDate`, `"_given": [1]` → `Patient.name[0]._given[0]`). Le champ `_nom` lui-même n'est pas soumis à STRUCTURE_002 ; son contenu l'est pour une entrée JSON. Les champs `extension` et `modifierExtension` SHALL être traités comme tout autre élément de type `Extension`, à toute profondeur : résolus dans le snapshot (STRUCTURE_001 s'ils n'y figurent pas, ex. `Patient.name[0].modifierExtension`), puis parcourus via la StructureDefinition `Extension` (cardinalité de `url`, type de `value[x]`, extensions imbriquées). Un élément `[x]` SHALL être vérifié comme un tout, au premier niveau comme en profondeur : requis sans variante → `CARDINALITY_001` (au chemin `…[x]`), deux variantes → `CARDINALITY_002`, une variante présente soumise à `CARDINALITY_002` selon son `max`. Le système SHALL descendre dans les `BackboneElement` (via le même snapshot) et dans les types complexes (via leur StructureDefinition `complex-type`) et y appliquer les vérifications structurelles (STRUCTURE_001, et STRUCTURE_002 pour les entrées JSON), de cardinalité (CARDINALITY_001/002/003) et de type (TYPE_*), avec un `path` d'instance incluant les index (ex. `Patient.name[0].bogus`). Les éléments `[x]` SHALL être résolus par leur suffixe. Les couches terminologie, invariants et références s'exécutent à toute profondeur sur ce même parcours ; seule la couche profil reste limitée au premier niveau . Un élément à `contentReference` (local `#Questionnaire.item` ou absolu `http://hl7.org/fhir/StructureDefinition/Observation#Observation.referenceRange`) SHALL être validé dans le même parcours contre les enfants et règles de l'élément cible (STRUCTURE_001, cardinalité, types, terminologie, références, invariants de la cible, ex. que-6 à `Questionnaire.item[0].item[0].item[0]`), et les valeurs FHIRPath en dessous SHALL être typées via la cible ; la récursion suit les données de l'instance (bornée par `MAX_DEPTH` des parseurs).
+
+Tout élément de type `Resource` (`contained`, `Bundle.entry.resource`, `Bundle.entry.response.outcome`, `Bundle.issues`, `Parameters.parameter.resource`) contient une ressource validée selon son propre type après son conteneur : parcours, invariants racine (ex. dom-6 à `Bundle.entry[0].resource`, org-1 à `Patient.contained[0]`) et couche `meta.profile`, avec des chemins d'instance tels que `Patient.contained[0].bogus` ou `Bundle.entry[0].resource.active`. Son `id` SHALL être soumis à TYPE_005 à `<chemin>.id`. Un élément non objet SHALL produire `TYPE_001` « Expected Resource object » ; un élément `null` est ignoré ; un `resourceType` absent, non chaîne, inconnu ou abstrait SHALL produire `STRUCTURE_000` au chemin de l'élément (seule cette ressource embarquée s'arrête). Ordre : diagnostics du conteneur, puis ressources embarquées dans l'ordre du document. La règle `_nom` s'applique à toute profondeur : un enfant requis présent uniquement sous la forme `_nom` SHALL être considéré présent seulement si son type est primitif et si `_nom` est un objet ou un tableau d'objets et de `null` contenant au moins un objet, et un `_nom` en tableau au-delà du maximum fini SHALL produire `CARDINALITY_002`.
 
 #### Scenario: Choix [x] en tableau au-delà du maximum
 
@@ -729,7 +741,22 @@ Un seul parcours récursif SHALL appliquer ces vérifications, en partant du pre
 #### Scenario: Couches sémantiques à toute profondeur
 
 - **WHEN** un nœud imbriqué viole un invariant, un binding ou une référence
-- **THEN** les Diagnostics correspondants SHALL être émis ; les ressources contenues et les entrées de Bundle ne SHALL pas être parcourues
+- **THEN** les Diagnostics correspondants SHALL être émis
+
+#### Scenario: contentReference local parcouru
+
+- **WHEN** `Questionnaire.item[0].item[0]` contient un champ `bogus` ou un `item` violant que-6
+- **THEN** `STRUCTURE_001` SHALL être émis à `Questionnaire.item[0].item[0].bogus`, respectivement l'invariant que-6 à `Questionnaire.item[0].item[0].item[0]`
+
+#### Scenario: Champ invalide dans une ressource contenue
+
+- **WHEN** `Patient.contained[0]` contient un champ `bogus`
+- **THEN** `STRUCTURE_001` SHALL être émis avec `path` = `Patient.contained[0].bogus`
+
+#### Scenario: Entrée de Bundle non objet
+
+- **WHEN** `Bundle.entry[0].resource` est une chaîne
+- **THEN** `TYPE_001` « Expected Resource object » SHALL être émis au chemin `Bundle.entry[0].resource`
 
 ### Requirement: Nom textuel de Severity
 
@@ -752,7 +779,7 @@ Le système SHALL fournir `Severity::as_str()` retournant le code FHIR R5 IssueS
 
 ### Requirement: Remodelage des ressources XML
 
-Quand `Resource.from_xml` est vrai (positionné par `parse_xml`), `validate` SHALL remodeler la ressource une seule fois en forme JSON avant toute validation : les primitifs `boolean`, `integer`, `unsignedInt`, `positiveInt` et `decimal` sont typés d'après les types d'éléments du Registry, et `id`/`extension` d'un primitif sont déplacés vers `_nom`. La partie `_nom` SHALL elle-même être remodelée comme un `Element`, de sorte que les valeurs primitives de ses extensions soient typées. Un primitif XML sans valeur ni `id`/`extension` (par exemple `<active/>`) SHALL être conservé tel quel afin que `TYPE_001` se déclenche. Un texte mal formé SHALL rester une chaîne afin que `TYPE_001` se déclenche. Les éléments `contentReference` et les ressources `contained` SHALL NOT être remodelés. Les tableaux SHALL conserver le regroupement XML (frères répétés uniquement).
+Quand `Resource.from_xml` est vrai (positionné par `parse_xml`), `validate` SHALL remodeler la ressource une seule fois en forme JSON avant toute validation : les primitifs `boolean`, `integer`, `unsignedInt`, `positiveInt` et `decimal` sont typés d'après les types d'éléments du Registry, et `id`/`extension` d'un primitif sont déplacés vers `_nom`. La partie `_nom` SHALL elle-même être remodelée comme un `Element`, de sorte que les valeurs primitives de ses extensions soient typées. Un primitif XML sans valeur ni `id`/`extension` (par exemple `<active/>`) SHALL être conservé tel quel afin que `TYPE_001` se déclenche. Un texte mal formé SHALL rester une chaîne afin que `TYPE_001` se déclenche. Le remodelage SHALL suivre les `contentReference` jusqu'à l'élément cible. Un élément de type `Resource` ne contenant qu'un enfant `<X>` (X type de ressource concret) SHALL être déplié en objet de `resourceType` « X » puis remodelé selon la définition de X (primitifs typés, `_nom`) ; un encapsuleur inconnu SHALL être conservé tel quel (donnant `STRUCTURE_000`). Les tableaux SHALL conserver le regroupement XML (frères répétés uniquement).
 
 Le remodelage SHALL vérifier la forme XML de chaque élément d'après `ElementDefinition.xml_attr` : un élément dont la `representation` contient `xmlAttr` (valeur d'un primitif, `Element.id`, `Extension.url`) donné comme élément enfant, et tout autre élément donné comme attribut, SHALL produire un Diagnostic `STRUCTURE_001` au chemin d'instance de cet élément.
 
@@ -804,6 +831,17 @@ Une valeur d'attribut épurée par le parseur (`Resource::trimmed_attributes`) s
 
 - **WHEN** `validate` reçoit `<active value=" true"/>`, un `id` épuré sur `<gender>` ou un `url` épuré sur une extension de `<birthDate>`
 - **THEN** `validate` SHALL émettre un `TYPE_007` de sévérité `Warning` au chemin respectif `Patient.active`, `Patient._gender.id` ou `Patient._birthDate.extension.url`, sans `TYPE_001`
+
+
+#### Scenario: Ressource contenue XML dépliée
+
+- **WHEN** `validate` reçoit un `Patient` XML avec `<contained><Patient><active value="maybe"/></Patient></contained>`
+- **THEN** `validate` SHALL émettre `TYPE_001` au chemin `Patient.contained.active` sans `STRUCTURE_000`
+
+#### Scenario: Bundle message XML sans faux bdl-12
+
+- **WHEN** `validate` reçoit un Bundle XML `message` dont la première entrée est un `MessageHeader`
+- **THEN** ni `bdl-12` ni `bdl-11` ne SHALL être émis à tort
 
 ### Requirement: Validation terminologique — Coding sans system (TERMINOLOGY_002)
 
@@ -947,4 +985,3 @@ Pour une ressource XML, le système SHALL émettre, pour chaque élément enregi
 
 - **WHEN** deux éléments distincts de la ressource déclarent le namespace XMLSchema-instance
 - **THEN** deux Diagnostics `STRUCTURE_003` SHALL être émis, chacun à la localisation de son élément
-
