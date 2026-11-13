@@ -725,7 +725,7 @@ Le système SHALL exposer `EvalError` couvrant toutes les erreurs d'exécution p
 #### Scenario: Variantes d'EvalError
 
 - **WHEN** une erreur se produit à l'évaluation
-- **THEN** `EvalError` SHALL avoir les variantes : `Type(String)` (erreur de type), `UndefinedFunction(String)` (fonction inconnue), `Arity { name, expected, got }` (mauvais nombre d'arguments), `DivisionByZero` (conservée pour la compatibilité de l'enum public mais plus jamais produite, la division par zéro donnant une collection vide), `Parse(ParseError)` (erreur de parse propagée), `CollectionTooLarge(usize)` (collection intermédiaire au-delà de `MAX_COLLECTION_LEN`, message « collection larger than 100000 items »)
+- **THEN** `EvalError` SHALL avoir les variantes : `Type(String)` (erreur de type), `UndefinedFunction(String)` (fonction inconnue), `Arity { name, expected, got }` (mauvais nombre d'arguments), `DivisionByZero` (conservée pour la compatibilité de l'enum public mais plus jamais produite, la division par zéro donnant une collection vide), `Parse(ParseError)` (erreur de parse propagée), `CollectionTooLarge(usize)` (collection intermédiaire au-delà de `MAX_COLLECTION_LEN`, message « collection larger than 100000 items »), `StringTooLong(usize)` (chaîne construite au-delà de `MAX_STRING_LEN`, le champ portant la limite et non la longueur réelle, message « string longer than 1048576 characters »)
 
 ### Requirement: Plafond de taille des collections
 
@@ -756,6 +756,45 @@ Le système SHALL définir la constante `MAX_COLLECTION_LEN` = 100 000 (`crates/
 - **WHEN** une entrée légitime dépasse 100 000 items (par ex. `descendants()` d'un très grand Bundle)
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::CollectionTooLarge(100000))`, et le validateur SHALL la signaler par un `INVARIANT_SKIPPED`
 
+### Requirement: Plafond de longueur des chaînes
+
+Le système SHALL définir la constante `MAX_STRING_LEN` = 1 048 576 caractères (maximum d'une chaîne en R5 ; `crates/fhir-fhirpath/src/eval/helpers.rs`). Lorsqu'une chaîne construite par l'évaluateur dépasse cette limite, l'évaluation SHALL s'arrêter avec `Err(EvalError::StringTooLong(limit))`, où `limit` est la limite et non la longueur réelle. La longueur SHALL être comptée en caractères et non en octets ; une chaîne d'exactement 1 048 576 caractères SHALL être acceptée. Le plafond SHALL être vérifié pour la concaténation `+` et `&`, `join` et `replace` (taille calculée avant construction), `replaceMatches` (vérifié après chaque référence de groupe développée), `upper`, `lower`, `trim`, `escape`, `unescape`, `encode` et `decode`. Il SHALL NOT s'appliquer à `substring` et `split` (parties de l'entrée), à `toString` ni aux chaînes lues dans la ressource.
+
+#### Scenario: Doublement d'une chaîne
+
+- **WHEN** une expression double une chaîne (par ex. `aggregate($total + $total, 'a')`) jusqu'à dépasser 1 048 576 caractères
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::StringTooLong(1048576))` sans construire la chaîne complète
+
+#### Scenario: Remplacement ou jointure trop grand
+
+- **WHEN** `replace` ou `join` produirait une chaîne de plus de 1 048 576 caractères
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::StringTooLong(1048576))` avant de construire le résultat
+
+#### Scenario: Expansion de groupes dans replaceMatches
+
+- **WHEN** les références de groupe développées par `replaceMatches` font dépasser 1 048 576 caractères au résultat
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::StringTooLong(1048576))`
+
+#### Scenario: Exactement 1 048 576 caractères
+
+- **WHEN** une expression produit une chaîne d'exactement 1 048 576 caractères
+- **THEN** l'évaluateur SHALL retourner la chaîne normalement
+
+#### Scenario: Longueur comptée en caractères
+
+- **WHEN** une chaîne de 1 048 576 caractères multi-octets (plus de 1 048 576 octets) est construite
+- **THEN** l'évaluateur SHALL l'accepter
+
+#### Scenario: Chaîne de la ressource non plafonnée
+
+- **WHEN** une chaîne lue dans la ressource, ou une partie d'entrée produite par `substring`, `split` ou `toString`, dépasse 1 048 576 caractères
+- **THEN** l'évaluateur SHALL NOT retourner `StringTooLong` pour cette valeur ; seule une fonction plafonnée qui la transforme (par ex. `upper`) SHALL le faire
+
+#### Scenario: Chaîne trop longue signalée INVARIANT_SKIPPED
+
+- **WHEN** l'évaluation d'une contrainte retourne `EvalError::StringTooLong`
+- **THEN** le validateur SHALL la signaler par un `INVARIANT_SKIPPED`
+
 ### Requirement: Limitations connues
 
 Le système SHALL documenter les limitations suivantes de l'implémentation actuelle.
@@ -776,10 +815,15 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::UndefinedFunction(name))` où `name` est le nom de la fonction
 - **AND** il SHALL NOT retourner de résultat deviné (collection vide, booléen), afin que le validateur signale la contrainte comme non vérifiée (`INVARIANT_SKIPPED`)
 
-#### Scenario: Croissance hors du plafond de collection
+#### Scenario: Dédoublonnage hors du plafond de collection
 
-- **WHEN** une expression double une chaîne (par ex. `aggregate($total + $total, 'a')`) ou déclenche le dédoublonnage O(n²) de `repeat`/`distinct`
-- **THEN** `MAX_COLLECTION_LEN` SHALL NOT s'appliquer (longueur de chaîne et coût CPU non plafonnés) ; ces cas sont des limitations connues
+- **WHEN** une expression déclenche le dédoublonnage O(n²) de `repeat`/`distinct`
+- **THEN** `MAX_COLLECTION_LEN` SHALL NOT borner le coût CPU ; ce cas est une limitation connue
+
+#### Scenario: Mémoire totale hors des plafonds
+
+- **WHEN** une expression construit une collection de jusqu'à 100 000 chaînes distinctes de jusqu'à 1 048 576 caractères chacune (par ex. `select($this + big)`)
+- **THEN** `MAX_COLLECTION_LEN` et `MAX_STRING_LEN` SHALL NOT borner la mémoire totale de l'évaluation ; ce cas est une limitation connue
 
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 

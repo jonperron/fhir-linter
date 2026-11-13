@@ -7,8 +7,8 @@ use crate::value::{Collection, Value};
 use super::Evaluator;
 use super::base64::{base64_decode, base64_decode_url, base64_encode, base64_encode_url};
 use super::helpers::{
-    check_arity, check_arity_range, eval_string_arg, json_unescape, single_integer, string_input,
-    string_transform,
+    check_arity, check_arity_range, check_string_len, eval_string_arg, json_unescape,
+    single_integer, string_input, string_transform, string_value,
 };
 use super::regex::{regex_matches, regex_matches_full, regex_replace_all};
 
@@ -92,7 +92,7 @@ impl Evaluator<'_> {
                                 )));
                             }
                         };
-                        vec![Value::String(Arc::from(result.as_str()))]
+                        vec![string_value(&result)?]
                     }
                     None => vec![],
                 }
@@ -116,7 +116,7 @@ impl Evaluator<'_> {
                                 )));
                             }
                         };
-                        vec![Value::String(Arc::from(result.as_str()))]
+                        vec![string_value(&result)?]
                     }
                     None => vec![],
                 }
@@ -162,8 +162,18 @@ impl Evaluator<'_> {
                     optional_string_arg(&self.eval(&args[1], ctx)?, "replace replacement")?;
                 match (string_input(focus, name)?, pattern, replacement) {
                     (Some(s), Some(pattern), Some(replacement)) => {
+                        // Size the result before building it: an empty pattern
+                        // inserts the replacement at every character boundary.
+                        let hits = s.matches(pattern.as_ref()).count();
+                        let kept = s
+                            .chars()
+                            .count()
+                            .saturating_sub(hits * pattern.chars().count());
+                        check_string_len(
+                            kept.saturating_add(hits.saturating_mul(replacement.chars().count())),
+                        )?;
                         let result = s.replace(pattern.as_ref(), replacement.as_ref());
-                        vec![Value::String(Arc::from(result.as_str()))]
+                        vec![string_value(&result)?]
                     }
                     _ => vec![],
                 }
@@ -197,7 +207,7 @@ impl Evaluator<'_> {
                 match (string_input(focus, name)?, pattern, replacement) {
                     (Some(s), Some(pattern), Some(replacement)) => {
                         let result = regex_replace_all(&s, &pattern, &replacement, &flags)?;
-                        vec![Value::String(Arc::from(result.as_str()))]
+                        vec![string_value(&result)?]
                     }
                     _ => vec![],
                 }
@@ -273,11 +283,13 @@ impl Evaluator<'_> {
                 if focus.is_empty() {
                     return Ok(Some(vec![]));
                 }
-                let joined: Vec<String> = focus
-                    .iter()
-                    .filter_map(|v| v.as_string())
-                    .map(|s| s.to_string())
-                    .collect();
+                let joined: Vec<Arc<str>> = focus.iter().filter_map(|v| v.as_string()).collect();
+                let separator_count = joined.len().saturating_sub(1);
+                let total = joined.iter().map(|s| s.chars().count()).fold(
+                    separator_count.saturating_mul(sep.chars().count()),
+                    usize::saturating_add,
+                );
+                check_string_len(total)?;
                 vec![Value::String(Arc::from(joined.join(sep.as_ref()).as_str()))]
             }
             "encode" => {
@@ -294,7 +306,7 @@ impl Evaluator<'_> {
                                 )));
                             }
                         };
-                        vec![Value::String(Arc::from(result.as_str()))]
+                        vec![string_value(&result)?]
                     }
                     None => vec![],
                 }
@@ -319,7 +331,7 @@ impl Evaluator<'_> {
                                 String::from_utf8(b)
                                     .map_err(|_| EvalError::Type("decode: invalid UTF-8".into()))
                             })?;
-                        vec![Value::String(Arc::from(decoded.as_str()))]
+                        vec![string_value(&decoded)?]
                     }
                     None => vec![],
                 }

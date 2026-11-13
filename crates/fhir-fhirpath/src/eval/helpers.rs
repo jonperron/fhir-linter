@@ -18,6 +18,25 @@ pub(super) fn check_collection_len(len: usize) -> Result<(), EvalError> {
     Ok(())
 }
 
+/// Longest String, in characters, an evaluation may build: R5's string
+/// maximum (1,048,576). Stops a `select($this + $this)` chain or
+/// `aggregate($total + $total, 'a')` from doubling a string until memory runs out.
+pub(super) const MAX_STRING_LEN: usize = 1_048_576;
+
+/// `StringTooLong` once a length in characters passes [`MAX_STRING_LEN`].
+pub(super) fn check_string_len(chars: usize) -> Result<(), EvalError> {
+    if chars > MAX_STRING_LEN {
+        return Err(EvalError::StringTooLong(MAX_STRING_LEN));
+    }
+    Ok(())
+}
+
+/// A built String as a value, or `StringTooLong` past [`MAX_STRING_LEN`].
+pub(super) fn string_value(s: &str) -> Result<Value, EvalError> {
+    check_string_len(s.chars().count())?;
+    Ok(Value::String(Arc::from(s)))
+}
+
 /// Check that a function received the expected number of arguments.
 pub(super) fn check_arity(name: &str, args: &[Expr], expected: usize) -> Result<(), EvalError> {
     if args.len() != expected {
@@ -34,6 +53,7 @@ pub(super) fn check_arity(name: &str, args: &[Expr], expected: usize) -> Result<
 
 pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collection, EvalError> {
     if let (Value::String(a), Value::String(b), ArithOp::Add) = (lv, rv, &op) {
+        check_string_len(a.chars().count() + b.chars().count())?;
         return Ok(vec![Value::String(Arc::from(format!("{a}{b}")))]);
     }
     if let Some(result) = integer_op(lv, rv, &op)? {
@@ -447,10 +467,10 @@ pub(super) fn string_transform(
     name: &str,
     f: impl Fn(&str) -> String,
 ) -> Result<Collection, EvalError> {
-    Ok(string_input(focus, name)?
-        .map(|s| Value::String(Arc::from(f(&s))))
+    string_input(focus, name)?
+        .map(|s| string_value(&f(&s)))
         .into_iter()
-        .collect())
+        .collect()
 }
 
 /// Single-pass JSON string unescape (FHIRPath 3.0 `unescape('json')`).
