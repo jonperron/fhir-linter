@@ -9,7 +9,7 @@ use crate::line_index::LineIndex;
 use crate::types::{Node, ParseError, Resource, Span, Value};
 use crate::xml_checks::{
     FHIR_NS, Notes, XHTML_NS, check_element, collect_attrs, div_has_control_reference, error_at,
-    local_name_arc, reject_root_attrs, resolve_reference, span_at, xml_error,
+    lift_resource_id, local_name_arc, reject_root_attrs, resolve_reference, span_at, xml_error,
 };
 
 /// Maximum element nesting accepted (guards against stack overflow).
@@ -118,21 +118,7 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
                 reject_root_attrs(reader.resolver(), e, &line_index, pos)?;
                 let mut fields = parse_children(&mut reader, source, &line_index, 1, &mut notes)?;
 
-                let id = match fields.shift_remove("id") {
-                    None => None,
-                    Some(n) => match n.value {
-                        Value::Str(s) => Some(s),
-                        _ => {
-                            let (line, col) = line_index.location(n.span.offset);
-                            return Err(ParseError::XmlError {
-                                message: "'id' element must be a primitive string value".into(),
-                                line,
-                                col,
-                            });
-                        }
-                    },
-                };
-
+                let id = lift_resource_id(&mut fields, &line_index)?;
                 let resource = Resource {
                     resource_type,
                     id,
