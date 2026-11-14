@@ -125,7 +125,7 @@ Le système SHALL exposer un enum `Expr` couvrant toutes les constructions de la
 #### Scenario: Variantes de l'AST
 
 - **WHEN** un AST est construit
-- **THEN** `Expr` SHALL couvrir : littéraux (`Null`, `Bool`, `Integer`, `Long`, `Decimal`, `String`, `Temporal`, `Quantity`), navigation (`DollarThis`, `DollarIndex`, `Ident`, `Dot`, `Index`), appels (`FuncCall`, `Method`), arithmétique (`Add`, `Sub`, `Mul`, `Div`, `DivInt`, `Mod`, `Concat`, `Neg`), comparaisons (`Eq`, `Neq`, `Lt`, `Lte`, `Gt`, `Gte`, `Equiv`, `NotEquiv`), booléens (`And`, `Or`, `Xor`, `Implies`), types (`Is`, `As`), ensembles (`Union`, `In`, `Contains`)
+- **THEN** `Expr` SHALL couvrir : littéraux (`Null`, `Bool`, `Integer`, `Long`, `Decimal`, `String`, `Temporal`, `Quantity`), navigation (`DollarThis`, `DollarIndex`, `External`, `Ident`, `Dot`, `Index`), appels (`FuncCall`, `Method`), arithmétique (`Add`, `Sub`, `Mul`, `Div`, `DivInt`, `Mod`, `Concat`, `Neg`), comparaisons (`Eq`, `Neq`, `Lt`, `Lte`, `Gt`, `Gte`, `Equiv`, `NotEquiv`), booléens (`And`, `Or`, `Xor`, `Implies`), types (`Is`, `As`), ensembles (`Union`, `In`, `Contains`)
 
 ---
 
@@ -819,9 +819,53 @@ Le système SHALL définir la constante `MAX_EVAL_STRING_CHARS` = 16 777 216 (`c
 - **WHEN** l'évaluation d'une contrainte retourne `EvalError::StringBudgetExceeded`
 - **THEN** le validateur SHALL la signaler par un `INVARIANT_SKIPPED` (traitement générique d'`EvalError`)
 
+### Requirement: Variables d'environnement
+
+Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` suivi d'un identifiant délimité par accents graves, et `%'chaîne'` en un nœud `Expr::External` (nom sans le `%`), et les évaluer comme suit. Il SHALL exposer `pub struct Environment { resource: Option<&Value>, root_resource: Option<&Value> }` et `evaluate_parsed_with_environment(expr, context, is_choice_variant, &Environment)`. `evaluate`, `evaluate_parsed` et `evaluate_parsed_with_choices` SHALL conserver leur signature et utiliser les valeurs par défaut.
+
+- `%context` SHALL être la collection d'entrée d'origine, inchangée à l'intérieur de `where`, `select`, etc.
+- `%ucum` = `http://unitsofmeasure.org`, `%sct` = `http://snomed.info/sct`, `%loinc` = `http://loinc.org`, `%vs-[nom]` = `http://hl7.org/fhir/ValueSet/[nom]`, `%ext-[nom]` = `http://hl7.org/fhir/StructureDefinition/[nom]` (un nom vide est une erreur).
+- `%resource` et `%rootResource` (R5 fhirpath.html §2.1.9.1.5) proviennent d'`Environment`. Par défaut, `%resource` est l'entrée si c'est exactement un objet ressource (avec `resourceType`) et `%rootResource` vaut `%resource`.
+- Tout autre `%nom` SHALL produire `Err(EvalError::Type(...))`.
+
+#### Scenario: %context dans un filtre
+
+- **WHEN** `%context` est évalué à l'intérieur de `where(...)`
+- **THEN** il SHALL valoir la collection d'entrée d'origine
+
+#### Scenario: Constantes de terminologie
+
+- **WHEN** `%ucum`, `%sct`, `%loinc`, `%vs-x` ou `%ext-x` est évalué
+- **THEN** le résultat SHALL être la chaîne d'URL correspondante ; `%ext-` sans nom SHALL produire une erreur
+
+#### Scenario: %resource par défaut
+
+- **WHEN** `%resource` est évalué sans `Environment` sur une entrée qui est exactement une ressource
+- **THEN** il SHALL valoir cette ressource, et `%rootResource` aussi
+
+#### Scenario: %resource indisponible
+
+- **WHEN** `%resource` ou `%rootResource` est lu sans valeur définie et sans entrée ressource unique
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))` (le validateur le traduit en `INVARIANT_SKIPPED`)
+
+#### Scenario: Variable inconnue
+
+- **WHEN** `%inconnue` est évalué
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))`
+
+#### Scenario: Environment explicite
+
+- **WHEN** `evaluate_parsed_with_environment` reçoit un `Environment` avec `resource` et `root_resource`
+- **THEN** `%resource` et `%rootResource` SHALL valoir ces valeurs
+
 ### Requirement: Limitations connues
 
 Le système SHALL documenter les limitations suivantes de l'implémentation actuelle.
+
+#### Scenario: Sous-types de chaînes FHIR non distingués
+
+- **WHEN** `is`, `as`, `ofType`, `is()` ou `as()` teste une String contre un type primitif R5 dont la valeur est `System.String` (dérivé de `profiles-types.json` : base64Binary, canonical, code, id, markdown, oid, positiveInt, unsignedInt, uri, url, uuid, xhtml)
+- **THEN** l'évaluation SHALL échouer avec `EvalError::Type` (le validateur émet `INVARIANT_SKIPPED`) : une String ne garde pas son type FHIR, et un `false` deviné produirait de fausses erreurs (dom-3) ; limitation levée quand `Value` portera le type FHIR
 
 #### Scenario: $index hors d'une itération
 
@@ -851,11 +895,11 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 
-Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate` sur son `inputfile` (un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5 (sans navigation des choix)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 916 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
+Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5 (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 936 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
 
 #### Scenario: Réussites sous le plancher
 
-- **WHEN** moins de 916 cas de la suite réussissent
+- **WHEN** moins de 936 cas de la suite réussissent
 - **THEN** le test SHALL échouer
 
 #### Scenario: Dérive du nombre de cas

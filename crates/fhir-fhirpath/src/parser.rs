@@ -121,6 +121,13 @@ fn build_expr(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         Rule::dollar_this => Ok(Expr::DollarThis),
         Rule::dollar_index => Ok(Expr::DollarIndex),
         Rule::dollar_total => Ok(Expr::DollarTotal),
+        Rule::external_constant => {
+            let name = only_child(pair)?;
+            Ok(Expr::External(match name.as_rule() {
+                Rule::string_lit => unescape_string(name.as_str()),
+                _ => ident_name(&name),
+            }))
+        }
         other => Err(ParseError::Syntax(format!("unexpected rule: {other:?}"))),
     }
 }
@@ -608,7 +615,12 @@ mod tests {
                 .stack_size(2 << 20)
                 .spawn(move || {
                     if let Ok(e) = parse(&c) {
-                        let _ = crate::eval::eval(&e, &[], &|_, _| false);
+                        let _ = crate::eval::eval(
+                            &e,
+                            &[],
+                            &|_, _| false,
+                            &crate::Environment::default(),
+                        );
                     }
                 })
                 .unwrap()

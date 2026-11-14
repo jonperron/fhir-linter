@@ -15,6 +15,7 @@ mod value;
 
 pub use ast::Expr;
 pub use error::{EvalError, ParseError};
+pub use eval::Environment;
 pub use value::{
     ChildElement, Collection, Value, from_parser_value, node_to_typed_value,
     resource_to_typed_value, resource_to_value,
@@ -40,7 +41,7 @@ pub fn evaluate(expression: &str, context: &[Value]) -> Result<Collection, EvalE
 ///
 /// Returns [`EvalError`] if evaluation fails.
 pub fn evaluate_parsed(expr: &Expr, context: &[Value]) -> Result<Collection, EvalError> {
-    eval::eval(expr, context, &|_, _| false)
+    eval::eval(expr, context, &|_, _| false, &Environment::default())
 }
 
 /// Evaluate a parsed expression, navigating choice elements: when `value` is
@@ -56,7 +57,22 @@ pub fn evaluate_parsed_with_choices(
     context: &[Value],
     is_choice_variant: &dyn Fn(&str, &str) -> bool,
 ) -> Result<Collection, EvalError> {
-    eval::eval(expr, context, is_choice_variant)
+    eval::eval(expr, context, is_choice_variant, &Environment::default())
+}
+
+/// Like [`evaluate_parsed_with_choices`], with the caller's `%resource` and
+/// `%rootResource` (see [`Environment`] for the defaults when unset).
+///
+/// # Errors
+///
+/// Returns [`EvalError`] if evaluation fails.
+pub fn evaluate_parsed_with_environment(
+    expr: &Expr,
+    context: &[Value],
+    is_choice_variant: &dyn Fn(&str, &str) -> bool,
+    environment: &Environment<'_>,
+) -> Result<Collection, EvalError> {
+    eval::eval(expr, context, is_choice_variant, environment)
 }
 
 /// Parse a FHIRPath expression into an AST without evaluating it.

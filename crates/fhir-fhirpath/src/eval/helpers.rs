@@ -442,9 +442,35 @@ pub(super) fn three_valued_or(a: Option<bool>, b: Option<bool>) -> Option<bool> 
 
 // ── Type helpers ──────────────────────────────────────────────────────────────
 
-pub(super) fn value_is_type(v: &Value, type_name: &str) -> bool {
+/// R5 primitive types other than `string` whose `value` is `System.String`
+/// (`profiles-types.json`; checked by `tests/string_subtype_tests.rs`).
+const FHIR_STRING_SUBTYPES: [&str; 12] = [
+    "base64Binary",
+    "canonical",
+    "code",
+    "id",
+    "markdown",
+    "oid",
+    "positiveInt",
+    "unsignedInt",
+    "uri",
+    "url",
+    "uuid",
+    "xhtml",
+];
+
+/// Whether `v` has the type `type_name`. A String does not record which FHIR
+/// string type it came from, so asking for one of [`FHIR_STRING_SUBTYPES`] is
+/// an error rather than a guessed `false` (shortcut: upgrade when `Value`
+/// carries the FHIR type).
+pub(super) fn value_is_type(v: &Value, type_name: &str) -> Result<bool, EvalError> {
     let v = v.primitive_value();
-    match type_name {
+    if matches!(v, Value::String(_)) && FHIR_STRING_SUBTYPES.contains(&type_name) {
+        return Err(EvalError::Type(format!(
+            "the FHIR type of a String is unknown, cannot test it for {type_name}"
+        )));
+    }
+    Ok(match type_name {
         "Boolean" | "boolean" | "bool" => matches!(v, Value::Bool(_)),
         "Integer" | "integer" => matches!(v, Value::Integer(_)),
         "Long" | "long" => matches!(v, Value::Long(_)),
@@ -460,7 +486,7 @@ pub(super) fn value_is_type(v: &Value, type_name: &str) -> bool {
             fields.get("resourceType").map(Vec::as_slice),
             Some([Value::String(rt)]) if **rt == *type_name
         )),
-    }
+    })
 }
 
 /// Shared by the `is` operator and `is()` (N1 §6.3.1): empty in, empty out;
@@ -468,7 +494,7 @@ pub(super) fn value_is_type(v: &Value, type_name: &str) -> bool {
 pub(super) fn is_type(focus: &[Value], type_name: &str) -> Result<Collection, EvalError> {
     match focus {
         [] => Ok(vec![]),
-        [v] => Ok(vec![Value::Bool(value_is_type(v, type_name))]),
+        [v] => Ok(vec![Value::Bool(value_is_type(v, type_name)?)]),
         _ => Err(EvalError::Type(format!(
             "is requires a single-item input, got {}",
             focus.len()
@@ -481,7 +507,7 @@ pub(super) fn is_type(focus: &[Value], type_name: &str) -> Result<Collection, Ev
 pub(super) fn as_type(focus: &[Value], type_name: &str) -> Result<Collection, EvalError> {
     match focus {
         [] => Ok(vec![]),
-        [v] => Ok(value_is_type(v, type_name)
+        [v] => Ok(value_is_type(v, type_name)?
             .then(|| v.clone())
             .into_iter()
             .collect()),

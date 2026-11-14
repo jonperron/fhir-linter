@@ -315,10 +315,11 @@ fn reference_choice_variant_in_an_extension_is_checked() -> TestResult {
 
 #[test]
 fn nested_skipped_constraint_names_the_node_path() -> TestResult {
-    // ref-1 needs %rootResource, so it is skipped on the nested Reference, at its path.
+    // ref-1 needs %rootResource for a '#' reference, so it is skipped on the
+    // nested Reference, at its path.
     let found = diagnostics(
-        r#"{"resourceType":"Patient","contact":[{"organization":
-        {"reference":"Organization/1"}}]}"#,
+        r##"{"resourceType":"Patient","contact":[{"organization":
+        {"reference":"#x"}}]}"##,
     )?;
     let ref_1 = found
         .iter()

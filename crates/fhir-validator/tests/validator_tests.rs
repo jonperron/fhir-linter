@@ -651,12 +651,17 @@ fn valid_nested_resource_has_no_nested_errors() {
 
 #[test]
 fn unevaluable_invariants_are_reported_as_information() {
-    let resource = parse_json(r#"{"resourceType":"Patient","id":"p1"}"#).unwrap();
+    let resource = parse_json(
+        r#"{"resourceType":"Patient","id":"p1",
+        "contained":[{"resourceType":"Basic","id":"b"}]}"#,
+    )
+    .unwrap();
     let skipped: Vec<_> = validate(&resource, &load_registry())
         .into_iter()
         .filter(|d| d.code.as_ref() == "INVARIANT_SKIPPED")
         .collect();
-    // Relies on dom-3 needing `%resource`; expected to change once the parser supports it.
+    // Relies on dom-3 asking `ofType(canonical)` of Strings, whose FHIR type the
+    // evaluator does not know yet; expected to change once `Value` carries it.
     assert!(!skipped.is_empty(), "expected skipped Patient invariants");
     for d in &skipped {
         assert_eq!(d.severity, Severity::Information);

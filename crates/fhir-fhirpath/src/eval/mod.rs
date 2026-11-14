@@ -35,9 +35,12 @@ pub fn eval(
     expr: &Expr,
     context: &[Value],
     is_choice_variant: &dyn Fn(&str, &str) -> bool,
+    environment: &Environment<'_>,
 ) -> Result<Collection, EvalError> {
     Evaluator {
         is_choice_variant,
+        environment,
+        context,
         total: None,
         index: None,
         string_chars: &Cell::new(0),
@@ -45,11 +48,29 @@ pub fn eval(
     .eval(expr, context)
 }
 
+/// FHIR environment variables (R5 fhirpath.html §2.1.9.1.5), set by the caller.
+///
+/// Unset, `%resource` is the input when the input is a single resource
+/// (an object with a `resourceType`), and `%rootResource` is `%resource`.
+/// Otherwise reading them is an error, so a constraint is skipped rather
+/// than evaluated against the wrong node.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Environment<'a> {
+    /// `%resource`: the resource that contains the input node.
+    pub resource: Option<&'a Value>,
+    /// `%rootResource`: the container of `%resource` when it is a contained
+    /// resource, else `%resource` itself.
+    pub root_resource: Option<&'a Value>,
+}
+
 pub(super) struct Evaluator<'a> {
     is_choice_variant: &'a dyn Fn(&str, &str) -> bool,
     /// Characters of String values built so far, shared by every nested
     /// evaluator (see [`helpers::MAX_EVAL_STRING_CHARS`]).
     string_chars: &'a Cell<usize>,
+    environment: &'a Environment<'a>,
+    /// `%context`: the input collection the evaluation started from.
+    context: &'a [Value],
     /// `$total` while an `aggregate()` expression is evaluated.
     total: Option<&'a [Value]>,
     /// `$index` while an expression parameter is evaluated for one item.
@@ -70,6 +91,47 @@ impl Evaluator<'_> {
             ..*self
         }
         .eval(expr, std::slice::from_ref(item))
+    }
+
+    /// Resolve `%name`: the constants of FHIRPath N1 (`%ucum`) and R5
+    /// fhirpath.html §2.1.9.1.5 (`%sct`, `%loinc`, `%vs-*`, `%ext-*`),
+    /// `%context`, and `%resource` / `%rootResource` (see [`Environment`]).
+    fn environment_variable(&self, name: &str) -> Result<Collection, EvalError> {
+        let input_resource = match self.context {
+            [value @ Value::Object(map)] if map.contains_key("resourceType") => Some(value),
+            _ => None,
+        };
+        let resource = self.environment.resource.or(input_resource);
+        let constant = match name {
+            "ucum" => Some("http://unitsofmeasure.org".to_owned()),
+            "sct" => Some("http://snomed.info/sct".to_owned()),
+            "loinc" => Some("http://loinc.org".to_owned()),
+            _ => name
+                .strip_prefix("vs-")
+                .filter(|vs| !vs.is_empty())
+                .map(|vs| format!("http://hl7.org/fhir/ValueSet/{vs}"))
+                .or_else(|| {
+                    name.strip_prefix("ext-")
+                        .filter(|ext| !ext.is_empty())
+                        .map(|ext| format!("http://hl7.org/fhir/StructureDefinition/{ext}"))
+                }),
+        };
+        if let Some(url) = constant {
+            return Ok(vec![Value::String(Arc::from(url))]);
+        }
+        let value = match name {
+            "context" => return Ok(self.context.to_vec()),
+            "resource" => resource,
+            "rootResource" => self.environment.root_resource.or(resource),
+            _ => {
+                return Err(EvalError::Type(format!(
+                    "unknown environment variable %{name}"
+                )));
+            }
+        };
+        value
+            .map(|v| vec![v.clone()])
+            .ok_or_else(|| EvalError::Type(format!("%{name} is not set for this input")))
     }
 
     /// Evaluate `expr`; every intermediate collection is checked against
@@ -111,6 +173,7 @@ impl Evaluator<'_> {
                 .total
                 .map(<[Value]>::to_vec)
                 .ok_or_else(|| EvalError::Type("$total outside aggregate()".to_owned())),
+            Expr::External(name) => self.environment_variable(name),
 
             // ── Identifier / path step ─────────────────────────────────────
             Expr::Ident(name) => self.eval_ident(name, ctx, true),

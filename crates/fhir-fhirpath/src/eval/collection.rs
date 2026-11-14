@@ -147,9 +147,12 @@ impl Evaluator<'_> {
                 let type_name = eval_type_name(&args[0])?;
                 focus
                     .iter()
-                    .filter(|v| value_is_type(v, &type_name))
-                    .cloned()
-                    .collect()
+                    .filter_map(|v| match value_is_type(v, &type_name) {
+                        Ok(true) => Some(Ok(v.clone())),
+                        Ok(false) => None,
+                        Err(e) => Some(Err(e)),
+                    })
+                    .collect::<Result<_, _>>()?
             }
             "is" => {
                 check_arity(name, args, 1)?;
