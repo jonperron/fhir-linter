@@ -24,7 +24,7 @@ fn diagnostics(json: &str) -> Vec<Diagnostic> {
 fn paths(json: &str, code: &str) -> Vec<String> {
     diagnostics(json)
         .into_iter()
-        .filter(|d| d.code.as_ref() == code)
+        .filter(|d| d.code.as_ref() == code && d.severity == Severity::Error)
         .map(|d| d.path.to_string())
         .collect()
 }
