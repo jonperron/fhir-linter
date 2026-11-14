@@ -377,3 +377,37 @@ Chaque `ElementDefinition` SHALL exposer `slicing: Option<Box<Slicing>>` avec `d
 
 - **WHEN** le bundle R5 est chargé
 - **THEN** 20 des 21 primitives SHALL exposer une regex
+
+### Requirement: Ascendance des types
+
+Le chargeur SHALL conserver `StructureDefinition.baseDefinition`, sans suffixe de version, dans `StructureDefinition::base_definition: Option<Arc<str>>` (`None` pour `Base`, racine R5). `Registry::type_ancestors(code: &str) -> impl Iterator<Item = &str>` SHALL produire le code lui-même puis chaque ancêtre, du plus proche au plus lointain, en suivant `baseDefinition` et en nommant chaque type par son URL canonique privée de `http://hl7.org/fhir/StructureDefinition/`. La marche SHALL s'arrêter lorsque la base est hors de cet espace de noms ou n'est pas chargée, et après autant d'étapes que de définitions chargées (garde contre les cycles). Un code inconnu SHALL produire un itérateur vide.
+
+#### Scenario: Primitive
+
+- **WHEN** `type_ancestors("code")` est appelé sur le bundle R5
+- **THEN** la séquence SHALL être `code`, `string`, `PrimitiveType`, `DataType`, `Element`, `Base`
+
+#### Scenario: Type complexe et profil
+
+- **WHEN** `type_ancestors("Age")` ou `type_ancestors("SimpleQuantity")` est appelé
+- **THEN** la séquence SHALL être `Age`, `Quantity`, `DataType`, `Element`, `Base`, respectivement `SimpleQuantity`, `Quantity`, `DataType`, `Element`, `Base`
+
+#### Scenario: Ressource
+
+- **WHEN** `type_ancestors("Patient")` est appelé
+- **THEN** la séquence SHALL être `Patient`, `DomainResource`, `Resource`, `Base`
+
+#### Scenario: Racine
+
+- **WHEN** `type_ancestors("Base")` est appelé
+- **THEN** la séquence SHALL être `Base` seul
+
+#### Scenario: Code inconnu
+
+- **WHEN** `type_ancestors` reçoit un code absent du registre
+- **THEN** l'itérateur SHALL être vide
+
+#### Scenario: Base hors espace de noms ou cycle
+
+- **WHEN** une base est hors de `http://hl7.org/fhir/StructureDefinition/`, non chargée, ou forme un cycle
+- **THEN** la marche SHALL s'arrêter sans boucler indéfiniment

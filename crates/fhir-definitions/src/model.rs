@@ -19,6 +19,7 @@ use fhir_fhirpath::{Expr, ParseError};
 ///     snapshot: Vec::new(),
 ///     value_regex: None,
 ///     version: None,
+///     base_definition: None,
 ///     path_index: Default::default(),
 /// };
 /// ```
@@ -35,6 +36,10 @@ pub struct StructureDefinition {
     /// The business `version` of the definition (`5.0.0` for the R5 core). `None` from
     /// [`StructureDefinition::new`].
     pub version: Option<Arc<str>>,
+    /// `baseDefinition`: the canonical URL of the definition this one specializes or
+    /// constrains (see [`crate::Registry::type_ancestors`]). `None` for `Base`, the R5 root,
+    /// and from [`StructureDefinition::new`].
+    pub base_definition: Option<Arc<str>>,
     /// Position in `snapshot` of the first element with each path.
     path_index: HashMap<Arc<str>, usize>,
 }
@@ -60,6 +65,7 @@ impl StructureDefinition {
             snapshot,
             value_regex: None,
             version: None,
+            base_definition: None,
             path_index,
         }
     }
@@ -75,6 +81,14 @@ impl StructureDefinition {
     /// The same definition with `version` set.
     pub(crate) fn with_version(self, version: Option<Arc<str>>) -> Self {
         Self { version, ..self }
+    }
+
+    /// The same definition with `base_definition` set.
+    pub(crate) fn with_base_definition(self, base_definition: Option<Arc<str>>) -> Self {
+        Self {
+            base_definition,
+            ..self
+        }
     }
 
     /// The (first) snapshot element whose path is exactly `path`.
