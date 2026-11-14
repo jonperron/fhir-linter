@@ -125,7 +125,7 @@ Le système SHALL représenter un élément portant à la fois un attribut `valu
 
 ### Requirement: Extraction du champ id
 
-Le système SHALL extraire l'attribut `value` de l'élément racine `<id>` de la ressource XML vers `Resource.id`. Lorsque `<id>` porte aussi une `<extension>` ou un attribut `id`, le système SHALL conserver le reste dans `Resource.fields` sous la clé `id`, comme `Value::Object` sans clé `value`, à la même position et avec le span de l'élément `id`, afin que le reshape XML du validateur le convertisse en `_id` comme le fait JSON. Limite connue : `Resource` n'a pas de span pour l'id remonté, donc un id dont les espaces de bordure ont été retirés ne déclenche pas encore TYPE_007.
+Le système SHALL extraire l'attribut `value` de l'élément racine `<id>` de la ressource XML vers `Resource.id`, de type `Option<ResourceId>` (`value` et `span` de l'élément `<id>` ; déréférence en `str`). Lorsque `<id>` porte aussi une `<extension>` ou un attribut `id`, le système SHALL conserver le reste dans `Resource.fields` sous la clé `id`, comme `Value::Object` sans clé `value`, à la même position et avec le span de l'élément `id`, afin que le reshape XML du validateur le convertisse en `_id` comme le fait JSON.
 
 #### Scenario: Champ id présent et primitif
 
@@ -151,8 +151,6 @@ Le système SHALL extraire l'attribut `value` de l'élément racine `<id>` de la
 
 - **WHEN** la ressource XML contient un élément `<id/>` vide ou plusieurs éléments `<id>`
 - **THEN** `parse_xml` SHALL retourner `Err(ParseError::XmlError)` avec le message `'id' element must be a primitive string value`
-
----
 
 ### Requirement: Profondeur maximale
 

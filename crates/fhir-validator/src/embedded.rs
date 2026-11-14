@@ -4,7 +4,7 @@
 
 use fhir_definitions::{ElementDefinition, Registry, StructureDefinition};
 use fhir_fhirpath::Value as FhirPathValue;
-use fhir_parser::{Node, Resource, Value};
+use fhir_parser::{Node, Resource, ResourceId, Value};
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
@@ -170,8 +170,14 @@ pub(crate) fn queue<'a>(
         // `id` leave `fields` (any other `id` stays, for the type check to report).
         let mut fields = fields.clone();
         fields.shift_remove("resourceType");
-        let id = match fields.get("id").map(|n| &n.value) {
-            Some(Value::Str(id)) => Some(Arc::clone(id)),
+        let id = match fields.get("id") {
+            Some(Node {
+                value: Value::Str(id),
+                span,
+            }) => Some(ResourceId {
+                value: Arc::clone(id),
+                span: *span,
+            }),
             _ => None,
         };
         if id.is_some() {

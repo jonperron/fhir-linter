@@ -98,6 +98,11 @@ impl StructureDefinition {
             .and_then(|&i| self.snapshot.get(i))
     }
 
+    /// The snapshot position of [`Self::element`]`(path)`, its place in the element order.
+    pub fn position(&self, path: &str) -> Option<usize> {
+        self.path_index.get(path).copied()
+    }
+
     /// The snapshot elements below `path`: the run right after its element whose
     /// paths start with `path.` (snapshots list descendants right after their parent).
     /// Empty when `path` is not in the snapshot.

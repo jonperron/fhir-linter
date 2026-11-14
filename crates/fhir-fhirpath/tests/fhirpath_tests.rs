@@ -1912,7 +1912,10 @@ fn resource_to_value_maps_resource_type_and_id() {
     use fhir_parser::Resource;
     let resource = Resource {
         resource_type: Arc::from("Patient"),
-        id: Some(Arc::from("p1")),
+        id: Some(fhir_parser::ResourceId {
+            value: Arc::from("p1"),
+            span: fhir_parser::Span::default(),
+        }),
         from_xml: false,
         trimmed_attributes: Vec::new(),
         schema_instance: Vec::new(),

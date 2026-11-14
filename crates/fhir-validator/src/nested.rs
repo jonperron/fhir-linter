@@ -86,7 +86,10 @@ pub(crate) fn validate<'a>(
         json,
         contained_ids: container_ids.unwrap_or_else(|| references::contained_ids(resource).into()),
         in_contained,
-        root_id: resource.id.clone().map(Value::Str),
+        root_id: resource
+            .id
+            .as_ref()
+            .map(|id| Value::Str(Arc::clone(&id.value))),
         root_path: path.to_owned(),
         embedded: RefCell::new(Vec::new()),
     };

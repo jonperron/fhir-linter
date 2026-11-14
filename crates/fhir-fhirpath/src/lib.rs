@@ -12,6 +12,7 @@ mod error;
 mod eval;
 mod parser;
 mod value;
+mod xml_text;
 
 pub use ast::Expr;
 pub use error::{EvalError, ParseError};
@@ -20,6 +21,7 @@ pub use value::{
     ChildElement, Collection, Value, from_parser_value, node_to_typed_value,
     resource_to_typed_value, resource_to_value,
 };
+pub use xml_text::typed_xml_text;
 
 /// Parse and evaluate a FHIRPath expression against a context collection.
 ///

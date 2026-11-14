@@ -1,5 +1,5 @@
 //! XML conformance rules from the FHIR R5 `xml.html` page (audit 11.6.4).
-use fhir_parser::{ParseError, TrimmedAttribute, Value, parse_xml};
+use fhir_parser::{ParseError, Span, TrimmedAttribute, Value, parse_xml};
 
 const FHIR_NS: &str = "xmlns=\"http://hl7.org/fhir\"";
 
@@ -260,8 +260,15 @@ fn trimmed_resource_id_is_recorded_with_its_element_span() {
         format!("<Patient {FHIR_NS}>\n<id value=\" p1 \"/><active value=\"true\"/></Patient>");
     let resource = parse_xml(&source).expect("parses");
     assert_eq!(resource.id.as_deref(), Some("p1"));
+    let offset = u32::try_from(source.find("<id").expect("has <id>")).expect("short");
+    let expected = Span {
+        line: 2,
+        col: 1,
+        offset,
+    };
+    assert_eq!(resource.id.map(|id| id.span), Some(expected));
     match resource.trimmed_attributes.as_slice() {
-        [TrimmedAttribute::ResourceId(span)] => assert_eq!(span.line, 2),
+        [TrimmedAttribute::ResourceId(span)] => assert_eq!(*span, expected),
         other => panic!("{other:?}"),
     }
 }
