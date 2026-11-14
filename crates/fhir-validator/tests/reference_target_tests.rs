@@ -114,6 +114,40 @@ fn resource_target_logical_contained_and_urn_references_are_not_type_checked() {
 }
 
 #[test]
+fn every_bundled_reference_target_profile_resolves() -> Result<(), Box<dyn std::error::Error>> {
+    // So the "unresolvable profile allows any type" branch never hides a core violation.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5");
+    let mut unresolved = Vec::new();
+    for bundle in [
+        "profiles-resources.json",
+        "profiles-types.json",
+        "profiles-others.json",
+    ] {
+        let text = std::fs::read_to_string(dir.join(bundle))?;
+        let json: serde_json::Value = serde_json::from_str(&text)?;
+        let types = json["entry"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|e| e["resource"]["snapshot"]["element"].as_array())
+            .flatten()
+            .flat_map(|el| el["type"].as_array())
+            .flatten();
+        for ty in types.filter(|t| t["code"] == "Reference") {
+            for url in ty["targetProfile"].as_array().into_iter().flatten() {
+                let url = url.as_str().unwrap_or_default();
+                let url = url.split('|').next().unwrap_or(url);
+                if registry().structure_definition(url).is_none() {
+                    unresolved.push(url.to_owned());
+                }
+            }
+        }
+    }
+    assert!(unresolved.is_empty(), "{unresolved:?}");
+    Ok(())
+}
+
+#[test]
 fn codeable_concept_coding_without_code_under_required_binding_is_reported() {
     let json = r#"{"resourceType":"Condition","subject":{"reference":"Patient/1"},
         "clinicalStatus":{"coding":[

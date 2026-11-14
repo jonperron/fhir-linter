@@ -104,9 +104,9 @@ fn malformed_relative(reference: &str, registry: &Registry) -> bool {
 
 /// Whether the `Reference` targetProfile list of `elem` allows a reference to `url_type`.
 ///
-/// No list allows any type. Each profile counts for the type its snapshot root names.
-/// shortcut: an abstract target (`Resource`) or an unresolvable profile allows any type,
-/// as the registry keeps no base chain; check the ancestry once it does.
+/// No list allows any type. Each profile counts for the type its snapshot root names, which
+/// allows that type and its descendants (`Resource` allows every resource). A profile the
+/// registry cannot resolve allows any type: nothing is known about its target.
 fn target_allowed(elem: &ElementDefinition, url_type: &str, registry: &Registry) -> bool {
     let Some(targets) = elem
         .type_profiles
@@ -116,19 +116,14 @@ fn target_allowed(elem: &ElementDefinition, url_type: &str, registry: &Registry)
     else {
         return true;
     };
+    let ancestors: Vec<&str> = registry.type_ancestors(url_type).collect();
     targets.target_profiles.iter().any(|url| {
         registry.structure_definition(url).is_none_or(|sd| {
-            sd.snapshot.first().is_none_or(|root| {
-                root.path.as_ref() == url_type || is_abstract_type(registry, &root.path)
-            })
+            sd.snapshot
+                .first()
+                .is_none_or(|root| ancestors.contains(&root.path.as_ref()))
         })
     })
-}
-
-fn is_abstract_type(registry: &Registry, name: &str) -> bool {
-    registry
-        .structure_definition(&format!("{CORE_SD}{name}"))
-        .is_some_and(|sd| sd.is_abstract)
 }
 
 const CORE_SD: &str = "http://hl7.org/fhir/StructureDefinition/";

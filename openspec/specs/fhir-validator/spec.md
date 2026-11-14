@@ -1002,7 +1002,7 @@ Le système SHALL émettre un Diagnostic de sévérité warning `REFERENCE_004` 
 
 ### Requirement: Validation des références — type cible non autorisé (REFERENCE_005)
 
-Le système SHALL émettre `REFERENCE_005` (erreur), au `path` `<élément>.reference`, lorsque, à toute profondeur, une référence URL FHIR (même définition par expression régulière de référence littérale R5 que `REFERENCE_003` : `Type/id` relatif ou absolu http(s), `_history` optionnel) désigne un type de ressource non autorisé par la liste `targetProfile` du `Reference` de l'élément. Chaque `targetProfile` compte pour le type nommé par le chemin racine de son snapshot (un profil comme `vitalsigns` compte pour `Observation`). Aucun `targetProfile`, une cible abstraite (`Resource`) ou un `targetProfile` que le Registry ne résout pas SHALL autoriser tout type (limite actuelle : pas de chaîne de types de base dans le Registry). Les références `#id` contenues, `urn:`, conditionnelles et logiques (`identifier` seul) NE SONT PAS contrôlées en type.
+Le système SHALL émettre `REFERENCE_005` (erreur), au `path` `<élément>.reference`, lorsque, à toute profondeur, une référence URL FHIR (même définition par expression régulière de référence littérale R5 que `REFERENCE_003` : `Type/id` relatif ou absolu http(s), `_history` optionnel) désigne un type de ressource non autorisé par la liste `targetProfile` du `Reference` de l'élément. Chaque `targetProfile` compte pour le type nommé par le chemin racine de son snapshot (un profil comme `vitalsigns` compte pour `Observation`). Un `targetProfile` autorise son type racine ET tout type qui en dérive (chaîne `baseDefinition`, via `Registry::type_ancestors`) : `Resource` autorise toute ressource, `DomainResource` toute ressource de domaine. Aucun `targetProfile`, ou un `targetProfile` que le Registry ne résout pas (cible inconnue ; tout `targetProfile` du noyau R5 se résout), SHALL autoriser tout type. Les références `#id` contenues, `urn:`, conditionnelles et logiques (`identifier` seul) NE SONT PAS contrôlées en type.
 
 #### Scenario: Type cible interdit
 
@@ -1023,6 +1023,11 @@ Le système SHALL émettre `REFERENCE_005` (erreur), au `path` `<élément>.refe
 
 - **WHEN** `Identifier.assigner` référence un type autre que `Organization`
 - **THEN** un Diagnostic `REFERENCE_005` SHALL être émis
+
+#### Scenario: Cible DomainResource
+
+- **WHEN** un `Reference(DomainResource)` référence `Patient/1`
+- **THEN** aucun Diagnostic `REFERENCE_005` SHALL être émis
 
 #### Scenario: Cible Resource
 
