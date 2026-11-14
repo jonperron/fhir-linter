@@ -341,7 +341,11 @@ fn test(
 }
 
 /// The typed FHIRPath value of an item of `elem`.
-fn item_value(item: &Item<'_>, elem: &ElementDefinition, registry: &Registry) -> Collection {
+pub(crate) fn item_value(
+    item: &Item<'_>,
+    elem: &ElementDefinition,
+    registry: &Registry,
+) -> Collection {
     let ty = item
         .choice_type
         .or_else(|| elem.types.first().map(|t| t.as_ref()))

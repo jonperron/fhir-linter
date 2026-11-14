@@ -93,6 +93,21 @@ pub fn validate(
         } else if sd.url != base.url {
             // Keep only findings the base check did not already report.
             let mut found = Vec::new();
+            if let (Some(root), Some(value)) = (sd.snapshot.first(), environment.resource) {
+                let base_root = base.element(resource_type);
+                let known = |key: &str| has_constraint(base_root, key);
+                for constraint in root.constraints.iter().filter(|c| !known(&c.key)) {
+                    invariants::check(
+                        constraint,
+                        std::slice::from_ref(value),
+                        &|base, suffix| registry.is_choice_variant(base, suffix),
+                        environment,
+                        resource_path,
+                        None,
+                        &mut found,
+                    );
+                }
+            }
             check_profile_object(
                 &resource.fields,
                 sd,
@@ -248,6 +263,7 @@ pub(crate) fn check_profile_object(
                 (fields.get_key_value(rest).into_iter().collect(), items)
             }
         };
+        check_own_invariants(&items, elem, layer, diagnostics);
         let own = without_own_slices(subtree, &elem.path);
         for (name, node) in present {
             let child_path = format!("{path}.{name}");
@@ -358,12 +374,74 @@ fn check_slices(
     }
 }
 
+/// Evaluate on each item of the profile element `elem` the constraints the profile adds: the
+/// keys of the base element and of the item type's root are skipped, the base walk checks them.
+/// A choice variant the profile does not keep has no constraints of `elem` to meet.
+fn check_own_invariants(
+    items: &[Item<'_>],
+    elem: &ElementDefinition,
+    layer: Layer<'_, '_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if elem.constraints.is_empty() {
+        return;
+    }
+    let registry = layer.registry;
+    let base = core_definition(&elem.path, registry).and_then(|sd| sd.element(&elem.path));
+    let is_choice_variant = |base: &str, suffix: &str| registry.is_choice_variant(base, suffix);
+    for item in items {
+        let Some(ty) = item
+            .choice_type
+            .or_else(|| elem.types.first().map(|t| t.as_ref()))
+        else {
+            continue;
+        };
+        if item.choice_type.is_some() && !elem.types.iter().any(|t| &**t == ty) {
+            continue;
+        }
+        let type_root = core_definition(ty, registry).and_then(|sd| sd.element(ty));
+        let own: Vec<_> = elem
+            .constraints
+            .iter()
+            .filter(|c| !has_constraint(base, &c.key) && !has_constraint(type_root, &c.key))
+            .collect();
+        if own.is_empty() {
+            continue;
+        }
+        let value = slicing::item_value(item, elem, registry);
+        // A JSON null is no node to constrain (as in the base walk).
+        if value.is_empty() {
+            continue;
+        }
+        for constraint in own {
+            invariants::check(
+                constraint,
+                &value,
+                &is_choice_variant,
+                layer.environment,
+                &item.path,
+                Some(item.node.span),
+                diagnostics,
+            );
+        }
+    }
+}
+
+/// The core StructureDefinition of the type that starts definition path `path`.
+fn core_definition<'a>(path: &str, registry: &'a Registry) -> Option<&'a StructureDefinition> {
+    let root = path.split('.').next()?;
+    registry.structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{root}"))
+}
+
+/// Whether `elem` exists and has a constraint `key`.
+fn has_constraint(elem: Option<&ElementDefinition>, key: &str) -> bool {
+    elem.is_some_and(|e| e.constraints.iter().any(|c| *c.key == *key))
+}
+
 /// The types the base definition allows for the choice element `elem` (a profile may keep
 /// fewer); the profile's own types when the base is not found.
 fn choice_types<'a>(elem: &'a ElementDefinition, registry: &'a Registry) -> &'a [Arc<str>] {
-    let root = elem.path.split('.').next().unwrap_or_default();
-    registry
-        .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{root}"))
+    core_definition(&elem.path, registry)
         .and_then(|base| base.element(&elem.path))
         .map_or(&elem.types, |base| &base.types)
 }
