@@ -225,7 +225,7 @@ Le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_002` et severi
 
 ### Requirement: Validation de type — erreur de type de base (TYPE_001)
 
-Le système SHALL émettre un `Diagnostic` avec code `TYPE_001` et severity `Error` lorsqu'une valeur n'est pas du type JSON attendu par la StructureDefinition (ex. : nombre fourni pour un champ `string`, ou chaîne pour un champ `boolean`). Pour un champ polymorphique de premier niveau (`value[x]`), le type vérifié SHALL être celui sélectionné par le suffixe du champ. Une valeur scalaire (chaîne, nombre, booléen ou `null`) fournie pour un élément dont le type est un datatype complexe, `BackboneElement` ou `Element` SHALL produire `TYPE_001` avec le message `Expected <type> object at '<path>'` ; un tableau SHALL être vérifié élément par élément.
+Le système SHALL émettre un `Diagnostic` avec code `TYPE_001` et severity `Error` lorsqu'une valeur n'est pas du type JSON attendu par la StructureDefinition (ex. : nombre fourni pour un champ `string`, ou chaîne pour un champ `boolean`). Pour un champ polymorphique de premier niveau (`value[x]`), le type vérifié SHALL être celui sélectionné par le suffixe du champ. Une valeur scalaire (chaîne, nombre, booléen ou `null`) fournie pour un élément dont le type est un datatype complexe, `BackboneElement` ou `Element` SHALL produire `TYPE_001` avec le message `Expected <type> object at '<path>'` ; un tableau SHALL être vérifié élément par élément. Dans un tableau primitif répétitif, un `null` à l'index i SHALL NOT produire `TYPE_001` lorsque `_nom[i]` est un objet NON VIDE (json.html : les objets ne sont jamais vides ; id/extensions d'une répétition sans valeur), en JSON comme en XML ; sans objet non vide à `_nom[i]` (dont `{}`), `TYPE_001` SHALL être émis.
 
 Les types `string`, `markdown`, `base64Binary`, `uri`, `url`, `canonical`, `oid`, `uuid` et `xhtml` SHALL recevoir une chaîne JSON ; toute autre valeur JSON SHALL produire `TYPE_001`.
 
@@ -268,6 +268,16 @@ Les types `string`, `markdown`, `base64Binary`, `uri`, `url`, `canonical`, `oid`
 
 - **WHEN** un champ de type `uri`, `markdown`, `oid` ou `uuid` contient une valeur JSON numérique
 - **THEN** un Diagnostic `TYPE_001` SHALL être émis
+
+#### Scenario: null dans un tableau primitif avec _nom objet
+
+- **WHEN** un Patient contient `"given": ["Jim", null], "_given": [null, {"extension": [...]}]` (json.html 2.1.6.4.2, JSON et XML)
+- **THEN** aucun `TYPE_001` SHALL être émis pour `Patient.name[0].given[1]`
+
+#### Scenario: null dans un tableau primitif sans _nom objet
+
+- **WHEN** un Patient contient `"given": ["Jim", null]` seul (ou avec `_given` absent, plus court, `null` ou `{}` à cet index)
+- **THEN** un Diagnostic `TYPE_001` SHALL être émis à `Patient.name[0].given[1]`
 
 ### Requirement: Validation de type — contrainte de valeur entière (TYPE_002)
 
@@ -695,6 +705,22 @@ Le système SHALL émettre un Diagnostic de sévérité warning `PROFILE_001` po
 
 - **WHEN** `meta.profile` contient une URL absente du Registry
 - **THEN** un Diagnostic `PROFILE_001` de sévérité warning SHALL être émis
+
+---
+
+### Requirement: Validation de profil — version différente (PROFILE_003)
+
+Le système SHALL émettre un Diagnostic de sévérité warning `PROFILE_003` au `path` `<Type>.meta.profile[i]` lorsqu'un profil connu est donné sous la forme canonique `url|version#fragment` (le fragment est ignoré pour la comparaison) et que la version diffère du `version` de la StructureDefinition chargée (ou que celle-ci n'en a pas). La validation SHALL ensuite se poursuivre contre la version chargée (choix de conception ; la spécification FHIR est silencieuse). Aucun `PROFILE_003` SHALL être émis sans `|version` ou lorsque la version correspond.
+
+#### Scenario: Version de profil différente
+
+- **WHEN** une Observation a `meta.profile` = `http://hl7.org/fhir/StructureDefinition/vitalsigns|1.0.0` et que la version chargée diffère
+- **THEN** un Diagnostic `PROFILE_003` de sévérité warning SHALL être émis, et les contrôles de cardinalité de vitalsigns SHALL s'appliquer (ex. `CARDINALITY_001` à `Observation.subject`)
+
+#### Scenario: Sans version ou version identique
+
+- **WHEN** le profil n'a pas de `|version`, ou sa version égale celle chargée (y compris avec fragment : `vitalsigns|5.0.0#vs`)
+- **THEN** aucun `PROFILE_003` SHALL être émis
 
 ---
 

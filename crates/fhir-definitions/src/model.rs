@@ -18,6 +18,7 @@ use fhir_fhirpath::{Expr, ParseError};
 ///     is_abstract: false,
 ///     snapshot: Vec::new(),
 ///     value_regex: None,
+///     version: None,
 ///     path_index: Default::default(),
 /// };
 /// ```
@@ -31,6 +32,9 @@ pub struct StructureDefinition {
     /// For a primitive type, the `regex` extension on its `<type>.value` element, as published
     /// (see [`crate::Registry::primitive_regex`]). `None` from [`StructureDefinition::new`].
     pub value_regex: Option<Arc<str>>,
+    /// The business `version` of the definition (`5.0.0` for the R5 core). `None` from
+    /// [`StructureDefinition::new`].
+    pub version: Option<Arc<str>>,
     /// Position in `snapshot` of the first element with each path.
     path_index: HashMap<Arc<str>, usize>,
 }
@@ -55,6 +59,7 @@ impl StructureDefinition {
             is_abstract,
             snapshot,
             value_regex: None,
+            version: None,
             path_index,
         }
     }
@@ -65,6 +70,11 @@ impl StructureDefinition {
             value_regex,
             ..self
         }
+    }
+
+    /// The same definition with `version` set.
+    pub(crate) fn with_version(self, version: Option<Arc<str>>) -> Self {
+        Self { version, ..self }
     }
 
     /// The (first) snapshot element whose path is exactly `path`.

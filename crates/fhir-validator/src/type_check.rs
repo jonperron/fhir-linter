@@ -25,9 +25,10 @@ const REGEX_CHECKED: [&str; 8] = [
 /// Emits `TYPE_001` through `TYPE_005` for format and type mismatches, the `TYPE_006`
 /// warning for a control character in a string, and the `TYPE_008` warning for a
 /// whitespace-only string. The `REGEX_CHECKED` types are matched against their R5 regex
-/// and `maxLength` from `registry`.
+/// and `maxLength` from `registry`. `extension` is the value's `_name` element, if any.
 pub(crate) fn check_type(
     value: &Value,
+    extension: Option<&Value>,
     fhir_type: &str,
     path: &str,
     span: Span,
@@ -36,10 +37,26 @@ pub(crate) fn check_type(
 ) {
     // Recurse into arrays.
     if let Value::Array(items) = value {
+        let extensions = match extension {
+            Some(Value::Array(extensions)) => extensions.as_slice(),
+            _ => &[],
+        };
         for (i, item) in items.iter().enumerate() {
+            // json.html 2.1.6.4.2: a repeating element with no value is a null in the value
+            // array, its id or extensions sitting at the same index in the `_name` array.
+            // Objects are never empty, so `{}` is no placeholder.
+            let placeholder = matches!(item.value, Value::Null)
+                && matches!(
+                    extensions.get(i).map(|e| &e.value),
+                    Some(Value::Object(fields)) if !fields.is_empty()
+                );
+            if placeholder {
+                continue;
+            }
             let item_path = format!("{path}[{i}]");
             check_type(
                 &item.value,
+                None,
                 fhir_type,
                 &item_path,
                 item.span,
@@ -372,6 +389,7 @@ mod tests {
         let mut d = vec![];
         check_type(
             &value,
+            None,
             fhir_type,
             "X.f",
             Span::default(),
