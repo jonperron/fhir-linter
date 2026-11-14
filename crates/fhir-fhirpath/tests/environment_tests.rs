@@ -74,6 +74,7 @@ fn root_resource_is_the_container_when_set() -> TestResult {
     let environment = Environment {
         resource: Some(&contained),
         root_resource: Some(&root),
+        ..Environment::default()
     };
     let input = [contained.clone()];
     let resource_id = eval_env("%resource.id", &input, &environment)?;
@@ -89,6 +90,7 @@ fn root_resource_defaults_to_the_set_resource() -> TestResult {
     let environment = Environment {
         resource: Some(&root),
         root_resource: None,
+        ..Environment::default()
     };
     let subject = [child(&root, "subject")?];
     let result = eval_env("%rootResource.id", &subject, &environment)?;
@@ -106,6 +108,7 @@ fn ref_1_resolves_a_contained_reference_on_a_nested_node() -> TestResult {
     let environment = Environment {
         resource: Some(&root),
         root_resource: Some(&root),
+        ..Environment::default()
     };
     let ref_1 = "reference.exists()  implies (reference.startsWith('#').not() or \
         (reference.substring(1).trace('url') in %rootResource.contained.id.trace('ids')) or \

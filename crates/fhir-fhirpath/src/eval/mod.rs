@@ -54,14 +54,35 @@ pub fn eval(
 /// (an object with a `resourceType`), and `%rootResource` is `%resource`.
 /// Otherwise reading them is an error, so a constraint is skipped rather
 /// than evaluated against the wrong node.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Default)]
 pub struct Environment<'a> {
     /// `%resource`: the resource that contains the input node.
     pub resource: Option<&'a Value>,
     /// `%rootResource`: the container of `%resource` when it is a contained
     /// resource, else `%resource` itself.
     pub root_resource: Option<&'a Value>,
+    /// FHIR type inheritance: `is_subtype(child, ancestor)` tells whether the
+    /// FHIR type `child` is `ancestor` or derives from it (build it from
+    /// `Registry::type_ancestors`; `code` is a `string`, `url` a `uri`), and
+    /// `is_subtype(name, name)` whether `name` is a FHIR type at all. With it,
+    /// `is`, `as` and `ofType` answer for values that carry their FHIR type.
+    /// Unset, asking whether a String is a FHIR string type (`code`, `uri`...)
+    /// is an error, as the String's FHIR type cannot be checked.
+    pub is_subtype: Option<&'a IsSubtype<'a>>,
 }
+
+impl std::fmt::Debug for Environment<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Environment")
+            .field("resource", &self.resource)
+            .field("root_resource", &self.root_resource)
+            .field("is_subtype", &self.is_subtype.map(|_| "Fn"))
+            .finish()
+    }
+}
+
+/// FHIR type inheritance, see [`Environment::is_subtype`].
+pub type IsSubtype<'a> = dyn Fn(&str, &str) -> bool + 'a;
 
 pub(super) struct Evaluator<'a> {
     is_choice_variant: &'a dyn Fn(&str, &str) -> bool,
@@ -271,8 +292,16 @@ impl Evaluator<'_> {
             }
 
             // ── Type operators ────────────────────────────────────────────
-            Expr::Is(base, type_name) => is_type(&self.eval(base, ctx)?, type_name),
-            Expr::As(base, type_name) => as_type(&self.eval(base, ctx)?, type_name),
+            Expr::Is(base, type_name) => is_type(
+                &self.eval(base, ctx)?,
+                type_name,
+                self.environment.is_subtype,
+            ),
+            Expr::As(base, type_name) => as_type(
+                &self.eval(base, ctx)?,
+                type_name,
+                self.environment.is_subtype,
+            ),
 
             // ── Set operators ─────────────────────────────────────────────
             Expr::Union(l, r) => {

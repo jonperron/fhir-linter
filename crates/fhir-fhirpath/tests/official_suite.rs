@@ -46,8 +46,11 @@ use quick_xml::events::{BytesStart, Event};
 /// need a static type check; 2 Quantity unit-vs-no-unit `=` cases now reach
 /// a real comparison gap), then to 936 because is/as/ofType with a FHIR string
 /// subtype (code, id, url...) on a String is an error until `Value` carries the
-/// FHIR type (7 testInheritance cases had guessed `false`).
-const MIN_PASSED: u32 = 936;
+/// FHIR type (7 testInheritance cases had guessed `false`), then to 948 when
+/// values carry their FHIR type and is/as/ofType follow the Registry's type
+/// ancestry (11 testInheritance cases, and testType11: an XML `boolean` is
+/// text, typed `boolean` by its element).
+const MIN_PASSED: u32 = 948;
 
 /// (run, skipped) case counts on the pinned fixtures, so loader drift or a
 /// broken skip filter cannot hide behind the floor.
@@ -203,7 +206,7 @@ fn actual_key(value: &Value) -> String {
         Value::Quantity(n, u) => format!("Quantity:{n} {u}"),
         Value::Null => "null".to_owned(),
         Value::Object(_) => "object".to_owned(),
-        Value::Primitive(value, _) => actual_key(value),
+        Value::Primitive(value, _, _) => actual_key(value),
     }
 }
 
@@ -266,13 +269,17 @@ fn run_case(
         }
         None => Vec::new(),
     };
+    let registry = registry()?;
+    // FHIR type inheritance for is/as/ofType (`code` is a `string`).
+    let is_subtype =
+        |child: &str, ancestor: &str| registry.type_ancestors(child).any(|code| code == ancestor);
     // The input file is `%resource`, also when `context` selects a node in it.
     let environment = Environment {
         resource: context.first(),
         root_resource: None,
+        is_subtype: Some(&is_subtype),
     };
     // Choice elements navigate as in the validator (`Observation.effective`).
-    let registry = registry()?;
     let is_choice_variant = |base: &str, suffix: &str| registry.is_choice_variant(base, suffix);
     let run = |expression: &str, input: &[Value]| {
         parse(expression).map_err(EvalError::from).and_then(|expr| {

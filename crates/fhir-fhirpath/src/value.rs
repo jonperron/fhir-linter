@@ -4,7 +4,7 @@
 //! *collection* of zero or more values.  The `Collection` type alias is used
 //! throughout the evaluator.
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use indexmap::IndexMap;
 
@@ -27,11 +27,18 @@ pub enum Value {
     Quantity(f64, Arc<str>),
     /// An object node (maps field name → collection).
     Object(Arc<IndexMap<Arc<str>, Collection>>),
-    /// A FHIR primitive that has an `id` or extensions (JSON `_name`, or an XML
-    /// element with children): its value (`Null` when it has none) and its own
-    /// children. Operators and functions on values see the value; navigation
-    /// (`extension`, `id`, `children()`) sees the children.
-    Primitive(Box<Value>, Arc<IndexMap<Arc<str>, Collection>>),
+    /// A FHIR primitive element: its value (`Null` when it has none), its own
+    /// children (`id`, `extension`; JSON `_name` or XML element children) and
+    /// its declared FHIR type code (`code`, `canonical`...) when known.
+    /// Operators and functions on values see the value; navigation
+    /// (`extension`, `id`, `children()`) sees the children; `is`, `as` and
+    /// `ofType` see the FHIR type. Built for a primitive with an id or
+    /// extensions, and for every string-valued primitive whose type is known.
+    Primitive(
+        Box<Value>,
+        Arc<IndexMap<Arc<str>, Collection>>,
+        Option<Arc<str>>,
+    ),
 }
 
 /// A FHIRPath collection (ordered list of values, may be empty).
@@ -46,7 +53,7 @@ impl Value {
     /// The value a [`Value::Primitive`] carries; any other value is itself.
     pub fn primitive_value(&self) -> &Value {
         match self {
-            Value::Primitive(value, _) => value,
+            Value::Primitive(value, _, _) => value,
             other => other,
         }
     }
@@ -54,7 +61,7 @@ impl Value {
     /// The children of an object or of a primitive with an id or extensions.
     pub(crate) fn fields(&self) -> Option<&IndexMap<Arc<str>, Collection>> {
         match self {
-            Value::Object(fields) | Value::Primitive(_, fields) => Some(fields),
+            Value::Object(fields) | Value::Primitive(_, fields, _) => Some(fields),
             _ => None,
         }
     }
@@ -83,7 +90,7 @@ impl Value {
             Value::Time(_) => "Time",
             Value::Quantity(_, _) => "Quantity",
             Value::Object(_) => "Object",
-            Value::Primitive(value, _) => value.type_name(),
+            Value::Primitive(value, _, _) => value.type_name(),
         }
     }
 
@@ -126,7 +133,7 @@ impl fmt::Display for Value {
             Value::Date(s) | Value::DateTime(s) | Value::Time(s) => write!(f, "{s}"),
             Value::Quantity(n, u) => write!(f, "{n} '{u}'"),
             Value::Object(_) => write!(f, "{{…}}"),
-            Value::Primitive(value, _) => write!(f, "{value}"),
+            Value::Primitive(value, _, _) => write!(f, "{value}"),
         }
     }
 }
@@ -228,7 +235,11 @@ pub fn resource_to_typed_value(
         vec![Value::String(Arc::clone(&resource.resource_type))],
     );
     if let Some(id) = &resource.id {
-        map.insert(Arc::from("id"), vec![Value::String(Arc::clone(id))]);
+        let child = child_element(&resource.resource_type, "id");
+        map.insert(
+            Arc::from("id"),
+            vec![typed_string(id, child.as_ref().map(|(_, ty)| ty))],
+        );
     }
     let fields = object_fields(
         &resource.fields,
@@ -237,7 +248,7 @@ pub fn resource_to_typed_value(
     );
     for (key, mut values) in fields {
         // `_id` carries the extensions of the id the parser lifted out of `fields`.
-        if let (Some(id), [Value::Primitive(value, _)]) = (&resource.id, values.as_mut_slice())
+        if let (Some(id), [Value::Primitive(value, _, _)]) = (&resource.id, values.as_mut_slice())
             && &*key == "id"
         {
             **value = Value::String(Arc::clone(id));
@@ -273,17 +284,21 @@ fn convert(
     match v {
         // A JSON null (an array placeholder) is not an item.
         fhir_parser::Value::Null => vec![],
-        fhir_parser::Value::Bool(b) => vec![Value::Bool(*b)],
-        fhir_parser::Value::Integer(n) => vec![Value::Integer(*n)],
-        fhir_parser::Value::Decimal(d) => vec![Value::Decimal(*d)],
-        fhir_parser::Value::Str(s) => vec![typed_string(s, child.map(|(_, ty)| &**ty))],
+        fhir_parser::Value::Bool(b) => vec![typed_value(Value::Bool(*b), child.map(|(_, ty)| ty))],
+        fhir_parser::Value::Integer(n) => {
+            vec![typed_value(Value::Integer(*n), child.map(|(_, ty)| ty))]
+        }
+        fhir_parser::Value::Decimal(d) => {
+            vec![typed_value(Value::Decimal(*d), child.map(|(_, ty)| ty))]
+        }
+        fhir_parser::Value::Str(s) => vec![typed_string(s, child.map(|(_, ty)| ty))],
         fhir_parser::Value::Array(items) => items
             .iter()
             .flat_map(|n| convert(&n.value, child, child_element))
             .collect(),
         // An XML primitive with an id or extensions: `value` holds its value.
         fhir_parser::Value::Object(fields)
-            if child.is_some_and(|(_, ty)| ty.starts_with(|c: char| c.is_ascii_lowercase())) =>
+            if child.is_some_and(|(_, ty)| is_primitive_type(ty)) =>
         {
             let value = fields
                 .get("value")
@@ -291,7 +306,7 @@ fn convert(
                 .unwrap_or(Value::Null);
             let mut element = element_fields(fields, child, child_element);
             element.shift_remove("value");
-            vec![Value::Primitive(Box::new(value), Arc::new(element))]
+            vec![primitive(&value, Arc::new(element), child)]
         }
         fhir_parser::Value::Object(fields) => {
             // A resource (contained, Bundle entry) is typed by its own resourceType.
@@ -361,7 +376,7 @@ fn split(
                 // Only an object is an element; anything else carries no extensions.
                 (None | Some(fhir_parser::Value::Null), Some(fhir_parser::Value::Object(f))) => {
                     let element = Arc::new(element_fields(f, child, child_element));
-                    vec![Value::Primitive(Box::new(Value::Null), element)]
+                    vec![primitive(&Value::Null, element, child)]
                 }
                 (
                     Some(
@@ -375,7 +390,7 @@ fn split(
                     let element = Arc::new(element_fields(f, child, child_element));
                     convert(v, child, child_element)
                         .into_iter()
-                        .map(|v| Value::Primitive(Box::new(v), Arc::clone(&element)))
+                        .map(|v| primitive(&v, Arc::clone(&element), child))
                         .collect()
                 }
                 (Some(v), _) => convert(v, child, child_element),
@@ -395,13 +410,48 @@ fn element_fields(
     object_fields(fields, child.map(|(_, ty)| &**ty), child_element)
 }
 
-/// A string as the FHIRPath type of its FHIR primitive type.
-fn typed_string(s: &Arc<str>, ty: Option<&str>) -> Value {
+/// One shared empty children map, so typed strings cost no allocation for it.
+fn no_children() -> Arc<IndexMap<Arc<str>, Collection>> {
+    static EMPTY: LazyLock<Arc<IndexMap<Arc<str>, Collection>>> = LazyLock::new(Arc::default);
+    Arc::clone(&EMPTY)
+}
+
+/// A string as the FHIRPath type of its FHIR primitive type, carrying that
+/// type (a [`Value::Primitive`] without children) when it is known.
+fn typed_string(s: &Arc<str>, ty: Option<&Arc<str>>) -> Value {
     let s = Arc::clone(s);
-    match ty {
+    let value = match ty.map(|ty| &**ty) {
         Some("date") => Value::Date(s),
         Some("dateTime" | "instant") => Value::DateTime(s),
         Some("time") => Value::Time(s),
         _ => Value::String(s),
+    };
+    typed_value(value, ty)
+}
+
+/// `value` carrying the FHIR primitive type of `child`, when it is known.
+fn typed_value(value: Value, ty: Option<&Arc<str>>) -> Value {
+    match ty.filter(|ty| is_primitive_type(ty)) {
+        Some(ty) => Value::Primitive(Box::new(value), no_children(), Some(Arc::clone(ty))),
+        None => value,
     }
+}
+
+/// A primitive element with `children`, typed by `child` (definition path,
+/// type code) when known. `value` may itself carry the type already.
+fn primitive(
+    value: &Value,
+    children: Arc<IndexMap<Arc<str>, Collection>>,
+    child: Option<&(Arc<str>, Arc<str>)>,
+) -> Value {
+    let ty = child
+        .map(|(_, ty)| ty)
+        .filter(|ty| is_primitive_type(ty))
+        .cloned();
+    Value::Primitive(Box::new(value.primitive_value().clone()), children, ty)
+}
+
+/// FHIR primitive type codes are lower camel case (`code`, `dateTime`).
+fn is_primitive_type(code: &str) -> bool {
+    code.starts_with(|c: char| c.is_ascii_lowercase())
 }
