@@ -1,4 +1,4 @@
-use fhir_definitions::{ElementDefinition, Registry, StructureDefinition};
+use fhir_definitions::{Constraint, ElementDefinition, Registry, StructureDefinition};
 use fhir_fhirpath::{Environment, Value as FhirPathValue};
 use fhir_parser::{Node, Resource, Span, Value};
 use indexmap::IndexMap;
@@ -98,7 +98,7 @@ pub fn validate(
                 check_root_invariants(
                     root,
                     std::slice::from_ref(value),
-                    &|key| has_constraint(base_root, key),
+                    &|c| has_constraint(base_root, c),
                     (resource_path, None),
                     layer,
                     &mut found,
@@ -157,7 +157,11 @@ pub(crate) fn check_type_profiles(
             continue;
         };
         let mut found = Vec::new();
-        let known = |key: &str| base.iter().chain(&elem.constraints).any(|c| *c.key == *key);
+        let known = |c: &Constraint| {
+            base.iter()
+                .chain(&elem.constraints)
+                .any(|b| same_constraint(b, c))
+        };
         let layer = Layer {
             registry,
             environment,
@@ -313,7 +317,8 @@ fn check_slices(
             core_definition(&root.path, layer.registry).and_then(|sd| sd.element(&root.path));
         let run = own_descendants(profile, &root.path);
         let mut found = Vec::new();
-        let known = |key: &str| has_constraint(core_root, key);
+        // The sliced element's own constraints are checked on the item already.
+        let known = |c: &Constraint| has_constraint(core_root, c) || has_constraint(Some(elem), c);
         check_root_invariants(root, value, &known, (path, None), layer, &mut found);
         check_profile_object(fields, profile, run, &root.path, path, layer, &mut found);
         Some(!found.iter().any(|d| d.severity == Severity::Error))
@@ -367,16 +372,16 @@ fn check_slices(
 }
 
 /// Evaluate on `value` (at instance `path`, `span`) the constraints of the profile root `root`
-/// that are not `known`, the keys another layer already checks.
+/// that are not `known`, the ones another layer already checks.
 fn check_root_invariants(
     root: &ElementDefinition,
     value: &[FhirPathValue],
-    known: &dyn Fn(&str) -> bool,
+    known: &dyn Fn(&Constraint) -> bool,
     (path, span): (&str, Option<Span>),
     layer: Layer<'_, '_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    for constraint in root.constraints.iter().filter(|c| !known(&c.key)) {
+    for constraint in root.constraints.iter().filter(|c| !known(c)) {
         invariants::check(
             constraint,
             value,
@@ -417,7 +422,7 @@ fn check_own_invariants(
         let own: Vec<_> = elem
             .constraints
             .iter()
-            .filter(|c| !has_constraint(base, &c.key) && !has_constraint(type_root, &c.key))
+            .filter(|c| !has_constraint(base, c) && !has_constraint(type_root, c))
             .collect();
         if own.is_empty() {
             continue;
@@ -447,9 +452,14 @@ fn core_definition<'a>(path: &str, registry: &'a Registry) -> Option<&'a Structu
     registry.structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{root}"))
 }
 
-/// Whether `elem` exists and has a constraint `key`.
-fn has_constraint(elem: Option<&ElementDefinition>, key: &str) -> bool {
-    elem.is_some_and(|e| e.constraints.iter().any(|c| *c.key == *key))
+/// Whether `elem` exists and has `constraint` (same key and expression): a profile that
+/// redefines an inherited key with another expression still has its own checked.
+fn has_constraint(elem: Option<&ElementDefinition>, constraint: &Constraint) -> bool {
+    elem.is_some_and(|e| e.constraints.iter().any(|c| same_constraint(c, constraint)))
+}
+
+fn same_constraint(a: &Constraint, b: &Constraint) -> bool {
+    a.key == b.key && a.expression == b.expression
 }
 
 /// The types the base definition allows for the choice element `elem` (a profile may keep
@@ -458,4 +468,36 @@ fn choice_types<'a>(elem: &'a ElementDefinition, registry: &'a Registry) -> &'a 
     core_definition(&elem.path, registry)
         .and_then(|base| base.element(&elem.path))
         .map_or(&elem.types, |base| &base.types)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn constraint(key: &str, expression: &str) -> Constraint {
+        let human = Arc::from("human");
+        Constraint::new(
+            Arc::from(key),
+            Arc::from("error"),
+            human,
+            Some(Arc::from(expression)),
+        )
+    }
+
+    #[test]
+    fn a_redefined_expression_is_another_constraint() {
+        let base = constraint("vs-2", "value.exists()");
+        assert!(same_constraint(
+            &base,
+            &constraint("vs-2", "value.exists()")
+        ));
+        assert!(!same_constraint(
+            &base,
+            &constraint("vs-2", "value.exists() and code.exists()")
+        ));
+        assert!(!same_constraint(
+            &base,
+            &constraint("vs-3", "value.exists()")
+        ));
+    }
 }
