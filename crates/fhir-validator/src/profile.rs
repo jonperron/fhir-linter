@@ -95,18 +95,14 @@ pub fn validate(
             let mut found = Vec::new();
             if let (Some(root), Some(value)) = (sd.snapshot.first(), environment.resource) {
                 let base_root = base.element(resource_type);
-                let known = |key: &str| has_constraint(base_root, key);
-                for constraint in root.constraints.iter().filter(|c| !known(&c.key)) {
-                    invariants::check(
-                        constraint,
-                        std::slice::from_ref(value),
-                        &|base, suffix| registry.is_choice_variant(base, suffix),
-                        environment,
-                        resource_path,
-                        None,
-                        &mut found,
-                    );
-                }
+                check_root_invariants(
+                    root,
+                    std::slice::from_ref(value),
+                    &|key| has_constraint(base_root, key),
+                    (resource_path, None),
+                    layer,
+                    &mut found,
+                );
             }
             check_profile_object(
                 &resource.fields,
@@ -162,22 +158,12 @@ pub(crate) fn check_type_profiles(
         };
         let mut found = Vec::new();
         let known = |key: &str| base.iter().chain(&elem.constraints).any(|c| *c.key == *key);
-        for constraint in root.constraints.iter().filter(|c| !known(&c.key)) {
-            invariants::check(
-                constraint,
-                value,
-                &|base, suffix| registry.is_choice_variant(base, suffix),
-                environment,
-                path,
-                Some(span),
-                &mut found,
-            );
-        }
-        let run = own_descendants(profile, &root.path);
         let layer = Layer {
             registry,
             environment,
         };
+        check_root_invariants(root, value, &known, (path, Some(span)), layer, &mut found);
+        let run = own_descendants(profile, &root.path);
         check_profile_object(fields, profile, run, &root.path, path, layer, &mut found);
         found.retain(|f| {
             !diagnostics[start..]
@@ -318,11 +304,17 @@ fn check_slices(
     layer: Layer<'_, '_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let conforms = |fields: &IndexMap<Arc<str>, Node>, url: &str| {
+    // Conformance to the profile's own rules (root and element invariants included); the
+    // rules of the core type are the base walk's.
+    let conforms = |fields: &IndexMap<Arc<str>, Node>, value: &[FhirPathValue], url: &str| {
         let profile = layer.registry.structure_definition(url)?;
         let root = profile.snapshot.first()?;
+        let core_root =
+            core_definition(&root.path, layer.registry).and_then(|sd| sd.element(&root.path));
         let run = own_descendants(profile, &root.path);
         let mut found = Vec::new();
+        let known = |key: &str| has_constraint(core_root, key);
+        check_root_invariants(root, value, &known, (path, None), layer, &mut found);
         check_profile_object(fields, profile, run, &root.path, path, layer, &mut found);
         Some(!found.iter().any(|d| d.severity == Severity::Error))
     };
@@ -374,6 +366,29 @@ fn check_slices(
     }
 }
 
+/// Evaluate on `value` (at instance `path`, `span`) the constraints of the profile root `root`
+/// that are not `known`, the keys another layer already checks.
+fn check_root_invariants(
+    root: &ElementDefinition,
+    value: &[FhirPathValue],
+    known: &dyn Fn(&str) -> bool,
+    (path, span): (&str, Option<Span>),
+    layer: Layer<'_, '_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for constraint in root.constraints.iter().filter(|c| !known(&c.key)) {
+        invariants::check(
+            constraint,
+            value,
+            &|base, suffix| layer.registry.is_choice_variant(base, suffix),
+            layer.environment,
+            path,
+            span,
+            diagnostics,
+        );
+    }
+}
+
 /// Evaluate on each item of the profile element `elem` the constraints the profile adds: the
 /// keys of the base element and of the item type's root are skipped, the base walk checks them.
 /// A choice variant the profile does not keep has no constraints of `elem` to meet.
@@ -390,12 +405,11 @@ fn check_own_invariants(
     let base = core_definition(&elem.path, registry).and_then(|sd| sd.element(&elem.path));
     let is_choice_variant = |base: &str, suffix: &str| registry.is_choice_variant(base, suffix);
     for item in items {
-        let Some(ty) = item
+        // A contentReference element has no type: it is a backbone element (as in item_value).
+        let ty = item
             .choice_type
             .or_else(|| elem.types.first().map(|t| t.as_ref()))
-        else {
-            continue;
-        };
+            .unwrap_or("BackboneElement");
         if item.choice_type.is_some() && !elem.types.iter().any(|t| &**t == ty) {
             continue;
         }
