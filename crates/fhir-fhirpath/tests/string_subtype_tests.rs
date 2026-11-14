@@ -66,10 +66,7 @@ fn other_primitive_types_on_a_string_are_answered() -> TestResult {
     let input = [Value::String(Arc::from("#q"))];
     for name in primitives.iter().filter_map(Value::as_string) {
         if !string_subtypes.iter().any(|s| s.as_str() == &*name) {
-            assert!(
-                evaluate(&format!("ofType({name})"), &input).is_ok(),
-                "{name}"
-            );
+            assert_eq!(evaluate(&format!("ofType({name})"), &input)?, [], "{name}");
         }
     }
     Ok(())

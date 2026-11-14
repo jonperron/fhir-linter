@@ -93,6 +93,10 @@ fn root_resource_defaults_to_the_set_resource() -> TestResult {
     let subject = [child(&root, "subject")?];
     let result = eval_env("%rootResource.id", &subject, &environment)?;
     assert_eq!(strings(&result), ["obs"]);
+    // On a nested node, %resource is the set resource, not inferred from the input.
+    let contained = [child(&root, "contained")?];
+    let result = eval_env("%resource.id", &contained, &environment)?;
+    assert_eq!(strings(&result), ["obs"]);
     Ok(())
 }
 
