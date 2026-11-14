@@ -5,8 +5,11 @@ use indexmap::IndexMap;
 use std::cell::RefCell;
 use std::sync::Arc;
 
+use crate::cardinality::check_children_cardinality;
 use crate::diagnostic::Diagnostic;
 use crate::embedded::{self, ContainedIds, Embedded, child_element, holds_resource, typed_element};
+use crate::profile::check_type_profiles;
+use crate::resolve::{complex_type, is_primitive, resolve};
 use crate::type_check::{check_type, is_valid_id};
 use crate::{invariants, references, terminology};
 
@@ -99,44 +102,6 @@ fn typed_fields(value: &[FhirPathValue]) -> Option<&IndexMap<Arc<str>, Collectio
     }
 }
 
-/// Names with path punctuation are never valid element names.
-fn has_punctuation(name: &str) -> bool {
-    name.contains(['.', '[', ']'])
-}
-
-/// Find the element for `name` under `parent_path`, and the single type it has
-/// for this instance (the suffix picks the type of a `[x]` element). The type is
-/// `None` for typeless elements such as `contentReference`; `None` overall means not found.
-pub(crate) fn resolve<'a>(
-    sd: &'a StructureDefinition,
-    path: &str,
-    name: &str,
-) -> Option<(&'a ElementDefinition, Option<Arc<str>>)> {
-    if has_punctuation(name) {
-        return None;
-    }
-    if let Some(e) = sd.element(path) {
-        return Some((e, e.types.first().cloned()));
-    }
-    let parent = path.strip_suffix(name)?;
-    // A type suffix is capitalised, so a choice can only split before an uppercase letter.
-    (1..name.len())
-        .filter(|&i| name.as_bytes()[i].is_ascii_uppercase())
-        .find_map(|i| {
-            let (base, suffix) = name.split_at(i);
-            let e = sd.element(&format!("{parent}{base}[x]"))?;
-            let ty = e.types.iter().find(|t| capitalise(t) == suffix)?;
-            Some((e, Some(ty.clone())))
-        })
-}
-
-fn capitalise(s: &str) -> String {
-    let mut c = s.chars();
-    c.next()
-        .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
-        .unwrap_or_default()
-}
-
 /// Check the value of `elem` (instance `path`), recursing into objects.
 ///
 /// `typed` is the node's FHIRPath value as converted with its parent, when known: an object
@@ -174,6 +139,7 @@ fn descend(
             }
         }
         Value::Object(fields) => {
+            let start = diagnostics.len();
             let backbone = ty == "BackboneElement" || ty == "Element";
             let type_sd = complex_type(ty, registry);
             if !backbone && type_sd.is_none() {
@@ -203,15 +169,19 @@ fn descend(
             }
             let typed = typed_fields(value);
             match type_sd.filter(|_| !backbone) {
-                Some(type_sd) => walk(
-                    fields,
-                    typed,
-                    type_sd,
-                    &type_sd.name,
-                    context,
-                    path,
-                    diagnostics,
-                ),
+                Some(type_sd) => {
+                    walk(
+                        fields,
+                        typed,
+                        type_sd,
+                        &type_sd.name,
+                        context,
+                        path,
+                        diagnostics,
+                    );
+                    let node = (fields, value, node.span);
+                    check_type_profiles(node, elem, ty, path, registry, start, diagnostics);
+                }
                 None => walk(fields, typed, sd, &elem.path, context, path, diagnostics),
             }
         }
@@ -227,16 +197,6 @@ fn descend(
         }
         _ => {}
     }
-}
-
-/// The StructureDefinition of `ty` when it is a complex datatype.
-pub(crate) fn complex_type<'a>(
-    ty: &str,
-    registry: &'a Registry,
-) -> Option<&'a StructureDefinition> {
-    registry
-        .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{ty}"))
-        .filter(|t| t.kind.as_ref() == "complex-type")
 }
 
 /// Validate the children of one object against the elements under `def_path`.
@@ -539,192 +499,6 @@ fn check_array_shape(
     diagnostics.push(
         Diagnostic::error("STRUCTURE_002", message, path.to_owned()).with_location(node.span),
     );
-}
-
-/// Check the cardinality of every child of `def_path` in one object (instance `path`).
-pub(crate) fn check_children_cardinality(
-    fields: &IndexMap<Arc<str>, Node>,
-    sd: &StructureDefinition,
-    def_path: &str,
-    path: &str,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    let prefix = format!("{def_path}.");
-    for elem in sd.descendants(def_path) {
-        let Some(rest) = elem.path.strip_prefix(&prefix).filter(|r| !r.contains('.')) else {
-            continue;
-        };
-        // shortcut: slices (choice slices too) are not matched to instances, so a slice's
-        // own cardinality is not enforced; revisit when slicing discriminators are evaluated.
-        if elem.slice_name.is_some() {
-            continue;
-        }
-        if rest.ends_with("[x]") {
-            check_choice(fields, sd, elem, &prefix, path, diagnostics);
-            continue;
-        }
-        let node = present(fields, elem, rest);
-        // An absent optional element cannot fail; skip building its path.
-        if node.is_none() && elem.min == 0 {
-            if let Some(empty) = fields.get(rest) {
-                push_empty_array(empty, &format!("{path}.{rest}"), diagnostics);
-            }
-            continue;
-        }
-        check_cardinality(elem, node, &format!("{path}.{rest}"), diagnostics);
-    }
-}
-
-/// Check a `[x]` choice element as a whole: its variants are the fields `resolve`
-/// maps to it (a `_variant` counts only for a primitive type), and it holds at most one.
-///
-/// shortcut: profile type restrictions are not handled (a disallowed variant reads as
-/// missing) and choice slices are skipped by the caller; revisit when profile snapshots
-/// are walked.
-fn check_choice(
-    fields: &IndexMap<Arc<str>, Node>,
-    sd: &StructureDefinition,
-    elem: &ElementDefinition,
-    prefix: &str,
-    path: &str,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    let variants: Vec<(&str, &Node)> = fields
-        .iter()
-        .filter_map(|(key, node)| {
-            let name = key.strip_prefix('_');
-            let bare = name.unwrap_or(key);
-            let (e, ty) = resolve(sd, &format!("{prefix}{bare}"), bare)?;
-            // A `_variant` beside its value is the same variant, counted once via the value.
-            let extension_only = name.is_none_or(|n| {
-                !fields.contains_key(n)
-                    && ty.as_deref().is_some_and(is_primitive)
-                    && is_extension_shape(node)
-            });
-            (e.path == elem.path && extension_only).then_some((bare, node))
-        })
-        .collect();
-    match variants.as_slice() {
-        [] => {
-            let choice_path = format!("{path}.{}", elem.path.strip_prefix(prefix).unwrap_or(""));
-            check_cardinality(elem, None, &choice_path, diagnostics);
-        }
-        [(name, node)] => {
-            check_cardinality(elem, Some(node), &format!("{path}.{name}"), diagnostics)
-        }
-        [(first, _), (second, node), ..] => {
-            let second_path = format!("{path}.{second}");
-            diagnostics.push(
-                Diagnostic::error(
-                    "CARDINALITY_002",
-                    format!("Choice element '{second_path}' conflicts with '{first}'"),
-                    second_path,
-                )
-                .with_location(node.span),
-            );
-        }
-    }
-}
-
-/// Primitive FHIR type names start with a lowercase letter.
-pub(crate) fn is_primitive(ty: &str) -> bool {
-    ty.starts_with(|c: char| c.is_ascii_lowercase())
-}
-
-/// An array holding no value: empty or only nulls (R5 json.html: "Objects are never empty").
-fn is_empty_array(node: &Node) -> bool {
-    let Value::Array(items) = &node.value else {
-        return false;
-    };
-    items.iter().all(|item| matches!(item.value, Value::Null))
-}
-
-/// Warn (`CARDINALITY_003`) that an optional element holds an empty or all-null array.
-fn push_empty_array(node: &Node, path: &str, diagnostics: &mut Vec<Diagnostic>) {
-    diagnostics.push(
-        Diagnostic::warning(
-            "CARDINALITY_003",
-            format!("Element '{path}' is an array with no values and should be omitted"),
-            path.to_owned(),
-        )
-        .with_location(node.span),
-    );
-}
-
-/// The node that makes `elem` present: its value, or the `_name` primitive extension
-/// (which stands in for an absent value only on primitive types, named in lowercase).
-/// An empty or all-null value array is no value.
-fn present<'a>(
-    fields: &'a IndexMap<Arc<str>, Node>,
-    elem: &ElementDefinition,
-    name: &str,
-) -> Option<&'a Node> {
-    fields
-        .get(name)
-        .filter(|node| !is_empty_array(node))
-        .or_else(|| {
-            // Only primitives take a `_name`; skip building the key for the rest.
-            let primitive = elem.types.first().is_some_and(|t| is_primitive(t));
-            primitive
-                .then(|| fields.get(format!("_{name}").as_str()))
-                .flatten()
-                .filter(|node| is_extension_shape(node))
-        })
-}
-
-/// A `_name` primitive extension is an object, or an array of objects and nulls
-/// holding at least one object.
-fn is_extension_shape(node: &Node) -> bool {
-    match &node.value {
-        Value::Object(_) => true,
-        Value::Array(items) => {
-            items
-                .iter()
-                .all(|item| matches!(item.value, Value::Object(_) | Value::Null))
-                && items
-                    .iter()
-                    .any(|item| matches!(item.value, Value::Object(_)))
-        }
-        _ => false,
-    }
-}
-
-/// Emit `CARDINALITY_001` when a required element is absent and `CARDINALITY_002`
-/// when it holds more values than a finite maximum.
-fn check_cardinality(
-    elem: &ElementDefinition,
-    node: Option<&Node>,
-    path: &str,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    let Some(node) = node else {
-        if elem.min > 0 {
-            diagnostics.push(Diagnostic::error(
-                "CARDINALITY_001",
-                format!("Required element '{path}' is missing (min={})", elem.min),
-                path.to_owned(),
-            ));
-        }
-        return;
-    };
-    let Ok(max) = elem.max.parse::<usize>() else {
-        return;
-    };
-    let count = match &node.value {
-        Value::Array(items) => items.len(),
-        Value::Null => 0,
-        _ => 1,
-    };
-    if count > max {
-        diagnostics.push(
-            Diagnostic::error(
-                "CARDINALITY_002",
-                format!("Element '{path}' has {count} value(s) but maximum is {max}"),
-                path.to_owned(),
-            )
-            .with_location(node.span),
-        );
-    }
 }
 
 #[cfg(test)]
