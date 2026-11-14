@@ -91,8 +91,11 @@ fn out_of_set(
             if outs.is_empty() {
                 // terminologies.html 4.1.4.2.1: text is no substitute for the required code.
                 // Extensible bindings (4.1.4.2.2) accept text alone when no code fits.
-                let text_only = required && fhir_type == "CodeableConcept";
-                return text_only.then(|| "CodeableConcept with no coded Coding".to_owned());
+                let missing = match fhir_type {
+                    "Coding" => "Coding with no code",
+                    _ => "CodeableConcept with no coded Coding", // the arm admits only these two
+                };
+                return required.then(|| missing.to_owned());
             }
             outs.iter().all(Option::is_some).then(|| {
                 let codes: Vec<_> = outs.into_iter().flatten().collect();

@@ -193,6 +193,7 @@ fn descend(
             if ty == "Reference" {
                 references::check(
                     node,
+                    elem,
                     path,
                     &context.contained_ids,
                     context.in_contained,

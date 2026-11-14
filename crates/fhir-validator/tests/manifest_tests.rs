@@ -18,7 +18,10 @@ use serde_json::Value;
 /// raise them as validator coverage improves.
 // 0.66 -> 0.71 (main 75/111 -> 79/111): the R5 regexes catch base64-ws/r5-bad-char,
 // r5-bad-length, r5-bad-padding, and an empty fullUrl in bundle-bad-empty.json.
-const MIN_JSON_PASS_RATE: f64 = 0.71;
+// 0.71 -> 0.70 (79/111 -> 78/111): fhirpath-good.json is a real R5 violation that Java
+// accepts: CareTeam.participant.onBehalfOf is Reference(Organization) but holds
+// "Practitioner/2", so REFERENCE_005 is a correct error.
+const MIN_JSON_PASS_RATE: f64 = 0.70;
 // 0.58 -> 0.56: primitive-good.xml and primitive-bad-empty.xml only passed through a false
 // TYPE_004 on the valid code "asd asd"; their real errors (decimal regex) are not caught yet.
 // 0.56 -> 0.68 (main 64/108 -> 74/108): the XML conformance checks (namespaces, mixed text,

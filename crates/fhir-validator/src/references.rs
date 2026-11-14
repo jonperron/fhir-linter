@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use fhir_definitions::Registry;
+use fhir_definitions::{ElementDefinition, Registry};
 use fhir_parser::{Node, Resource, Value};
 
 use crate::diagnostic::Diagnostic;
@@ -34,9 +34,11 @@ pub(crate) fn contained_ids(resource: &Resource) -> Vec<Arc<str>> {
 /// (`in_contained`), where it would name a container. Absolute URLs and `urn:`
 /// references are not resolved. `REFERENCE_003` reports a `Reference.type` that
 /// disagrees with the type of a FHIR URL reference, and `REFERENCE_004`
-/// (warning) a malformed relative reference.
+/// (warning) a malformed relative reference. `REFERENCE_005` reports a FHIR URL
+/// reference whose type is not allowed by the `targetProfile` list of `elem`.
 pub(crate) fn check(
     item: &Node,
+    elem: &ElementDefinition,
     path: &str,
     contained_ids: &[Arc<str>],
     in_contained: bool,
@@ -65,6 +67,18 @@ pub(crate) fn check(
             Diagnostic::error("REFERENCE_003", message, ref_path.clone()).with_location(item.span),
         );
     }
+    if let Some(url_type) = fhir_url_type(reference, registry)
+        && !target_allowed(elem, url_type, registry)
+    {
+        let message = format!(
+            "Reference '{reference}' points to a {url_type}, which the target profiles of \
+             '{}' do not allow",
+            elem.path
+        );
+        diagnostics.push(
+            Diagnostic::error("REFERENCE_005", message, ref_path.clone()).with_location(item.span),
+        );
+    }
     // The R5 literal reference regex is not worded as a SHALL: a warning.
     if malformed_relative(reference, registry) {
         let message = format!(
@@ -86,6 +100,30 @@ fn malformed_relative(reference: &str, registry: &Registry) -> bool {
     relative
         && is_resource_type(registry, type_name)
         && fhir_url_type(reference, registry).is_none()
+}
+
+/// Whether the `Reference` targetProfile list of `elem` allows a reference to `url_type`.
+///
+/// No list allows any type. Each profile counts for the type its snapshot root names, which
+/// allows that type and its descendants (`Resource` allows every resource). A profile the
+/// registry cannot resolve allows any type: nothing is known about its target.
+fn target_allowed(elem: &ElementDefinition, url_type: &str, registry: &Registry) -> bool {
+    let Some(targets) = elem
+        .type_profiles
+        .iter()
+        .find(|t| t.code.as_ref() == "Reference")
+        .filter(|t| !t.target_profiles.is_empty())
+    else {
+        return true;
+    };
+    let ancestors: Vec<&str> = registry.type_ancestors(url_type).collect();
+    targets.target_profiles.iter().any(|url| {
+        registry.structure_definition(url).is_none_or(|sd| {
+            sd.snapshot
+                .first()
+                .is_none_or(|root| ancestors.contains(&root.path.as_ref()))
+        })
+    })
 }
 
 const CORE_SD: &str = "http://hl7.org/fhir/StructureDefinition/";

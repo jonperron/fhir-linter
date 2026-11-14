@@ -572,7 +572,7 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 
 ### Requirement: Validation terminologique — binding required (TERMINOLOGY_001)
 
-Le système SHALL émettre `TERMINOLOGY_001` lorsqu'un élément, à toute profondeur (y compris dans un datatype, ex. `HumanName.use`, et pour une variante de choix dont le binding s'applique au type résolu de la variante, ex. `versionAlgorithmCoding`), de type `code`, `Coding` ou `CodeableConcept`, possède un binding de force `required` (Diagnostic d'erreur) ou `extensible` (Diagnostic de sévérité warning) dont le ValueSet est connu et que le code est prouvé hors du ValueSet. Les éléments sous un `contentReference` et dans les ressources embarquées SHALL être vérifiés comme tout autre élément (parcours unique) ; les autres forces de binding (`preferred`, `example`) SHALL être ignorées. Un `Coding` sans `system` NE DOIT JAMAIS être considéré comme membre du ValueSet : il compte comme hors du ValueSet, même lorsque l'appartenance serait autrement indécidable. Hors de ce cas, une appartenance indécidable (`Registry::value_set_contains` retourne `None`) NE DOIT JAMAIS être signalée. Pour un `CodeableConcept`, un seul `coding` appartenant au ValueSet suffit ; le Diagnostic n'est émis que si tous les `coding` portant un code sont hors du ValueSet. Sous un binding `required`, un `CodeableConcept` sans aucun `coding` portant un code (texte seul) SHALL être signalé avec un message commençant par `CodeableConcept with no coded Coding at` (terminologies.html 4.1.4.2.1) ; sous un binding `extensible`, le texte seul SHALL être accepté (4.1.4.2.2). Un `coding` unique non encapsulé dans un tableau (un seul `<coding>` en XML) SHALL être lu comme un tableau d'un élément.
+Le système SHALL émettre `TERMINOLOGY_001` lorsqu'un élément, à toute profondeur (y compris dans un datatype, ex. `HumanName.use`, et pour une variante de choix dont le binding s'applique au type résolu de la variante, ex. `versionAlgorithmCoding`), de type `code`, `Coding` ou `CodeableConcept`, possède un binding de force `required` (Diagnostic d'erreur) ou `extensible` (Diagnostic de sévérité warning) dont le ValueSet est connu et que le code est prouvé hors du ValueSet. Les éléments sous un `contentReference` et dans les ressources embarquées SHALL être vérifiés comme tout autre élément (parcours unique) ; les autres forces de binding (`preferred`, `example`) SHALL être ignorées. Un `Coding` sans `system` NE DOIT JAMAIS être considéré comme membre du ValueSet : il compte comme hors du ValueSet, même lorsque l'appartenance serait autrement indécidable. Hors de ce cas, une appartenance indécidable (`Registry::value_set_contains` retourne `None`) NE DOIT JAMAIS être signalée. Pour un `CodeableConcept`, un seul `coding` appartenant au ValueSet suffit ; le Diagnostic n'est émis que si tous les `coding` portant un code sont hors du ValueSet. Sous un binding `required`, un `CodeableConcept` sans aucun `coding` portant un code (texte seul) SHALL être signalé avec un message commençant par `CodeableConcept with no coded Coding at` (terminologies.html 4.1.4.2.1) ; sous un binding `extensible`, le texte seul SHALL être accepté (4.1.4.2.2). Sous un binding `required`, un élément de type `Coding` sans `code` SHALL être signalé avec un message commençant par `Coding with no code at`, comme un `CodeableConcept` sans `coding` codé ; sous un binding `extensible`, il NE DOIT PAS être signalé. Un `coding` unique non encapsulé dans un tableau (un seul `<coding>` en XML) SHALL être lu comme un tableau d'un élément.
 
 #### Scenario: Code hors du ValueSet requis
 
@@ -583,6 +583,11 @@ Le système SHALL émettre `TERMINOLOGY_001` lorsqu'un élément, à toute profo
 
 - **WHEN** un `CodeableConcept` lié en `extensible` à un ValueSet connu ne contient que des `coding` prouvés hors de ce ValueSet
 - **THEN** un Diagnostic `TERMINOLOGY_001` de sévérité warning SHALL être émis
+
+#### Scenario: Coding sans code sous binding required
+
+- **WHEN** `Appointment.recurrenceTemplate.monthlyTemplate.dayOfWeek` (`Coding` lié en `required`) ne porte qu'un `system`
+- **THEN** un Diagnostic d'erreur `TERMINOLOGY_001` au message commençant par `Coding with no code at` SHALL être émis
 
 #### Scenario: Binding preferred ou example ignoré
 
@@ -994,6 +999,40 @@ Le système SHALL émettre un Diagnostic de sévérité warning `REFERENCE_004` 
 
 - **WHEN** `reference` vaut `Foo`
 - **THEN** seul `REFERENCE_001` SHALL être émis, sans `REFERENCE_004`
+
+### Requirement: Validation des références — type cible non autorisé (REFERENCE_005)
+
+Le système SHALL émettre `REFERENCE_005` (erreur), au `path` `<élément>.reference`, lorsque, à toute profondeur, une référence URL FHIR (même définition par expression régulière de référence littérale R5 que `REFERENCE_003` : `Type/id` relatif ou absolu http(s), `_history` optionnel) désigne un type de ressource non autorisé par la liste `targetProfile` du `Reference` de l'élément. Chaque `targetProfile` compte pour le type nommé par le chemin racine de son snapshot (un profil comme `vitalsigns` compte pour `Observation`). Un `targetProfile` autorise son type racine ET tout type qui en dérive (chaîne `baseDefinition`, via `Registry::type_ancestors`) : `Resource` autorise toute ressource, `DomainResource` toute ressource de domaine. Aucun `targetProfile`, ou un `targetProfile` que le Registry ne résout pas (cible inconnue ; tout `targetProfile` du noyau R5 se résout), SHALL autoriser tout type. Les références `#id` contenues, `urn:`, conditionnelles et logiques (`identifier` seul) NE SONT PAS contrôlées en type.
+
+#### Scenario: Type cible interdit
+
+- **WHEN** `Patient.managingOrganization.reference` vaut `Practitioner/2`
+- **THEN** un Diagnostic d'erreur `REFERENCE_005` SHALL être émis
+
+#### Scenario: Type cible autorisé
+
+- **WHEN** `Patient.managingOrganization.reference` vaut `Organization/2`
+- **THEN** aucun Diagnostic `REFERENCE_005` SHALL être émis
+
+#### Scenario: Référence imbriquée
+
+- **WHEN** `Patient.contact[0].organization.reference` vaut `Patient/1`
+- **THEN** un Diagnostic `REFERENCE_005` SHALL être émis avec `path` = `Patient.contact[0].organization.reference`
+
+#### Scenario: Référence dans un datatype
+
+- **WHEN** `Identifier.assigner` référence un type autre que `Organization`
+- **THEN** un Diagnostic `REFERENCE_005` SHALL être émis
+
+#### Scenario: Cible DomainResource
+
+- **WHEN** un `Reference(DomainResource)` référence `Patient/1`
+- **THEN** aucun Diagnostic `REFERENCE_005` SHALL être émis
+
+#### Scenario: Cible Resource
+
+- **WHEN** `Provenance.target` (`Reference(Resource)`) référence un type quelconque
+- **THEN** aucun Diagnostic `REFERENCE_005` SHALL être émis
 
 ### Requirement: Validation de cardinalité — tableau vide d'un élément optionnel (CARDINALITY_003)
 
