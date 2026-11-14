@@ -60,6 +60,17 @@ fn json_null_whose_extension_slot_is_null_is_still_an_error() {
 }
 
 #[test]
+fn json_null_beyond_a_short_extension_array_is_still_an_error() {
+    let found = json_patient(&format!(
+        r#"{{"given": ["Jim", null], "_given": [{{"extension": [{EXTENSION}]}}]}}"#
+    ));
+    assert!(
+        found.contains(&"Error TYPE_001 Patient.name[0].given[1]".to_owned()),
+        "{found:?}"
+    );
+}
+
+#[test]
 fn xml_repeating_primitive_with_only_an_extension_is_accepted() {
     let source = r#"<Patient xmlns="http://hl7.org/fhir"><name><given value="Jim"/><given>
         <extension url="http://example.org/e"><valueString value="x"/></extension>
