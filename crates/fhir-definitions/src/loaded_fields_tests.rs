@@ -251,3 +251,44 @@ fn primitive_regex_is_loaded_raw_from_the_value_element() -> TestResult {
     assert_eq!(with_regex, 20);
     Ok(())
 }
+
+#[test]
+fn type_ancestors_follow_base_definition_up_to_base() -> TestResult {
+    let registry = registry()?;
+    let ancestors = |code| registry.type_ancestors(code).collect::<Vec<_>>();
+    let primitive = ["PrimitiveType", "DataType", "Element", "Base"];
+    for (code, parent) in [
+        ("code", "string"),
+        ("id", "string"),
+        ("markdown", "string"),
+        ("canonical", "uri"),
+        ("url", "uri"),
+        ("positiveInt", "integer"),
+        ("unsignedInt", "integer"),
+    ] {
+        let expected: Vec<_> = [code, parent].into_iter().chain(primitive).collect();
+        assert_eq!(ancestors(code), expected, "{code}");
+    }
+    assert_eq!(
+        ancestors("string"),
+        ["string"].into_iter().chain(primitive).collect::<Vec<_>>(),
+    );
+    assert_eq!(
+        ancestors("Age"),
+        ["Age", "Quantity", "DataType", "Element", "Base"],
+    );
+    assert_eq!(
+        ancestors("SimpleQuantity"),
+        ["SimpleQuantity", "Quantity", "DataType", "Element", "Base"],
+    );
+    assert_eq!(
+        ancestors("Patient"),
+        ["Patient", "DomainResource", "Resource", "Base"],
+    );
+    assert_eq!(ancestors("Bundle"), ["Bundle", "Resource", "Base"]);
+    assert_eq!(ancestors("Element"), ["Element", "Base"]);
+    // R5 roots every type at Base, the one definition with no baseDefinition.
+    assert_eq!(ancestors("Base"), ["Base"]);
+    assert_eq!(ancestors("no-such-type"), Vec::<&str>::new());
+    Ok(())
+}

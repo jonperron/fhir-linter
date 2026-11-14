@@ -7,6 +7,9 @@ use crate::Result;
 use crate::loader;
 use crate::model::{CodeSystem, Include, StructureDefinition, ValueSet};
 
+/// Canonical URL prefix of the core definitions; a type code appended gives its URL.
+const CORE_PREFIX: &str = "http://hl7.org/fhir/StructureDefinition/";
+
 /// Indexed registry of FHIR R5 definitions, built once and shared via `Arc`.
 ///
 /// Keyed by canonical URL for all entry types.
@@ -100,6 +103,27 @@ impl Registry {
         self.structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{code}"))?
             .value_regex
             .as_deref()
+    }
+
+    /// The type `code` and its ancestors, nearest first, by following `baseDefinition`:
+    /// `code` gives `code`, `string`, `PrimitiveType`, `DataType`, `Element`, `Base`.
+    /// Each ancestor is named by its canonical URL minus `http://hl7.org/fhir/StructureDefinition/`
+    /// (the inverse of the lookup). Empty for an unknown `code`; the walk stops at a base outside
+    /// the core namespace or not loaded, and after as many steps as there are definitions, so a
+    /// cyclic chain cannot loop.
+    pub fn type_ancestors<'a>(&'a self, code: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+        let first = self
+            .structure_definition(&format!("{CORE_PREFIX}{code}"))
+            .map(|sd| (code, sd));
+        std::iter::successors(first, |(_, sd)| {
+            let base = sd.base_definition.as_deref()?;
+            Some((
+                base.strip_prefix(CORE_PREFIX)?,
+                self.structure_definition(base)?,
+            ))
+        })
+        .take(self.structure_definitions.len())
+        .map(|(code, _)| code)
     }
 
     /// Whether `base` + `suffix` (`value` + `Quantity`) names a variant of a choice

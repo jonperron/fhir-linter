@@ -100,7 +100,8 @@ fn parse_structure_definition(
     Ok(Some(
         StructureDefinition::new(url.into(), name.into(), kind.into(), is_abstract, snapshot)
             .with_value_regex(value_regex)
-            .with_version(resource["version"].as_str().map(Arc::from)),
+            .with_version(resource["version"].as_str().map(Arc::from))
+            .with_base_definition(resource["baseDefinition"].as_str().map(strip_version)),
     ))
 }
 
@@ -523,6 +524,7 @@ mod tests {
                     "name": "TestSD",
                     "kind": "resource",
                     "abstract": true,
+                    "baseDefinition": "http://example.com/parent|1.0",
                     "snapshot": {
                         "element": [
                             {"path": "TestSD.id", "min": 0, "max": "1", "type": [{"code": "id"}]}
@@ -541,6 +543,10 @@ mod tests {
             .expect("SD should be parsed");
         assert_eq!(sd.name.as_ref(), "TestSD");
         assert!(sd.is_abstract);
+        assert_eq!(
+            sd.base_definition.as_deref(),
+            Some("http://example.com/parent")
+        );
         assert_eq!(sd.snapshot.len(), 1);
         assert_eq!(sd.snapshot[0].path.as_ref(), "TestSD.id");
         assert_eq!(sd.snapshot[0].min, 0);
