@@ -271,11 +271,11 @@ fn type_ancestors_follow_base_definition_up_to_base() -> TestResult {
     }
     assert_eq!(
         ancestors("string"),
-        ["string"].into_iter().chain(primitive).collect::<Vec<_>>()
+        ["string"].into_iter().chain(primitive).collect::<Vec<_>>(),
     );
     assert_eq!(
         ancestors("Age"),
-        ["Age", "Quantity", "DataType", "Element", "Base"]
+        ["Age", "Quantity", "DataType", "Element", "Base"],
     );
     assert_eq!(
         ancestors("SimpleQuantity"),
@@ -283,7 +283,7 @@ fn type_ancestors_follow_base_definition_up_to_base() -> TestResult {
     );
     assert_eq!(
         ancestors("Patient"),
-        ["Patient", "DomainResource", "Resource", "Base"]
+        ["Patient", "DomainResource", "Resource", "Base"],
     );
     assert_eq!(ancestors("Bundle"), ["Bundle", "Resource", "Base"]);
     assert_eq!(ancestors("Element"), ["Element", "Base"]);

@@ -6,7 +6,7 @@ Types Rust représentant les artefacts FHIR R5 nécessaires au validateur et au 
 ## Requirements
 ### Requirement: StructureDefinition type
 
-Le système SHALL exposer un type `StructureDefinition` représentant une définition de profil FHIR R5. Il SHALL NOT exposer de champ `base_definition`.
+Le système SHALL exposer un type `StructureDefinition` représentant une définition de profil FHIR R5. Il SHALL exposer le champ `base_definition` (`baseDefinition` sans suffixe de version, `None` pour `Base`), décrit dans la spec fhir-definitions-registry (« Ascendance des types »).
 
 #### Scenario: Champs obligatoires présents
 
