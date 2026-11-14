@@ -99,3 +99,16 @@ fn profile_constraint_of_a_bundle_entry_is_reported_at_its_path() {
         ["INVARIANT_vs-2 Bundle.entry[0].resource"]
     );
 }
+
+#[test]
+fn profile_constraint_of_a_contained_resource_is_reported_at_its_path() {
+    let contained = vital_signs(r#""effectiveDateTime":"2024-01-01""#);
+    let json = format!(
+        r##"{{"resourceType":"List","status":"current","mode":"working",
+        "contained":[{contained}],"entry":[{{"item":{{"reference":"#o"}}}}]}}"##
+    );
+    assert_eq!(
+        invariant_errors(&json),
+        ["INVARIANT_vs-2 List.contained[0]"]
+    );
+}
