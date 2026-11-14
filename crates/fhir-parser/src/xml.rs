@@ -6,7 +6,7 @@ use quick_xml::events::Event;
 use quick_xml::reader::{NsReader, Reader};
 
 use crate::line_index::LineIndex;
-use crate::types::{Node, ParseError, Resource, Span, TrimmedAttribute, Value};
+use crate::types::{Node, ParseError, Resource, ResourceId, Span, TrimmedAttribute, Value};
 use crate::xml_checks::{
     FHIR_NS, Notes, XHTML_NS, check_element, collect_attrs, div_has_control_reference, error_at,
     lift_resource_id, local_name_arc, reject_root_attrs, resolve_reference, span_at, xml_error,
@@ -132,7 +132,7 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
                     .collect();
                 let resource = Resource {
                     resource_type,
-                    id: lifted.map(|(id, _)| id),
+                    id: lifted.map(|(value, span)| ResourceId { value, span }),
                     from_xml: true,
                     fields,
                     trimmed_attributes,

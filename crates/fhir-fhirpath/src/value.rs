@@ -211,7 +211,7 @@ pub type ChildElement<'a> = dyn Fn(&str, &str) -> Option<(Arc<str>, Arc<str>)> +
 /// Arrays become multiple items in a collection (handled by the evaluator);
 /// individual values are mapped 1-to-1.
 pub fn from_parser_value(v: &fhir_parser::Value) -> Vec<Value> {
-    convert(v, None, &|_, _| None)
+    convert(v, None, &|_, _| None, false)
 }
 
 /// Build the root `Object` value from a `fhir_parser::Resource`, without type
@@ -238,20 +238,21 @@ pub fn resource_to_typed_value(
         let child = child_element(&resource.resource_type, "id");
         map.insert(
             Arc::from("id"),
-            vec![typed_string(id, child.as_ref().map(|(_, ty)| ty))],
+            vec![typed_string(&id.value, child.as_ref().map(|(_, ty)| ty))],
         );
     }
     let fields = object_fields(
         &resource.fields,
         Some(&resource.resource_type),
         child_element,
+        resource.from_xml,
     );
     for (key, mut values) in fields {
         // `_id` carries the extensions of the id the parser lifted out of `fields`.
         if let (Some(id), [Value::Primitive(value, _, _)]) = (&resource.id, values.as_mut_slice())
             && &*key == "id"
         {
-            **value = Value::String(Arc::clone(id));
+            **value = Value::String(Arc::clone(&id.value));
         }
         map.insert(key, values);
     }
@@ -268,9 +269,20 @@ pub fn node_to_typed_value(
     child: Option<&(Arc<str>, Arc<str>)>,
     child_element: &ChildElement<'_>,
 ) -> Collection {
+    typed_node(value, element, child, child_element, false)
+}
+
+/// [`node_to_typed_value`] for JSON (`xml` false) or XML text (`xml` true).
+fn typed_node(
+    value: Option<&fhir_parser::Value>,
+    element: Option<&fhir_parser::Value>,
+    child: Option<&(Arc<str>, Arc<str>)>,
+    child_element: &ChildElement<'_>,
+    xml: bool,
+) -> Collection {
     match (value, element) {
-        (Some(value), None) => convert(value, child, child_element),
-        (value, Some(element)) => split(value, element, child, child_element),
+        (Some(value), None) => convert(value, child, child_element, xml),
+        (value, Some(element)) => split(value, element, child, child_element, xml),
         (None, None) => vec![],
     }
 }
@@ -280,6 +292,7 @@ fn convert(
     v: &fhir_parser::Value,
     child: Option<&(Arc<str>, Arc<str>)>,
     child_element: &ChildElement<'_>,
+    xml: bool,
 ) -> Collection {
     match v {
         // A JSON null (an array placeholder) is not an item.
@@ -291,10 +304,17 @@ fn convert(
         fhir_parser::Value::Decimal(d) => {
             vec![typed_value(Value::Decimal(*d), child.map(|(_, ty)| ty))]
         }
-        fhir_parser::Value::Str(s) => vec![typed_string(s, child.map(|(_, ty)| ty))],
+        // XML text is typed as JSON would carry it (a boolean `true`, an integer `3`).
+        fhir_parser::Value::Str(s) => match child.filter(|_| xml) {
+            Some((_, ty)) => match crate::typed_xml_text(s, ty) {
+                fhir_parser::Value::Str(s) => vec![typed_string(&s, Some(ty))],
+                typed => convert(&typed, child, child_element, false),
+            },
+            None => vec![typed_string(s, child.map(|(_, ty)| ty))],
+        },
         fhir_parser::Value::Array(items) => items
             .iter()
-            .flat_map(|n| convert(&n.value, child, child_element))
+            .flat_map(|n| convert(&n.value, child, child_element, xml))
             .collect(),
         // An XML primitive with an id or extensions: `value` holds its value.
         fhir_parser::Value::Object(fields)
@@ -302,11 +322,43 @@ fn convert(
         {
             let value = fields
                 .get("value")
-                .and_then(|node| convert(&node.value, child, child_element).pop())
+                .and_then(|node| convert(&node.value, child, child_element, xml).pop())
                 .unwrap_or(Value::Null);
-            let mut element = element_fields(fields, child, child_element);
+            let mut element = element_fields(fields, child, child_element, xml);
             element.shift_remove("value");
             vec![primitive(&value, Arc::new(element), child)]
+        }
+        // An XML element typed `Resource` wraps its resource in an element named after its
+        // type (`<contained><Patient>..</Patient></contained>`); JSON names it `resourceType`.
+        fhir_parser::Value::Object(fields)
+            if xml && fields.len() == 1 && child.is_some_and(|(_, ty)| &**ty == "Resource") =>
+        {
+            let Some((
+                resource_type,
+                fhir_parser::Node {
+                    value: fhir_parser::Value::Object(inner),
+                    ..
+                },
+            )) = fields.first()
+            else {
+                return vec![Value::Object(Arc::new(object_fields(
+                    fields,
+                    None,
+                    child_element,
+                    xml,
+                )))];
+            };
+            let mut map = IndexMap::from([(
+                Arc::from("resourceType"),
+                vec![Value::String(Arc::clone(resource_type))],
+            )]);
+            map.extend(object_fields(
+                inner,
+                Some(resource_type),
+                child_element,
+                xml,
+            ));
+            vec![Value::Object(Arc::new(map))]
         }
         fhir_parser::Value::Object(fields) => {
             // A resource (contained, Bundle entry) is typed by its own resourceType.
@@ -318,6 +370,7 @@ fn convert(
                 fields,
                 definition,
                 child_element,
+                xml,
             )))]
         }
     }
@@ -330,6 +383,7 @@ fn object_fields(
     fields: &IndexMap<Arc<str>, fhir_parser::Node>,
     definition: Option<&str>,
     child_element: &ChildElement<'_>,
+    xml: bool,
 ) -> IndexMap<Arc<str>, Collection> {
     let mut map = IndexMap::new();
     for (key, node) in fields {
@@ -345,7 +399,7 @@ fn object_fields(
             ),
         };
         let child = definition.and_then(|d| child_element(d, &name));
-        let values = node_to_typed_value(value, element, child.as_ref(), child_element);
+        let values = typed_node(value, element, child.as_ref(), child_element, xml);
         if !values.is_empty() {
             map.insert(name, values);
         }
@@ -359,6 +413,7 @@ fn split(
     element: &fhir_parser::Value,
     child: Option<&(Arc<str>, Arc<str>)>,
     child_element: &ChildElement<'_>,
+    xml: bool,
 ) -> Collection {
     let values: Vec<&fhir_parser::Value> = match value {
         Some(fhir_parser::Value::Array(items)) => items.iter().map(|n| &n.value).collect(),
@@ -375,7 +430,7 @@ fn split(
             match (value, elements.get(i)) {
                 // Only an object is an element; anything else carries no extensions.
                 (None | Some(fhir_parser::Value::Null), Some(fhir_parser::Value::Object(f))) => {
-                    let element = Arc::new(element_fields(f, child, child_element));
+                    let element = Arc::new(element_fields(f, child, child_element, xml));
                     vec![primitive(&Value::Null, element, child)]
                 }
                 (
@@ -387,13 +442,13 @@ fn split(
                     ),
                     Some(fhir_parser::Value::Object(f)),
                 ) => {
-                    let element = Arc::new(element_fields(f, child, child_element));
-                    convert(v, child, child_element)
+                    let element = Arc::new(element_fields(f, child, child_element, xml));
+                    convert(v, child, child_element, xml)
                         .into_iter()
                         .map(|v| primitive(&v, Arc::clone(&element), child))
                         .collect()
                 }
-                (Some(v), _) => convert(v, child, child_element),
+                (Some(v), _) => convert(v, child, child_element, xml),
                 (None, _) => vec![],
             }
         })
@@ -406,8 +461,9 @@ fn element_fields(
     fields: &IndexMap<Arc<str>, fhir_parser::Node>,
     child: Option<&(Arc<str>, Arc<str>)>,
     child_element: &ChildElement<'_>,
+    xml: bool,
 ) -> IndexMap<Arc<str>, Collection> {
-    object_fields(fields, child.map(|(_, ty)| &**ty), child_element)
+    object_fields(fields, child.map(|(_, ty)| &**ty), child_element, xml)
 }
 
 /// One shared empty children map, so typed strings cost no allocation for it.

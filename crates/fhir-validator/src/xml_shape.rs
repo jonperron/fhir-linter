@@ -18,6 +18,7 @@
 //! (user decision 11.7: trim and warn rather than report the whitespace as an error).
 
 use fhir_definitions::{Registry, StructureDefinition};
+use fhir_fhirpath::typed_xml_text;
 use fhir_parser::{Node, Resource, Span, TrimmedAttribute, Value};
 use indexmap::IndexMap;
 use std::collections::HashSet;
@@ -66,10 +67,22 @@ pub(crate) fn to_json_shape(
             shaper.trimmed_warning(&format!("{name}.id"), *span);
         }
     }
-    // shortcut: a plain root `<id>` is lifted out of `fields`, so its place among the root's
-    // children is not order-checked; give `Resource` the id's span if that is needed.
+    // The parser lifts a plain root `<id>` out of `fields`; its span keeps its place in the
+    // order. An `<id>` with extensions also stays in `fields`, which checks it already. Every
+    // resource snapshot has `<Type>.id`, so the position lookup only fails on a broken one.
+    let id_path = format!("{name}.id");
+    let id = resource
+        .id
+        .as_ref()
+        .filter(|_| !resource.fields.contains_key("id"))
+        .and_then(|id| Some((id.span, sd.position(&id_path)?, id_path.clone())));
     // The parser rejects attributes on the root, so its fields have no parent offset.
-    let fields = shaper.fields(&resource.fields, sd, name, name, None);
+    let fields = shaper.fields_among(
+        &resource.fields,
+        sd,
+        (name, name, None),
+        id.into_iter().collect(),
+    );
     let reshaped = Resource {
         fields,
         resource_type: Arc::clone(&resource.resource_type),
@@ -109,17 +122,27 @@ impl Shaper<'_> {
         path: &str,
         parent: Option<u32>,
     ) -> Fields {
+        self.fields_among(fields, sd, (def_path, path, parent), Vec::new())
+    }
+
+    /// [`Self::fields`], order-checked together with `siblings`: child elements as (span,
+    /// snapshot position, path) that are not in `fields`. Attributes have no order, and an
+    /// attribute written as a child element already has its form error.
+    fn fields_among(
+        &mut self,
+        fields: &Fields,
+        sd: &StructureDefinition,
+        (def_path, path, parent): (&str, &str, Option<u32>),
+        mut siblings: Vec<(Span, usize, String)>,
+    ) -> Fields {
         let prefix = format!("{def_path}.");
         let mut out = Fields::with_capacity(fields.len());
-        // Child elements as (span, snapshot position, path). Attributes have no order, and an
-        // attribute written as a child element already has its form error.
-        let mut siblings = Vec::new();
         for (name, node) in fields {
             let resolved = resolve(sd, &format!("{prefix}{name}"), name);
             // A choice variant resolves to its `[x]` element, so it takes that element's place.
             let position = resolved
                 .as_ref()
-                .and_then(|(elem, _)| sd.snapshot.iter().position(|e| std::ptr::eq(e, *elem)));
+                .and_then(|(elem, _)| sd.position(&elem.path));
             let found = resolved.and_then(|(elem, ty)| typed_element(self.registry, sd, elem, ty));
             let Some((elem, sd, ty)) = found else {
                 out.insert(Arc::clone(name), node.clone());
@@ -353,7 +376,7 @@ impl Shaper<'_> {
                 }
                 (
                     Node {
-                        value: typed(text, ty),
+                        value: typed_xml_text(text, ty),
                         span: node.span,
                     },
                     null,
@@ -376,7 +399,7 @@ impl Shaper<'_> {
                         }
                         match &v.value {
                             Value::Str(text) => Node {
-                                value: typed(text, ty),
+                                value: typed_xml_text(text, ty),
                                 span: v.span,
                             },
                             _ => v.clone(),
@@ -408,64 +431,5 @@ impl Shaper<'_> {
             }
             _ => (node.clone(), null),
         }
-    }
-}
-
-/// The JSON value for XML text of primitive type `ty`; the text itself when it does not fit.
-fn typed(text: &Arc<str>, ty: &str) -> Value {
-    let keep = || Value::Str(Arc::clone(text));
-    match ty {
-        "boolean" => match text.as_ref() {
-            "true" => Value::Bool(true),
-            "false" => Value::Bool(false),
-            _ => keep(),
-        },
-        // Official integer regex `[0]|[-+]?[1-9][0-9]*`.
-        "integer" | "unsignedInt" | "positiveInt" => {
-            let digits = text.strip_prefix(['-', '+']).unwrap_or(text);
-            let canonical = text.as_ref() == "0"
-                || (digits.bytes().all(|b| b.is_ascii_digit()) && !digits.starts_with('0'));
-            match text.parse::<i64>() {
-                Ok(n) if canonical => Value::Integer(n),
-                _ => keep(),
-            }
-        }
-        "decimal" if is_decimal(text) => match text.parse::<f64>() {
-            Ok(n) if n.is_finite() => Value::Decimal(n),
-            _ => keep(),
-        },
-        _ => keep(),
-    }
-}
-
-/// Official decimal regex `-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?`.
-fn is_decimal(s: &str) -> bool {
-    let s = s.strip_prefix('-').unwrap_or(s);
-    let (mantissa, exponent) = s
-        .split_once(['e', 'E'])
-        .map_or((s, None), |(m, e)| (m, Some(e)));
-    let (int, frac) = mantissa
-        .split_once('.')
-        .map_or((mantissa, None), |(i, f)| (i, Some(f)));
-    let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
-    (int == "0" || (digits(int) && !int.starts_with('0')))
-        && frac.is_none_or(digits)
-        && exponent.is_none_or(|e| digits(e.strip_prefix(['+', '-']).unwrap_or(e)))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn typed_converts_only_well_formed_text() {
-        let v = |t: &str, ty| typed(&Arc::from(t), ty);
-        assert!(matches!(v("2", "integer"), Value::Integer(2)));
-        assert!(matches!(v("007", "integer"), Value::Str(_)));
-        assert!(matches!(v("1.50", "decimal"), Value::Decimal(_)));
-        assert!(matches!(v("1e999", "decimal"), Value::Str(_)));
-        assert!(matches!(v("NaN", "decimal"), Value::Str(_)));
-        assert!(matches!(v("false", "boolean"), Value::Bool(false)));
-        assert!(matches!(v("yes", "boolean"), Value::Str(_)));
     }
 }

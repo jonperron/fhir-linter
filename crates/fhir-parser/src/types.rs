@@ -51,7 +51,8 @@ pub struct Resource {
     /// an extension is an object holding `value`; the validator reshapes it to the JSON form.
     pub from_xml: bool,
     pub resource_type: Arc<str>,
-    pub id: Option<Arc<str>>,
+    /// The root `id`, lifted out of `fields`; it reads as its `&str` value.
+    pub id: Option<ResourceId>,
     pub fields: IndexMap<Arc<str>, Node>,
     /// XML attribute values the reader trimmed (xml.html: readers SHOULD trim leading and
     /// trailing whitespace). Empty for JSON.
@@ -59,6 +60,22 @@ pub struct Resource {
     /// XML elements that declare or use the schema instance namespace, which xml.html
     /// 2.1.6.3.4 forbids; the validator reports each one. Empty for JSON.
     pub schema_instance: Vec<Span>,
+}
+
+/// The root resource id with the span of its element (the XML `<id>` element, the JSON
+/// value), so its place among the root's children stays known after it leaves `fields`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResourceId {
+    pub value: Arc<str>,
+    pub span: Span,
+}
+
+impl std::ops::Deref for ResourceId {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.value
+    }
 }
 
 /// An XML attribute value the reader trimmed.

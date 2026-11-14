@@ -54,8 +54,13 @@ use quick_xml::events::{BytesStart, Event};
 /// unknown type name in as/ofType being an error (2 cases), then to 987 when a
 /// FHIR Quantity compares as a Quantity and units that cannot be compared give
 /// empty (20 cases; testQuantity3 and testNEquality24 lost wrong-reason passes:
-/// `g` vs `mg` and `[lb_av]` vs `kg` need UCUM conversion, so `!=` is empty).
-const MIN_PASSED: u32 = 987;
+/// `g` vs `mg` and `[lb_av]` vs `kg` need UCUM conversion, so `!=` is empty),
+/// then to 992 when XML boolean, integer and decimal text is typed by its
+/// element (defineVariable7 and 5 testLiteralDecimal cases; testType12 lost a
+/// wrong-reason pass: `active.is(Boolean)` was false only because the XML
+/// `active` was a String, and System names keep the System rules on typed
+/// values, see `fhir_type_tests.rs`).
+const MIN_PASSED: u32 = 992;
 
 /// (run, skipped) case counts on the pinned fixtures, so loader drift or a
 /// broken skip filter cannot hide behind the floor.

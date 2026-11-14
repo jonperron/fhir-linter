@@ -3,7 +3,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 
 use crate::line_index::LineIndex;
-use crate::types::{Node, ParseError, Resource, Span, Value};
+use crate::types::{Node, ParseError, Resource, ResourceId, Span, Value};
 
 /// Maximum object/array nesting accepted (guards against stack overflow).
 const MAX_DEPTH: usize = 128;
@@ -51,7 +51,10 @@ pub fn parse_json(source: &str) -> Result<Resource, ParseError> {
     let id = match fields.shift_remove("id") {
         None => None,
         Some(n) => match n.value {
-            Value::Str(s) => Some(s),
+            Value::Str(value) => Some(ResourceId {
+                value,
+                span: n.span,
+            }),
             _ => {
                 return Err(ParseError::JsonError {
                     message: "'id' must be a string".into(),
