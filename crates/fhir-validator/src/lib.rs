@@ -7,12 +7,15 @@
 //! (contained, Bundle entries) go through the same layers at their own path.
 //! Emits `Diagnostic` values for every detected issue.
 
+mod cardinality;
 mod diagnostic;
 mod embedded;
+mod fixed_pattern;
 mod invariants;
 mod nested;
 mod profile;
 mod references;
+mod resolve;
 mod terminology;
 mod type_check;
 mod xml_shape;

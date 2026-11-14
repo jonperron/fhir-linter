@@ -59,7 +59,7 @@ pub(crate) fn content_target<'a>(
 }
 
 /// The element, definition and type that give the content rules of `elem` (of `sd`, with
-/// type `ty` from `nested::resolve`): itself, or for a typeless contentReference element
+/// type `ty` from `resolve::resolve`): itself, or for a typeless contentReference element
 /// every rule of its target (V6). `None` only for an unresolved reference, which no R5
 /// definition has: all 153 resolve to a typed element.
 pub(crate) fn typed_element<'a>(

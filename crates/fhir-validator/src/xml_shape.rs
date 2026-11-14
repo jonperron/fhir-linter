@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
 use crate::embedded::{concrete_resource, holds_resource, typed_element};
-use crate::nested::{complex_type, is_primitive, resolve};
+use crate::resolve::{complex_type, is_primitive, resolve};
 
 type Fields = IndexMap<Arc<str>, Node>;
 

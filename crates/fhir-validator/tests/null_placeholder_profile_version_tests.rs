@@ -133,7 +133,9 @@ fn profile_version_matching_the_loaded_one_does_not_warn() {
     ];
     for profile in profiles {
         let found = vitalsigns_observation(&profile);
-        assert!(!found.iter().any(|d| d.contains("PROFILE_")), "{found:?}");
+        // No unknown-profile or version warning (the missing VSCat category is PROFILE_006).
+        let warned = |d: &String| d.contains("PROFILE_001") || d.contains("PROFILE_003");
+        assert!(!found.iter().any(warned), "{found:?}");
         assert!(
             found.contains(&"Error CARDINALITY_001 Observation.subject".to_owned()),
             "{found:?}"

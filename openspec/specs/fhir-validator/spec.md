@@ -731,7 +731,7 @@ Le système SHALL émettre un Diagnostic de sévérité warning `PROFILE_003` au
 
 ### Requirement: Validation de profil — type incompatible (PROFILE_002) et cardinalité du profil
 
-Le système SHALL émettre `PROFILE_002` (erreur) lorsqu'un profil connu de `meta.profile` s'applique à un autre type de ressource que celui de la ressource, sauf si le profil porte sur un parent abstrait (ex. `DomainResource`). Pour un profil connu compatible et distinct de la définition de base, les règles de cardinalité du profil SHALL être appliquées ; les constats déjà rapportés par la validation de base (même code et même `path`) SHALL être dédupliqués. Les éléments du snapshot du profil portant un `sliceName` SHALL être ignorés par la vérification de cardinalité (les slices ne sont pas vérifiées) ; l'élément répétitif de base reste vérifié.
+Le système SHALL émettre `PROFILE_002` (erreur) lorsqu'un profil connu de `meta.profile` s'applique à un autre type de ressource que celui de la ressource, sauf si le profil porte sur un parent abstrait (ex. `DomainResource`). Pour un profil connu compatible et distinct de la définition de base, les règles de cardinalité du profil SHALL être appliquées ; les constats déjà rapportés par la validation de base (même code et même `path`) SHALL être dédupliqués. Les profils connus de `meta.profile` SHALL être appliqués à tous les niveaux (cardinalité des enfants, `fixed[x]`, `pattern[x]`, slices par valeur) et pas seulement à la racine ; un `<profile>` XML unique (scalaire après la remise en forme XML) SHALL être accepté comme un tableau d'un élément. Les éléments du snapshot du profil portant un `sliceName` SHALL être ignorés par la vérification de cardinalité ; l'élément répétitif de base reste vérifié, et les enfants d'une slice ne comptent jamais comme enfants de l'élément découpé.
 
 #### Scenario: Profil d'un autre type
 
@@ -752,6 +752,94 @@ Le système SHALL émettre `PROFILE_002` (erreur) lorsqu'un profil connu de `met
 
 - **WHEN** le snapshot du profil contient un élément avec `sliceName` (ex. `min` 1)
 - **THEN** aucune cardinalité n'SHALL être vérifiée pour cette slice, l'élément de base restant vérifié
+
+---
+
+### Requirement: Validation de profil — valeur fixe (PROFILE_004) et motif (PROFILE_005)
+
+Le système SHALL émettre `PROFILE_004` (erreur) pour chaque occurrence d'un élément dont l'élément de profil porte `fixed[x]` et qui n'est pas exactement cette valeur (égalité profonde : mêmes propriétés, tableaux élément par élément, nombres comparés comme décimaux : `3` = `3.0` = `3.00`). Un élément absent SHALL NOT produire de constat. Le système SHALL émettre `PROFILE_005` (erreur) lorsqu'une occurrence ne suit pas `pattern[x]` (chaque propriété du motif présente et conforme récursivement ; chaque élément de tableau du motif correspond à un élément de l'instance ; propriétés et éléments supplémentaires autorisés). Le `path` SHALL être le chemin d'instance de l'occurrence. En XML, un enfant répétable unique (resté scalaire) SHALL être comparé comme un tableau d'un élément.
+
+#### Scenario: Valeur fixe violée
+
+- **WHEN** un Bundle déclare un profil dont `Bundle.type` est fixé et la valeur diffère
+- **THEN** un Diagnostic `PROFILE_004` SHALL être émis à `Bundle.type`
+
+#### Scenario: Valeur fixe sur occurrence imbriquée
+
+- **WHEN** `Observation.referenceRange[0].high` diffère de la valeur fixée par le profil
+- **THEN** un `PROFILE_004` SHALL être émis à `Observation.referenceRange[0].high`
+
+#### Scenario: Nombres égaux par valeur
+
+- **WHEN** la valeur fixe est `3` et l'instance porte `3.0` ou `3.00`
+- **THEN** aucun `PROFILE_004` SHALL être émis
+
+#### Scenario: Élément absent
+
+- **WHEN** l'élément portant `fixed[x]` est absent
+- **THEN** aucun `PROFILE_004` SHALL être émis
+
+#### Scenario: Motif non suivi
+
+- **WHEN** une occurrence ne contient pas une propriété ou un élément de tableau requis par `pattern[x]`
+- **THEN** un Diagnostic `PROFILE_005` SHALL être émis au chemin de l'occurrence
+
+#### Scenario: Motif avec extras
+
+- **WHEN** l'occurrence contient en plus des propriétés ou éléments absents du motif
+- **THEN** aucun `PROFILE_005` SHALL être émis
+
+#### Scenario: Enfant répétable XML unique
+
+- **WHEN** en XML un enfant répétable unique est comparé à un `fixed[x]`/`pattern[x]` tableau d'un élément
+- **THEN** il SHALL être traité comme un tableau d'un élément
+
+---
+
+### Requirement: Validation de profil — cardinalité des slices par valeur (PROFILE_006)
+
+Pour un découpage dont tous les discriminateurs sont de type `value` ou `pattern` sur un chemin simple (ou `$this`) et dont chaque slice porte un `fixed`/`pattern`, le système SHALL compter les occurrences correspondant à chaque slice et les comparer au `min`/`max` de la slice, en émettant `PROFILE_006` (erreur) au chemin d'instance de l'élément découpé. Les autres découpages, les règles fermées/ordonnées, les re-slices et le contenu non discriminant d'une slice appariée SHALL NOT être évalués (raccourci). Les valeurs fixes à l'intérieur d'une slice SHALL s'appliquer uniquement à cette slice.
+
+#### Scenario: Slice requise absente
+
+- **WHEN** une Observation vitalsigns n'a aucune `category` correspondant à la catégorie `vital-signs`
+- **THEN** un Diagnostic `PROFILE_006` SHALL être émis à `Observation.category`
+
+#### Scenario: Slice au-dessus du maximum
+
+- **WHEN** la catégorie `vital-signs` apparaît deux fois
+- **THEN** un Diagnostic `PROFILE_006` SHALL être émis à `Observation.category`
+
+#### Scenario: Découpage non évalué
+
+- **WHEN** un discriminateur n'est pas `value`/`pattern` ou une slice n'a ni `fixed` ni `pattern`
+- **THEN** aucun `PROFILE_006` SHALL être émis
+
+---
+
+### Requirement: Validation de profil — profils de type (type.profile)
+
+Lorsque `type.profile` d'un élément nomme un profil pour le type du nœud (ex. `Claim.item.quantity` → `SimpleQuantity`), le système SHALL appliquer à ce nœud les invariants racine du profil non déjà portés par le type ou l'élément, ainsi que ses cardinalités, `fixed[x]` et `pattern[x]`. Avec plusieurs profils, la conformité à un seul SHALL suffire ; un profil inconnu SHALL produire un `PROFILE_001` (warning) au nœud. Les constats déjà faits par la validation de base (même code et même `path`) SHALL NOT être répétés.
+
+#### Scenario: Invariant du profil de type
+
+- **WHEN** `Claim.item[0].quantity` viole `sqty-1` de `SimpleQuantity`
+- **THEN** un Diagnostic `INVARIANT_sqty-1` SHALL être émis
+
+#### Scenario: Cardinalité du profil de type
+
+- **WHEN** `Claim.item[0].quantity` porte un `comparator` interdit par `SimpleQuantity`
+- **THEN** un Diagnostic `CARDINALITY_002` SHALL être émis à `Claim.item[0].quantity.comparator`
+
+#### Scenario: Plusieurs profils de type
+
+- **WHEN** le nœud est conforme à l'un des profils listés
+- **THEN** aucun constat de profil de type SHALL être émis
+
+#### Scenario: Profil de type inconnu
+
+- **WHEN** un des profils de `type.profile` est inconnu du Registry
+- **THEN** un `PROFILE_001` de sévérité warning SHALL être émis au nœud
 
 ---
 

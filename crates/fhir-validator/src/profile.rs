@@ -1,13 +1,20 @@
-use fhir_definitions::{Registry, StructureDefinition};
-use fhir_parser::{Resource, Value};
+use fhir_definitions::{ElementDefinition, Registry, StructureDefinition};
+use fhir_fhirpath::Value as FhirPathValue;
+use fhir_parser::{Node, Resource, Span, Value};
+use indexmap::IndexMap;
+use std::sync::Arc;
 
-use crate::diagnostic::Diagnostic;
-use crate::nested::check_children_cardinality;
+use crate::cardinality::{check_run_cardinality, own_descendants, subtree, without_own_slices};
+use crate::diagnostic::{Diagnostic, Severity};
+use crate::fixed_pattern::{self, occurrences};
+use crate::invariants;
+use crate::resolve::{capitalise, complex_type};
 
 /// Validate the profiles declared in `meta.profile`.
 ///
 /// Profiles known to the registry are checked for resource-type match
-/// (`PROFILE_002`) and their cardinality rules are applied. Unknown profiles
+/// (`PROFILE_002`) and their cardinality, `fixed[x]`/`pattern[x]` and value-slice rules are
+/// applied at every depth (`check_profile_object`). Unknown profiles
 /// produce a `PROFILE_001` warning because they cannot be validated against. A `|version`
 /// other than the loaded definition's gives a `PROFILE_003` warning.
 /// `resource_path` is the resource's instance path.
@@ -22,8 +29,14 @@ pub fn validate(
     let Some(Value::Object(meta)) = resource.fields.get("meta").map(|n| &n.value) else {
         return;
     };
-    let Some(Value::Array(profiles)) = meta.get("profile").map(|n| &n.value) else {
-        return;
+    // The XML reshape keeps a single `<profile>` scalar; it is still the first profile.
+    let profiles = match meta.get("profile") {
+        Some(Node {
+            value: Value::Array(items),
+            ..
+        }) => items.as_slice(),
+        Some(node) => std::slice::from_ref(node),
+        None => return,
     };
 
     for (i, node) in profiles.iter().enumerate() {
@@ -73,9 +86,10 @@ pub fn validate(
         } else if sd.url != base.url {
             // Keep only findings the base check did not already report.
             let mut found = Vec::new();
-            check_children_cardinality(
+            check_profile_object(
                 &resource.fields,
                 sd,
+                own_descendants(sd, resource_type),
                 resource_type,
                 resource_path,
                 &mut found,
@@ -86,6 +100,117 @@ pub fn validate(
                     .any(|d| d.code == f.code && d.path == f.path)
             });
             diagnostics.extend(found);
+        }
+    }
+}
+
+/// Apply the profiles `elem` declares for type `ty` (`type.profile`, such as SimpleQuantity) to
+/// one object (`fields`, its FHIRPath value and span): the profile root's own invariants
+/// (`sqty-1`) and its rules below the root ([`check_profile_object`]). The value must conform
+/// to one of them; findings the base walk of the node (from `start`) already made are dropped.
+pub(crate) fn check_type_profiles(
+    (fields, value, span): (&IndexMap<Arc<str>, Node>, &[FhirPathValue], Span),
+    elem: &ElementDefinition,
+    ty: &str,
+    path: &str,
+    registry: &Registry,
+    start: usize,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some(urls) = elem.type_profiles.iter().find(|t| t.code.as_ref() == ty) else {
+        return;
+    };
+    let base = complex_type(ty, registry)
+        .and_then(|type_sd| type_sd.element(ty))
+        .map(|root| root.constraints.as_slice())
+        .unwrap_or_default();
+    let mut results = Vec::with_capacity(urls.profiles.len());
+    for url in &urls.profiles {
+        let Some((profile, root)) = registry
+            .structure_definition(url)
+            .and_then(|profile| Some((profile, profile.snapshot.first()?)))
+        else {
+            let message = format!("Profile '{url}' of '{path}' is not known");
+            diagnostics.push(Diagnostic::warning("PROFILE_001", message, path.to_owned()));
+            continue;
+        };
+        let mut found = Vec::new();
+        let known = |key: &str| base.iter().chain(&elem.constraints).any(|c| *c.key == *key);
+        for constraint in root.constraints.iter().filter(|c| !known(&c.key)) {
+            invariants::check(
+                constraint,
+                value,
+                &|base, suffix| registry.is_choice_variant(base, suffix),
+                path,
+                Some(span),
+                &mut found,
+            );
+        }
+        let run = own_descendants(profile, &root.path);
+        check_profile_object(fields, profile, run, &root.path, path, &mut found);
+        found.retain(|f| {
+            !diagnostics[start..]
+                .iter()
+                .any(|d| d.code == f.code && d.path == f.path)
+        });
+        results.push(found);
+    }
+    // type.profile: conforming to any one of the profiles is enough.
+    let is_error = |d: &Diagnostic| d.severity == Severity::Error;
+    let chosen = match results.iter().position(|r| !r.iter().any(is_error)) {
+        Some(i) => results.swap_remove(i),
+        None => results.into_iter().next().unwrap_or_default(),
+    };
+    diagnostics.extend(chosen);
+}
+
+/// Apply the rules of profile `sd` below `def_path` to one object (instance `path`), at every
+/// depth: child cardinality, `fixed[x]`/`pattern[x]` and value-discriminated slices.
+pub(crate) fn check_profile_object(
+    fields: &IndexMap<Arc<str>, Node>,
+    sd: &StructureDefinition,
+    run: &[ElementDefinition],
+    def_path: &str,
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    check_run_cardinality(fields, sd, run, def_path, path, diagnostics);
+    let prefix = format!("{def_path}.");
+    for (k, elem) in run.iter().enumerate() {
+        let Some(rest) = elem.path.strip_prefix(&prefix).filter(|r| !r.contains('.')) else {
+            continue;
+        };
+        if elem.slice_name.is_some() {
+            continue;
+        }
+        let subtree = subtree(run, k);
+        let present: Vec<(&Arc<str>, &Node)> = match rest.strip_suffix("[x]") {
+            Some(base) => fields
+                .iter()
+                .filter(|(key, _)| {
+                    key.strip_prefix(base)
+                        .is_some_and(|suffix| elem.types.iter().any(|t| capitalise(t) == suffix))
+                })
+                .collect(),
+            None => {
+                let child_path = format!("{path}.{rest}");
+                let node = fields.get(rest);
+                fixed_pattern::check_slices(node, elem, subtree, &child_path, diagnostics);
+                fields.get_key_value(rest).into_iter().collect()
+            }
+        };
+        let own = without_own_slices(subtree, &elem.path);
+        for (name, node) in present {
+            let child_path = format!("{path}.{name}");
+            fixed_pattern::check_value(node, elem, &child_path, diagnostics);
+            if elem.content_reference.is_some() {
+                continue;
+            }
+            for (item, item_path) in occurrences(node, &child_path) {
+                if let Value::Object(fields) = &item.value {
+                    check_profile_object(fields, sd, own, &elem.path, &item_path, diagnostics);
+                }
+            }
         }
     }
 }
