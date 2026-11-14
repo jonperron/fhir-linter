@@ -29,8 +29,10 @@ pub(crate) struct Assigned<'r> {
     pub value: Collection,
 }
 
-/// Whether an object conforms to the profile at a URL; `None` when the profile is unknown.
-pub(crate) type Conforms<'a> = dyn Fn(&IndexMap<Arc<str>, Node>, &str) -> Option<bool> + 'a;
+/// Whether an object (its fields and FHIRPath value) conforms to the profile at a URL; `None`
+/// when the profile is unknown.
+pub(crate) type Conforms<'a> =
+    dyn Fn(&IndexMap<Arc<str>, Node>, &[FhirPathValue], &str) -> Option<bool> + 'a;
 
 /// What a discriminator asks of the value at its path, for one slice.
 enum Rule<'r> {
@@ -330,7 +332,8 @@ fn test(
             };
             let mut any = false;
             for url in urls.iter() {
-                match conforms(fields, url) {
+                // A profile rule is on `$this`, so `selected` is the item's value.
+                match conforms(fields, selected, url) {
                     Some(c) => any |= c,
                     None => return Err(format!("profile '{url}' is not known")),
                 }
@@ -341,7 +344,11 @@ fn test(
 }
 
 /// The typed FHIRPath value of an item of `elem`.
-fn item_value(item: &Item<'_>, elem: &ElementDefinition, registry: &Registry) -> Collection {
+pub(crate) fn item_value(
+    item: &Item<'_>,
+    elem: &ElementDefinition,
+    registry: &Registry,
+) -> Collection {
     let ty = item
         .choice_type
         .or_else(|| elem.types.first().map(|t| t.as_ref()))
