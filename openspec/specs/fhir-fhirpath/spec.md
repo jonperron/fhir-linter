@@ -255,6 +255,11 @@ Le critère de `where` SHALL produire pour chaque élément un booléen seul ou 
 - **WHEN** `Questionnaire.id.is(id)` ou `Questionnaire.version.is(string)` (où `version` n'a que `_version`) est évalué avec le crochet
 - **THEN** le résultat SHALL être `[Bool(true)]` (l'`id` est typé par `child_element(resourceType, "id")`), et `version.is(code)` SHALL être `[Bool(false)]`
 
+#### Scenario: Primitives booléennes, entières et décimales typées
+
+- **WHEN** un champ `boolean`, `integer` ou `decimal` est converti avec `child_element`
+- **THEN** la valeur SHALL être une `Primitive` portant son type FHIR (`integer`), et l'arithmétique et les comparaisons SHALL la traiter comme sa valeur nue
+
 #### Scenario: Primitive XML avec extensions
 
 - **WHEN** `Questionnaire.status.is(code)` est évalué avec le crochet sur un `status` XML portant une extension

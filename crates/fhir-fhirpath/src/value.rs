@@ -284,9 +284,13 @@ fn convert(
     match v {
         // A JSON null (an array placeholder) is not an item.
         fhir_parser::Value::Null => vec![],
-        fhir_parser::Value::Bool(b) => vec![Value::Bool(*b)],
-        fhir_parser::Value::Integer(n) => vec![Value::Integer(*n)],
-        fhir_parser::Value::Decimal(d) => vec![Value::Decimal(*d)],
+        fhir_parser::Value::Bool(b) => vec![typed_value(Value::Bool(*b), child.map(|(_, ty)| ty))],
+        fhir_parser::Value::Integer(n) => {
+            vec![typed_value(Value::Integer(*n), child.map(|(_, ty)| ty))]
+        }
+        fhir_parser::Value::Decimal(d) => {
+            vec![typed_value(Value::Decimal(*d), child.map(|(_, ty)| ty))]
+        }
         fhir_parser::Value::Str(s) => vec![typed_string(s, child.map(|(_, ty)| ty))],
         fhir_parser::Value::Array(items) => items
             .iter()
@@ -422,6 +426,11 @@ fn typed_string(s: &Arc<str>, ty: Option<&Arc<str>>) -> Value {
         Some("time") => Value::Time(s),
         _ => Value::String(s),
     };
+    typed_value(value, ty)
+}
+
+/// `value` carrying the FHIR primitive type of `child`, when it is known.
+fn typed_value(value: Value, ty: Option<&Arc<str>>) -> Value {
     match ty.filter(|ty| is_primitive_type(ty)) {
         Some(ty) => Value::Primitive(Box::new(value), no_children(), Some(Arc::clone(ty))),
         None => value,

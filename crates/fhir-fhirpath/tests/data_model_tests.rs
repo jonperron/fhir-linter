@@ -12,6 +12,7 @@ fn child_element(parent: &str, name: &str) -> Option<(Arc<str>, Arc<str>)> {
         ("Patient", "contained") => "Resource",
         ("Patient", "gender") => "code",
         ("Patient", "name") => "HumanName",
+        ("Patient", "multipleBirthInteger") => "integer",
         ("HumanName", "given") => "string",
         ("Extension", "valueString") => "string",
         ("code" | "string", "extension") => "Extension",
@@ -53,15 +54,51 @@ fn declared_temporal_types_become_temporal_values() {
     );
     let one = |expr: &str| evaluate(expr, &ctx).unwrap();
     // Each value carries its FHIR type; its value is the temporal.
-    let value = |expr: &str| one(expr)[0].primitive_value().clone();
-    assert!(matches!(value("effectiveDateTime"), Value::DateTime(_)));
-    assert!(matches!(value("issued"), Value::DateTime(_)));
-    assert!(matches!(value("valueTime"), Value::Time(_)));
+    let value = |expr: &str| match one(expr).as_slice() {
+        [Value::Primitive(value, _, Some(ty))] => ((**value).clone(), ty.to_string()),
+        other => panic!("not a typed primitive: {other:?}"),
+    };
+    assert!(matches!(value("effectiveDateTime"), (Value::DateTime(_), t) if t == "dateTime"));
+    assert!(matches!(value("issued"), (Value::DateTime(_), t) if t == "instant"));
+    assert!(matches!(value("valueTime"), (Value::Time(_), t) if t == "time"));
     // 10:00+02:00 is 08:00Z: before 09:00Z, though "10" > "09" as text.
     assert_eq!(bools(&one("effectiveDateTime < issued")), [true]);
     assert_eq!(bools(&one("valueTime > @T10:00")), [true]);
     // Different precisions: unknown, so empty (N1 §6.2).
     assert!(one("effectiveDateTime = @2020-01-01T10:00+02:00").is_empty());
+}
+
+#[test]
+fn numeric_primitives_carry_their_fhir_type() {
+    let ctx = typed(r#"{"resourceType":"Patient","multipleBirthInteger":2}"#);
+    let items = evaluate("multipleBirthInteger", &ctx).unwrap();
+    assert!(
+        matches!(
+            items.as_slice(),
+            [Value::Primitive(value, _, Some(ty))]
+                if matches!(**value, Value::Integer(2)) && &**ty == "integer"
+        ),
+        "{items:?}"
+    );
+    assert_eq!(
+        bools(&evaluate("multipleBirthInteger + 1 = 3", &ctx).unwrap()),
+        [true]
+    );
+}
+
+#[test]
+fn string_functions_accept_typed_string_fields() {
+    let ctx = typed(r#"{"resourceType":"Patient","gender":"male"}"#);
+    let upper = evaluate("gender.upper()", &ctx).unwrap();
+    assert!(
+        matches!(upper.as_slice(), [Value::String(s)] if &**s == "MALE"),
+        "{upper:?}"
+    );
+    let length = evaluate("gender.length()", &ctx).unwrap();
+    assert!(
+        matches!(length.as_slice(), [Value::Integer(4)]),
+        "{length:?}"
+    );
 }
 
 #[test]
