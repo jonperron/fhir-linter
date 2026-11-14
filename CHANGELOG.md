@@ -1,5 +1,66 @@
 # Changelog
 
+## [1.1.0](https://github.com/jonperron/fhir-linter/compare/fhir-linter-v1.0.0...fhir-linter-v1.1.0) (2026-11-14)
+
+
+### Features
+
+* **definitions:** load basedefinition and add type ancestry lookup ([ea34b0b](https://github.com/jonperron/fhir-linter/commit/ea34b0b6e7e72633c16e9dd94d8715ef0179c773))
+* **definitions:** load basedefinition and add type ancestry lookup ([#96](https://github.com/jonperron/fhir-linter/issues/96)) ([7c3532a](https://github.com/jonperron/fhir-linter/commit/7c3532aac62256efbb85738dcd877f20f6803773))
+* **definitions:** load the r5 regex of each primitive type ([fdf7883](https://github.com/jonperron/fhir-linter/commit/fdf7883d7187554100af43fcd45cb7c260de71fc))
+* **definitions:** load the r5 regex of each primitive type ([#88](https://github.com/jonperron/fhir-linter/issues/88)) ([0dd66a6](https://github.com/jonperron/fhir-linter/commit/0dd66a6d7ccd5b18ddbe722ee1179192ac1eecea))
+* **fhirpath:** add the %resource, %rootResource and %context variables ([baec90a](https://github.com/jonperron/fhir-linter/commit/baec90a190eee446897b9d97416229e4d243a02d))
+* **fhirpath:** add the %resource, %rootResource and %context variables ([#94](https://github.com/jonperron/fhir-linter/issues/94)) ([dd79c8c](https://github.com/jonperron/fhir-linter/commit/dd79c8c64da894936ec8760d44584cac28593dfb))
+* **fhirpath:** answer is/as/ofType through FHIR type inheritance ([a18a563](https://github.com/jonperron/fhir-linter/commit/a18a5636f6bed385b1142ad8fd47e38bef6deb24))
+* **fhirpath:** answer is/as/ofType through FHIR type inheritance ([#98](https://github.com/jonperron/fhir-linter/issues/98)) ([ff4fc1e](https://github.com/jonperron/fhir-linter/commit/ff4fc1e34974ac94f1b5510e0bf3d0491d457965))
+* **fhirpath:** refuse fhir string subtypes in is, as and oftype ([c784fc3](https://github.com/jonperron/fhir-linter/commit/c784fc390b3d5875b206483bd274bc08543b5fb1))
+
+
+### Bug Fixes
+
+* **cli:** cap input size and escape paths in tool errors ([3747c40](https://github.com/jonperron/fhir-linter/commit/3747c40c3649ba71e76031b50aa937c73d80549b))
+* **cli:** cap input size and escape paths in tool errors ([#86](https://github.com/jonperron/fhir-linter/issues/86)) ([cc70b46](https://github.com/jonperron/fhir-linter/commit/cc70b4679ac35e66b4bd1cd591352a9ecbcf5aae))
+* **definitions:** answer the review of the type ancestry lookup ([e6efcb9](https://github.com/jonperron/fhir-linter/commit/e6efcb962fb1653a849b2623c8687e0b433ba70e))
+* **fhirpath:** answer the review of the environment variables ([bfc3298](https://github.com/jonperron/fhir-linter/commit/bfc329878e7b133b6ba953af607adb44f2a73868))
+* **fhirpath:** cap intermediate collections at 100,000 items ([1cbc56d](https://github.com/jonperron/fhir-linter/commit/1cbc56de1913bae2c605001a8957514b759dc59e))
+* **fhirpath:** cap string results at 1,048,576 characters ([33bbebb](https://github.com/jonperron/fhir-linter/commit/33bbebb3c3a1ee17e6adf70c6ba48e5993182a36))
+* **fhirpath:** cap string results at 1,048,576 characters ([#87](https://github.com/jonperron/fhir-linter/issues/87)) ([001dc1f](https://github.com/jonperron/fhir-linter/commit/001dc1fb6003f20c061284637e6caf2cab5b81fc))
+* **fhirpath:** cap the characters of strings one evaluation builds ([c9121f6](https://github.com/jonperron/fhir-linter/commit/c9121f6cc554e652a6a6b73881c238e4fd8fa0e4))
+* **fhirpath:** cap the characters of strings one evaluation builds ([#91](https://github.com/jonperron/fhir-linter/issues/91)) ([ac83790](https://github.com/jonperron/fhir-linter/commit/ac83790605c607b308f86132bf7b0d2e9911e57e))
+* **fhirpath:** carry the FHIR type on boolean and numeric primitives ([5814078](https://github.com/jonperron/fhir-linter/commit/5814078d9e8694ca7ce190e4c7a1cf9edb69dffb))
+* **fhirpath:** charge only text a conversion newly builds ([d893a84](https://github.com/jonperron/fhir-linter/commit/d893a846ad122cf2c52c08ba8b2232a6fcc02969))
+* **fhirpath:** check the collection cap in extension(url) ([b60f48c](https://github.com/jonperron/fhir-linter/commit/b60f48cc478b2ff8ccc7ba077dcdfe755b02dff7))
+* **fhirpath:** check the collection cap while navigating ([3005ca3](https://github.com/jonperron/fhir-linter/commit/3005ca3b75a195fc4fcb282568e2c73b2f398edc))
+* **fhirpath:** convert quantities, longs and decimal strings per n1 ([0a79466](https://github.com/jonperron/fhir-linter/commit/0a7946678308543dade88a5df7d2c50eb356d925))
+* **fhirpath:** do not convert digit strings beyond f64 to infinity ([098ae58](https://github.com/jonperron/fhir-linter/commit/098ae58e152d08d69d7fd8c51b040fb310861042))
+* **fhirpath:** give empty from skip and take with an empty count ([49a2ee2](https://github.com/jonperron/fhir-linter/commit/49a2ee20d18ead70bb213d15e02a649be3374d66))
+* **fhirpath:** implement $index in iterating functions ([06c2627](https://github.com/jonperron/fhir-linter/commit/06c2627f67ea1d6c4cb6c6ab1171aea7918c7de7))
+* **fhirpath:** index sort keys and keep infinite decimals unconverted ([16136d6](https://github.com/jonperron/fhir-linter/commit/16136d6fd463c7b5a8149f9f6dcb7346366516a5))
+* **fhirpath:** n1 follow-ups (skip/take, string singletons, conversions, dates, $total, $index) ([#83](https://github.com/jonperron/fhir-linter/issues/83)) ([2facb9a](https://github.com/jonperron/fhir-linter/commit/2facb9a6d3288d81333d0579451c82a70e9a361b))
+* **fhirpath:** reject date literals that are not calendar dates ([b77b2f5](https://github.com/jonperron/fhir-linter/commit/b77b2f53b16989e133d2bf9d238adc91ad34cd79))
+* **fhirpath:** reject several or non-string items in string functions ([816bee0](https://github.com/jonperron/fhir-linter/commit/816bee0d3f020f4260d30633312fbfd50f7234fb))
+* **fhirpath:** split replaceMatches replacements in linear time ([36769e9](https://github.com/jonperron/fhir-linter/commit/36769e937781736392ae6a7d747e3073fe00483f))
+* **fhirpath:** support $total in aggregate() ([bc8af78](https://github.com/jonperron/fhir-linter/commit/bc8af78e583f5767fe6f0e75f7858480975b1cf4))
+* **parser:** accept an xml resource id with an extension ([9e5277d](https://github.com/jonperron/fhir-linter/commit/9e5277d4f569705d77ffc435786b6ac770058129))
+* **parser:** accept an xml resource id with an extension ([#89](https://github.com/jonperron/fhir-linter/issues/89)) ([5ca4bd4](https://github.com/jonperron/fhir-linter/commit/5ca4bd4c73a5c95c6dddf5837051ff52ec1b91c6))
+* **validator:** accept null placeholders and warn on profile versions ([79d15c6](https://github.com/jonperron/fhir-linter/commit/79d15c65d99e96c83d90a13047b4b61c8f94085d))
+* **validator:** accept null placeholders and warn on profile versions ([#95](https://github.com/jonperron/fhir-linter/issues/95)) ([10e404f](https://github.com/jonperron/fhir-linter/commit/10e404f4e224119b57f9e932e71a976d187dba57))
+* **validator:** check primitive formats with the r5 regexes ([713a792](https://github.com/jonperron/fhir-linter/commit/713a7922e8c74cac972d58f997c0eb4bc883b24d))
+* **validator:** check primitive formats with the r5 regexes ([#93](https://github.com/jonperron/fhir-linter/issues/93)) ([65b281b](https://github.com/jonperron/fhir-linter/commit/65b281b2ce243fee2bae1a80e76a80e8233ea459))
+* **validator:** check reference target types and uncoded codings ([c1e3103](https://github.com/jonperron/fhir-linter/commit/c1e3103cd21f2e9ab24c0510a1bc914fb6c4b9f8))
+* **validator:** check reference target types and uncoded codings ([#97](https://github.com/jonperron/fhir-linter/issues/97)) ([79dbf21](https://github.com/jonperron/fhir-linter/commit/79dbf21e0052babe61f644f6d6531ca45052c9a8))
+* **validator:** check reference targets through the type ancestry ([d6e07ef](https://github.com/jonperron/fhir-linter/commit/d6e07efda36cc03fb20b417433e17c966682c387))
+* **validator:** enforce fixed, pattern and type profiles ([a9ac2c0](https://github.com/jonperron/fhir-linter/commit/a9ac2c0aaaaabfbbb6ab304415c7a09dd83f0f0b))
+* **validator:** enforce fixed, pattern and type profiles ([#99](https://github.com/jonperron/fhir-linter/issues/99)) ([1bbb8e3](https://github.com/jonperron/fhir-linter/commit/1bbb8e3eaa3382bbd792c4af18994f6d2762cd58))
+* **validator:** limit the whitespace warning to regex-checked types ([b06061d](https://github.com/jonperron/fhir-linter/commit/b06061d7d838585ccecc186faddbe0fd4e312863))
+* **validator:** pass the path argument in the string-cap test ([7529570](https://github.com/jonperron/fhir-linter/commit/75295707e24fe2c19c7273683a61de0a513147d0))
+* **validator:** pass the path argument in the string-cap test ([#92](https://github.com/jonperron/fhir-linter/issues/92)) ([518574e](https://github.com/jonperron/fhir-linter/commit/518574e5f6897855d2ff4b5f9054259bddb651e9))
+* **validator:** reject empty placeholders and ignore version fragments ([bb5ad98](https://github.com/jonperron/fhir-linter/commit/bb5ad98711d89eeb71837465419f605347b0d10f))
+* **validator:** share the container ids of contained resources ([fcbcb23](https://github.com/jonperron/fhir-linter/commit/fcbcb2397d37d344905cf252a1c5d624a095c140))
+* **validator:** walk contentReference, contained and Bundle resources ([2ddf65a](https://github.com/jonperron/fhir-linter/commit/2ddf65ac02d70ab19ea26c6c01fb74be7bcaf4c8))
+* **validator:** walk contentReference, contained and Bundle resources ([#90](https://github.com/jonperron/fhir-linter/issues/90)) ([549cd87](https://github.com/jonperron/fhir-linter/commit/549cd8722482220a4bff4b7982a04abf7ed7347b))
+* **validator:** warn on whitespace-only strings ([8388f8a](https://github.com/jonperron/fhir-linter/commit/8388f8aae0a1c58a14e5c6386b38ff5ba9db6a1a))
+
 ## [1.0.0](https://github.com/jonperron/fhir-linter/compare/fhir-linter-v0.5.2...fhir-linter-v1.0.0) (2026-11-12)
 
 
