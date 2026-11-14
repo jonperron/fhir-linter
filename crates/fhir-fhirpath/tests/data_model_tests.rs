@@ -52,12 +52,11 @@ fn declared_temporal_types_become_temporal_values() {
         "valueTime":"10:30:00"}"#,
     );
     let one = |expr: &str| evaluate(expr, &ctx).unwrap();
-    assert!(matches!(
-        one("effectiveDateTime").as_slice(),
-        [Value::DateTime(_)]
-    ));
-    assert!(matches!(one("issued").as_slice(), [Value::DateTime(_)]));
-    assert!(matches!(one("valueTime").as_slice(), [Value::Time(_)]));
+    // Each value carries its FHIR type; its value is the temporal.
+    let value = |expr: &str| one(expr)[0].primitive_value().clone();
+    assert!(matches!(value("effectiveDateTime"), Value::DateTime(_)));
+    assert!(matches!(value("issued"), Value::DateTime(_)));
+    assert!(matches!(value("valueTime"), Value::Time(_)));
     // 10:00+02:00 is 08:00Z: before 09:00Z, though "10" > "09" as text.
     assert_eq!(bools(&one("effectiveDateTime < issued")), [true]);
     assert_eq!(bools(&one("valueTime > @T10:00")), [true]);
@@ -88,7 +87,11 @@ fn contained_resources_are_typed_by_their_resource_type() {
     );
     let issued = evaluate("contained.issued", &ctx).unwrap();
     assert!(
-        matches!(issued.as_slice(), [Value::DateTime(_)]),
+        matches!(
+            issued.as_slice(),
+            [Value::Primitive(value, _, Some(ty))]
+                if matches!(**value, Value::DateTime(_)) && &**ty == "instant"
+        ),
         "{issued:?}"
     );
 }

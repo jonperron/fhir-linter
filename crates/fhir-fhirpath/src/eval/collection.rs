@@ -147,20 +147,30 @@ impl Evaluator<'_> {
                 let type_name = eval_type_name(&args[0])?;
                 focus
                     .iter()
-                    .filter_map(|v| match value_is_type(v, &type_name) {
-                        Ok(true) => Some(Ok(v.clone())),
-                        Ok(false) => None,
-                        Err(e) => Some(Err(e)),
+                    .filter_map(|v| {
+                        match value_is_type(v, &type_name, self.environment.is_subtype) {
+                            Ok(true) => Some(Ok(v.clone())),
+                            Ok(false) => None,
+                            Err(e) => Some(Err(e)),
+                        }
                     })
                     .collect::<Result<_, _>>()?
             }
             "is" => {
                 check_arity(name, args, 1)?;
-                is_type(focus, &eval_type_name(&args[0])?)?
+                is_type(
+                    focus,
+                    &eval_type_name(&args[0])?,
+                    self.environment.is_subtype,
+                )?
             }
             "as" => {
                 check_arity(name, args, 1)?;
-                as_type(focus, &eval_type_name(&args[0])?)?
+                as_type(
+                    focus,
+                    &eval_type_name(&args[0])?,
+                    self.environment.is_subtype,
+                )?
             }
 
             // ── Counting / indexing ───────────────────────────────────────

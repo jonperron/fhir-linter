@@ -459,11 +459,20 @@ const FHIR_STRING_SUBTYPES: [&str; 12] = [
     "xhtml",
 ];
 
-/// Whether `v` has the type `type_name`. A String does not record which FHIR
-/// string type it came from, so asking for one of [`FHIR_STRING_SUBTYPES`] is
-/// an error rather than a guessed `false` (shortcut: upgrade when `Value`
-/// carries the FHIR type).
-pub(super) fn value_is_type(v: &Value, type_name: &str) -> Result<bool, EvalError> {
+/// Whether `v` has the type `type_name`. A value that carries its FHIR type
+/// answers through FHIR inheritance when `is_subtype` is set and `type_name`
+/// is a FHIR type. Otherwise the System types apply, and asking a String for
+/// one of [`FHIR_STRING_SUBTYPES`] is an error rather than a guessed `false`.
+pub(super) fn value_is_type(
+    v: &Value,
+    type_name: &str,
+    is_subtype: Option<&super::IsSubtype<'_>>,
+) -> Result<bool, EvalError> {
+    if let (Value::Primitive(_, _, Some(fhir_type)), Some(is_subtype)) = (v, is_subtype)
+        && is_subtype(type_name, type_name)
+    {
+        return Ok(is_subtype(fhir_type, type_name));
+    }
     let v = v.primitive_value();
     if matches!(v, Value::String(_)) && FHIR_STRING_SUBTYPES.contains(&type_name) {
         return Err(EvalError::Type(format!(
@@ -491,10 +500,14 @@ pub(super) fn value_is_type(v: &Value, type_name: &str) -> Result<bool, EvalErro
 
 /// Shared by the `is` operator and `is()` (N1 §6.3.1): empty in, empty out;
 /// more than one item is an error.
-pub(super) fn is_type(focus: &[Value], type_name: &str) -> Result<Collection, EvalError> {
+pub(super) fn is_type(
+    focus: &[Value],
+    type_name: &str,
+    is_subtype: Option<&super::IsSubtype<'_>>,
+) -> Result<Collection, EvalError> {
     match focus {
         [] => Ok(vec![]),
-        [v] => Ok(vec![Value::Bool(value_is_type(v, type_name)?)]),
+        [v] => Ok(vec![Value::Bool(value_is_type(v, type_name, is_subtype)?)]),
         _ => Err(EvalError::Type(format!(
             "is requires a single-item input, got {}",
             focus.len()
@@ -504,10 +517,14 @@ pub(super) fn is_type(focus: &[Value], type_name: &str) -> Result<Collection, Ev
 
 /// Shared by the `as` operator and `as()` (N1 §6.3.2): the item when it has
 /// the type, else empty; more than one item is an error.
-pub(super) fn as_type(focus: &[Value], type_name: &str) -> Result<Collection, EvalError> {
+pub(super) fn as_type(
+    focus: &[Value],
+    type_name: &str,
+    is_subtype: Option<&super::IsSubtype<'_>>,
+) -> Result<Collection, EvalError> {
     match focus {
         [] => Ok(vec![]),
-        [v] => Ok(value_is_type(v, type_name)?
+        [v] => Ok(value_is_type(v, type_name, is_subtype)?
             .then(|| v.clone())
             .into_iter()
             .collect()),
