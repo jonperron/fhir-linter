@@ -44,8 +44,12 @@ pub(crate) fn check_type(
         for (i, item) in items.iter().enumerate() {
             // json.html 2.1.6.4.2: a repeating element with no value is a null in the value
             // array, its id or extensions sitting at the same index in the `_name` array.
+            // Objects are never empty, so `{}` is no placeholder.
             let placeholder = matches!(item.value, Value::Null)
-                && matches!(extensions.get(i).map(|e| &e.value), Some(Value::Object(_)));
+                && matches!(
+                    extensions.get(i).map(|e| &e.value),
+                    Some(Value::Object(fields)) if !fields.is_empty()
+                );
             if placeholder {
                 continue;
             }

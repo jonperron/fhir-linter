@@ -31,8 +31,9 @@ pub fn validate(
             continue;
         };
         let path = format!("{resource_path}.meta.profile[{i}]");
+        // references.html canonical form: `url|version#fragment`.
         let (canonical, version) = match url.split_once('|') {
-            Some((canonical, version)) => (canonical, Some(version)),
+            Some((canonical, rest)) => (canonical, rest.split('#').next()),
             None => (url.as_ref(), None),
         };
         let Some(sd) = registry.structure_definition(canonical) else {

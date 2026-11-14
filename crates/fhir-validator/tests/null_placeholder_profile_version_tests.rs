@@ -71,6 +71,26 @@ fn json_null_beyond_a_short_extension_array_is_still_an_error() {
 }
 
 #[test]
+fn json_null_whose_extension_is_an_empty_object_is_still_an_error() {
+    // json.html: objects are never empty, so `{}` carries no id or extension.
+    let found = json_patient(r#"{"given": ["Jim", null], "_given": [null, {}]}"#);
+    assert!(
+        found.contains(&"Error TYPE_001 Patient.name[0].given[1]".to_owned()),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn json_null_placeholder_is_accepted_at_the_resource_root() {
+    let source = format!(
+        r#"{{"resourceType": "Questionnaire", "status": "draft",
+        "subjectType": ["Patient", null], "_subjectType": [null, {{"extension": [{EXTENSION}]}}]}}"#
+    );
+    let found = diagnostics(&parse_json(&source).expect("parses"));
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
 fn xml_repeating_primitive_with_only_an_extension_is_accepted() {
     let source = r#"<Patient xmlns="http://hl7.org/fhir"><name><given value="Jim"/><given>
         <extension url="http://example.org/e"><valueString value="x"/></extension>
@@ -105,7 +125,13 @@ fn profile_version_other_than_the_loaded_one_warns_and_validates() {
 
 #[test]
 fn profile_version_matching_the_loaded_one_does_not_warn() {
-    for profile in [format!("{VITALSIGNS}|5.0.0"), VITALSIGNS.to_owned()] {
+    let profiles = [
+        format!("{VITALSIGNS}|5.0.0"),
+        // references.html: a canonical may end in `#fragment` after its version.
+        format!("{VITALSIGNS}|5.0.0#vs"),
+        VITALSIGNS.to_owned(),
+    ];
+    for profile in profiles {
         let found = vitalsigns_observation(&profile);
         assert!(!found.iter().any(|d| d.contains("PROFILE_")), "{found:?}");
         assert!(
