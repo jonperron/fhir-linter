@@ -136,7 +136,7 @@ Le système SHALL exposer un enum `Value` représentant les valeurs FHIRPath à 
 #### Scenario: Variantes couvertes
 
 - **WHEN** un résultat d'évaluation est produit
-- **THEN** `Value` SHALL avoir les variantes : `Null`, `Bool(bool)`, `Integer(i64)`, `Long(i64)`, `Decimal(f64)`, `String(Arc<str>)`, `Date(Arc<str>)`, `DateTime(Arc<str>)`, `Time(Arc<str>)`, `Quantity(f64, Arc<str>)`, `Object(Arc<IndexMap<Arc<str>, Collection>>)`, `Primitive(Box<Value>, Arc<IndexMap<Arc<str>, Collection>>)`
+- **THEN** `Value` SHALL avoir les variantes : `Null`, `Bool(bool)`, `Integer(i64)`, `Long(i64)`, `Decimal(f64)`, `String(Arc<str>)`, `Date(Arc<str>)`, `DateTime(Arc<str>)`, `Time(Arc<str>)`, `Quantity(f64, Arc<str>)`, `Object(Arc<IndexMap<Arc<str>, Collection>>)`, `Primitive(Box<Value>, Arc<IndexMap<Arc<str>, Collection>>, Option<Arc<str>>)` (valeur, enfants `id`/`extension`, code de type FHIR)
 
 #### Scenario: Conversion depuis un Resource parser
 
@@ -197,7 +197,7 @@ Le système SHALL implémenter `empty()`, `exists()`, `exists(criteria)`, `all(c
 
 Le système SHALL implémenter `where(criteria)`, `select(projection)`, `repeat(projection)`, `ofType(type)`, `is(type)`, `as(type)`.
 
-L'argument de `ofType`, `is` et `as` est un identifiant de nom de type. La correspondance de type (partagée par `ofType`, les fonctions `is`/`as` et les opérateurs `is`/`as`) SHALL accepter les types primitifs FHIRPath ainsi qu'un objet ressource dont `resourceType` est exactement égal au nom de type. Elle ne SHALL pas gérer l'héritage (`Resource`, `DomainResource`), les noms de types complexes FHIR, ni les noms qualifiés (`FHIR.X`, `System.X`).
+L'argument de `ofType`, `is` et `as` est un identifiant de nom de type. La correspondance de type (partagée par `ofType`, les fonctions `is`/`as` et les opérateurs `is`/`as`) SHALL accepter les types primitifs FHIRPath ainsi qu'un objet ressource dont `resourceType` est exactement égal au nom de type. Elle ne SHALL pas gérer les noms qualifiés (`FHIR.X`, `System.X`). Lorsque `Environment::is_subtype` est fourni et que la valeur porte un type FHIR (`Value::Primitive` avec un code de type), `ofType`, `is` et `as` SHALL répondre par l'ancêtrie des types FHIR pour un nom de type FHIR (`code` est une `string`, `canonical` et `url` sont des `uri` ; `string` n'est pas un `code`, `uri` n'est pas un `url`). Les noms System (`String`, `Integer`, ...) et les valeurs sans type FHIR (littéraux) SHALL conserver les règles System. Sans ce crochet (défaut), tester une `String` contre un sous-type FHIR de `string` SHALL échouer avec `EvalError::Type`.
 
 L'opérateur `is` (`X is Type`) SHALL avoir exactement la même sémantique que la fonction `is(Type)` (N1 §6.3.1) : collection vide en entrée -> collection vide, un seul élément -> `[Bool(true)]` ou `[Bool(false)]`, plus d'un élément -> `Err(EvalError::Type(...))`.
 
@@ -234,6 +234,41 @@ Le critère de `where` SHALL produire pour chaque élément un booléen seul ou 
 
 - **WHEN** `is(Patient)` ou `as(Patient)` est évalué sur une collection d'un seul élément
 - **THEN** `is` SHALL retourner `[Bool(true)]` ou `[Bool(false)]`, et `as` SHALL retourner l'élément s'il correspond, sinon une collection vide
+
+#### Scenario: Héritage des types FHIR
+
+- **WHEN** `Questionnaire.status.is(string)`, `Questionnaire.status is code` ou `Questionnaire.status.as(code)` est évalué avec le crochet `is_subtype` du Registry
+- **THEN** le résultat SHALL être `[Bool(true)]`, `[Bool(true)]` puis la valeur `draft`
+
+#### Scenario: Un supertype n'est pas son sous-type
+
+- **WHEN** `Questionnaire.title.is(code)`, `Questionnaire.title as code` ou `Questionnaire.url.is(url)` est évalué avec le crochet
+- **THEN** le résultat SHALL être `[Bool(false)]`, une collection vide, puis `[Bool(false)]`
+
+#### Scenario: ofType par type FHIR
+
+- **WHEN** `Questionnaire.descendants().ofType(canonical)` puis `ofType(uri)` sont évalués avec le crochet
+- **THEN** le premier SHALL ne retourner que les canonical, le second les `uri` et leurs sous-types (`url`, `canonical`, l'`url` d'extension)
+
+#### Scenario: Type FHIR de l'id de ressource et des primitives sans valeur
+
+- **WHEN** `Questionnaire.id.is(id)` ou `Questionnaire.version.is(string)` (où `version` n'a que `_version`) est évalué avec le crochet
+- **THEN** le résultat SHALL être `[Bool(true)]` (l'`id` est typé par `child_element(resourceType, "id")`), et `version.is(code)` SHALL être `[Bool(false)]`
+
+#### Scenario: Primitive XML avec extensions
+
+- **WHEN** `Questionnaire.status.is(code)` est évalué avec le crochet sur un `status` XML portant une extension
+- **THEN** le résultat SHALL être `[Bool(true)]` (la `Primitive` porte son type FHIR)
+
+#### Scenario: Noms System et littéraux
+
+- **WHEN** `Questionnaire.status.is(String)`, `Questionnaire.status.ofType(integer)` ou `'draft'.is(code)` est évalué avec le crochet
+- **THEN** les deux premiers SHALL suivre les règles System (`[Bool(true)]`, collection vide) et `'draft'.is(code)`, littéral sans type FHIR, SHALL retourner `Err(EvalError::Type(...))` (`'draft'.is(String)` vaut `[Bool(true)]`)
+
+#### Scenario: Sans crochet is_subtype
+
+- **WHEN** `Questionnaire.status.is(code)` ou `ofType(canonical)` est évalué sans `is_subtype`
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))` (le validateur, qui ne fournit pas encore le crochet, émet `INVARIANT_SKIPPED`)
 
 #### Scenario: is et as sur une collection vide
 
@@ -821,7 +856,7 @@ Le système SHALL définir la constante `MAX_EVAL_STRING_CHARS` = 16 777 216 (`c
 
 ### Requirement: Variables d'environnement
 
-Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` suivi d'un identifiant délimité par accents graves, et `%'chaîne'` en un nœud `Expr::External` (nom sans le `%`), et les évaluer comme suit. Il SHALL exposer `pub struct Environment { resource: Option<&Value>, root_resource: Option<&Value> }` et `evaluate_parsed_with_environment(expr, context, is_choice_variant, &Environment)`. `evaluate`, `evaluate_parsed` et `evaluate_parsed_with_choices` SHALL conserver leur signature et utiliser les valeurs par défaut.
+Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` suivi d'un identifiant délimité par accents graves, et `%'chaîne'` en un nœud `Expr::External` (nom sans le `%`), et les évaluer comme suit. Il SHALL exposer `pub struct Environment { resource: Option<&Value>, root_resource: Option<&Value>, is_subtype: Option<&IsSubtype> }` où `pub type IsSubtype = dyn Fn(&str, &str) -> bool` est construit par l'appelant à partir de `Registry::type_ancestors` (`is_subtype(nom, nom)` signifie « nom est un type FHIR ») et `evaluate_parsed_with_environment(expr, context, is_choice_variant, &Environment)`. `evaluate`, `evaluate_parsed` et `evaluate_parsed_with_choices` SHALL conserver leur signature et utiliser les valeurs par défaut.
 
 - `%context` SHALL être la collection d'entrée d'origine, inchangée à l'intérieur de `where`, `select`, etc.
 - `%ucum` = `http://unitsofmeasure.org`, `%sct` = `http://snomed.info/sct`, `%loinc` = `http://loinc.org`, `%vs-[nom]` = `http://hl7.org/fhir/ValueSet/[nom]`, `%ext-[nom]` = `http://hl7.org/fhir/StructureDefinition/[nom]` (un nom vide est une erreur).
@@ -862,11 +897,6 @@ Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` 
 
 Le système SHALL documenter les limitations suivantes de l'implémentation actuelle.
 
-#### Scenario: Sous-types de chaînes FHIR non distingués
-
-- **WHEN** `is`, `as`, `ofType`, `is()` ou `as()` teste une String contre un type primitif R5 dont la valeur est `System.String` (dérivé de `profiles-types.json` : base64Binary, canonical, code, id, markdown, oid, positiveInt, unsignedInt, uri, url, uuid, xhtml)
-- **THEN** l'évaluation SHALL échouer avec `EvalError::Type` (le validateur émet `INVARIANT_SKIPPED`) : une String ne garde pas son type FHIR, et un `false` deviné produirait de fausses erreurs (dom-3) ; limitation levée quand `Value` portera le type FHIR
-
 #### Scenario: $index hors d'une itération
 
 - **WHEN** `$index` est évalué hors de `where`, `select`, `all`, `exists`, `repeat`, `aggregate` et de la clé de `sort` (ex. `$index`, `iif(true, $index, 0)`)
@@ -895,11 +925,11 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 
-Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5 (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 936 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
+Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5, et avec le crochet `is_subtype` issu du Registry (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 948 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
 
 #### Scenario: Réussites sous le plancher
 
-- **WHEN** moins de 936 cas de la suite réussissent
+- **WHEN** moins de 948 cas de la suite réussissent
 - **THEN** le test SHALL échouer
 
 #### Scenario: Dérive du nombre de cas
@@ -1096,7 +1126,7 @@ Le système SHALL exposer `resource_to_typed_value(resource, child_element: &Chi
 
 ### Requirement: Représentation des primitives FHIR
 
-`Value` SHALL avoir une variante `Primitive(Box<Value>, Arc<IndexMap<Arc<str>, Collection>>)` portant la valeur et les enfants `id`/`extension` d'une primitive FHIR. En JSON, `_x` SHALL être fusionné dans la primitive `x`, appariés par indice pour les tableaux ; `_x` seul SHALL donner une primitive sans valeur (`Value::Null`) ; un `_x` qui n'est pas un objet ne SHALL rien porter. En XML, un élément de type primitif portant des enfants SHALL devenir une `Primitive` (conversion typée). La représentation scindée ne SHALL jamais être visible : aucune clé `_x` n'est navigable.
+`Value` SHALL avoir une variante `Primitive(Box<Value>, Arc<IndexMap<Arc<str>, Collection>>, Option<Arc<str>>)` portant la valeur, les enfants `id`/`extension` et le code de type FHIR (minuscule) d'une primitive FHIR. Toute primitive de type chaîne dont l'élément a un type primitif FHIR connu, `id` de ressource compris, SHALL être construite en `Primitive(valeur, enfants vides, Some(type))` par la conversion typée ; les primitives avec `id`/`extension` portent aussi ce type. En JSON, `_x` SHALL être fusionné dans la primitive `x`, appariés par indice pour les tableaux ; `_x` seul SHALL donner une primitive sans valeur (`Value::Null`) ; un `_x` qui n'est pas un objet ne SHALL rien porter. En XML, un élément de type primitif portant des enfants SHALL devenir une `Primitive` (conversion typée). La représentation scindée ne SHALL jamais être visible : aucune clé `_x` n'est navigable.
 
 Les opérateurs et les fonctions de chaînes, mathématiques et de conversion SHALL voir la valeur ; une primitive sans valeur SHALL être traitée comme une entrée vide. La navigation, `extension()`, `children()` et `descendants()` SHALL voir `id` et `extension`.
 
