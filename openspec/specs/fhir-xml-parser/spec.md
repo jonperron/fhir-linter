@@ -14,6 +14,11 @@ Un caractère littéral inférieur à U+0020 autre que tabulation, LF et CR SHAL
 - **WHEN** `parse_xml` reçoit une ressource FHIR XML valide (ex. `<Patient><status value="active"/></Patient>`)
 - **THEN** elle SHALL retourner `Ok(Resource)` avec `resource_type == "Patient"` et le champ `status` dont la valeur est `Value::Str("active")`
 
+#### Scenario: BOM UTF-8 initial
+
+- **WHEN** `parse_xml` reçoit une source commençant par un BOM UTF-8
+- **THEN** le BOM SHALL être retiré avant l'analyse, de sorte que la tranche brute xhtml du `div` soit exacte
+
 #### Scenario: XML malformé (EOF inattendu)
 
 - **WHEN** `parse_xml` reçoit une chaîne XML où un élément n'est pas fermé

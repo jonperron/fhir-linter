@@ -524,9 +524,15 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 
 #### Scenario: Expression non analysable signalée INVARIANT_SKIPPED
 
-- **WHEN** l'expression FHIRPath d'une contrainte ne peut pas être analysée (par ex. une fonction non implémentée comme `htmlChecks`)
+- **WHEN** l'expression FHIRPath d'une contrainte ne peut pas être analysée (par ex. une fonction non implémentée comme `conformsTo`)
 - **THEN** la contrainte SHALL être ignorée tant que cette fonction n'est pas implémentée
 - **AND** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` nommant la `key` et la raison SHALL être émis, afin qu'un résultat sans erreur ne masque jamais une contrainte non vérifiée
+
+#### Scenario: Invariants txt-1 et txt-2 évalués
+
+- **WHEN** un `text.div` contient un balisage refusé par `htmlChecks()` (élément, attribut ou URL interdits, ou aucun contenu)
+- **THEN** `txt-1` et `txt-2` (qui partagent `htmlChecks()`) SHALL produire chacun une erreur à `<chemin>.text.div`, à toute profondeur (ressources `contained` comprises)
+- **AND** aucun `INVARIANT_SKIPPED` ne SHALL être émis pour ces deux contraintes
 
 #### Scenario: Invariant dom-6 évalué (identifiant entre backticks)
 
