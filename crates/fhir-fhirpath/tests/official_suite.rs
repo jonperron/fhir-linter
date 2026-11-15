@@ -59,8 +59,80 @@ use quick_xml::events::{BytesStart, Event};
 /// element (defineVariable7 and 5 testLiteralDecimal cases; testType12 lost a
 /// wrong-reason pass: `active.is(Boolean)` was false only because the XML
 /// `active` was a String, and System names keep the System rules on typed
-/// values, see `fhir_type_tests.rs`).
-const MIN_PASSED: u32 = 992;
+/// values, see `fhir_type_tests.rs`), then to 1055 by lowBoundary(),
+/// highBoundary() and comparable() (60 cases and testPeriodInvariantNew) and
+/// hour-only date-time and time literals (2 testLiteral cases).
+const MIN_PASSED: u32 = 1055;
+
+/// Cases that must pass whatever the total: the boundary functions behind
+/// the FHIR per-1, rng-2 and ratrng-2 invariants. Not listed: 12.500 and
+/// exponent decimals (`Value::Decimal` keeps no source text), `@2014` as a
+/// dateTime (N2 returns a Date for a Date), HighBoundaryDecimal16 (unary
+/// minus keeps the sign of zero) and Comparable1 (no UCUM conversion).
+const REQUIRED_PASSING: [&str; 62] = [
+    "Comparable2",
+    "Comparable3",
+    "HighBoundaryDateTimeMillisecond1",
+    "HighBoundaryDateTimeMillisecond2",
+    "HighBoundaryDateTimeMillisecond3",
+    "HighBoundaryDecimal",
+    "HighBoundaryDecimal1",
+    "HighBoundaryDecimal10",
+    "HighBoundaryDecimal11",
+    "HighBoundaryDecimal13",
+    "HighBoundaryDecimal14",
+    "HighBoundaryDecimal15",
+    "HighBoundaryDecimal2",
+    "HighBoundaryDecimal3",
+    "HighBoundaryDecimal4",
+    "HighBoundaryDecimal5",
+    "HighBoundaryDecimal6",
+    "HighBoundaryDecimal7",
+    "HighBoundaryDecimal8",
+    "HighBoundaryDecimal9",
+    "HighBoundaryDecimalCarry1",
+    "HighBoundaryDecimalCarry2",
+    "HighBoundaryDecimalCarry3",
+    "HighBoundaryDecimalCarry4",
+    "HighBoundaryDecimalDefault",
+    "HighBoundaryDecimalExponent3",
+    "HighBoundaryQuantity",
+    "HighBoundaryTimeMillisecond",
+    "LowBoundaryDateTimeMillisecond1",
+    "LowBoundaryDateTimeMillisecond2",
+    "LowBoundaryDateTimeMillisecond3",
+    "LowBoundaryDecimal1",
+    "LowBoundaryDecimal10",
+    "LowBoundaryDecimal12",
+    "LowBoundaryDecimal13",
+    "LowBoundaryDecimal14",
+    "LowBoundaryDecimal15",
+    "LowBoundaryDecimal2",
+    "LowBoundaryDecimal3",
+    "LowBoundaryDecimal4",
+    "LowBoundaryDecimal5",
+    "LowBoundaryDecimal6",
+    "LowBoundaryDecimal7",
+    "LowBoundaryDecimal8",
+    "LowBoundaryDecimal9",
+    "LowBoundaryDecimalBorrow1",
+    "LowBoundaryDecimalBorrow2",
+    "LowBoundaryDecimalCarry1",
+    "LowBoundaryDecimalCarry2",
+    "LowBoundaryDecimalCarry3",
+    "LowBoundaryDecimalDefault",
+    "LowBoundaryDecimalExponent2",
+    "LowBoundaryNegDecimal1",
+    "LowBoundaryNegDecimal2",
+    "LowBoundaryNegDecimal3",
+    "LowBoundaryNegDecimal4",
+    "LowBoundaryNegDecimal5",
+    "LowBoundaryNegDecimalDefault",
+    "LowBoundaryQuantity",
+    "LowBoundaryTimeMillisecond",
+    "testPeriodInvariantNew",
+    "testPeriodInvariantOld",
+];
 
 /// (run, skipped) case counts on the pinned fixtures, so loader drift or a
 /// broken skip filter cannot hide behind the floor.
@@ -484,4 +556,9 @@ fn official_fhirpath_suite_pass_rate() {
         passed >= MIN_PASSED,
         "FHIRPath suite passed {passed}, below floor {MIN_PASSED}"
     );
+    let regressed: Vec<&str> = REQUIRED_PASSING
+        .into_iter()
+        .filter(|name| failing.iter().any(|f| f.contains(&format!("/{name} "))))
+        .collect();
+    assert!(regressed.is_empty(), "required cases failed: {regressed:?}");
 }
