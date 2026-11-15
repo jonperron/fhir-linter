@@ -1,5 +1,5 @@
-//! FHIR additions to FHIRPath (R5 fhirpath.html §2.1.9.1): `resolve()` and
-//! `memberOf()`. Neither guesses: a reference `resolve()` cannot find is an
+//! FHIR additions to FHIRPath (R5 fhirpath.html §2.1.9.1): `resolve()`,
+//! `memberOf()` and `htmlChecks()`. None guesses: a reference `resolve()` cannot find is an
 //! error, and `memberOf()` is empty when membership cannot be decided.
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use super::Evaluator;
 use super::helpers::{check_arity, singleton};
 
 impl Evaluator<'_> {
-    /// Handle `resolve()` and `memberOf()`.
+    /// Handle `resolve()`, `memberOf()` and `htmlChecks()`.
     /// Returns `None` if the function name is not in this category.
     pub(super) fn call_fhir_function(
         &self,
@@ -23,6 +23,7 @@ impl Evaluator<'_> {
         match name {
             "resolve" => Some(check_arity(name, args, 0).and_then(|()| self.resolve(focus))),
             "memberOf" => Some(self.member_of(args, focus, ctx)),
+            "htmlChecks" => Some(check_arity(name, args, 0).and_then(|()| html_checks(focus))),
             _ => None,
         }
     }
@@ -122,6 +123,15 @@ impl Evaluator<'_> {
         };
         Ok(member.map(Value::Bool).into_iter().collect())
     }
+}
+
+/// `htmlChecks()`: whether the single xhtml (string) input meets the narrative rules;
+/// empty for an empty or non-string input (official HTMLChecks test htmlTest04).
+fn html_checks(focus: &[Value]) -> Result<Collection, EvalError> {
+    Ok(match singleton(focus, "htmlChecks")? {
+        Some(Value::String(markup)) => vec![Value::Bool(super::html_checks::html_checks(markup))],
+        _ => vec![],
+    })
 }
 
 /// The reference a `resolve()` input item carries: a string (uri, url or

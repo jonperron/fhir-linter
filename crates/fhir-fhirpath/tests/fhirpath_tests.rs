@@ -1441,6 +1441,20 @@ fn get_value_returns_non_null_items() {
     assert_eq!(result, vec![Value::Integer(42)]);
 }
 
+#[test]
+fn html_checks_on_strings_empty_and_other_types() {
+    let ok = "'<div xmlns=\"http://www.w3.org/1999/xhtml\">x</div>'.htmlChecks()";
+    assert_eq!(evaluate(ok, &[]).unwrap(), vec![Value::Bool(true)]);
+    let bad = "'<div xmlns=\"http://www.w3.org/1999/xhtml\"><script/></div>'.htmlChecks()";
+    assert_eq!(evaluate(bad, &[]).unwrap(), vec![Value::Bool(false)]);
+    assert_eq!(evaluate("{}.htmlChecks()", &[]).unwrap(), vec![]);
+    assert_eq!(evaluate("1.htmlChecks()", &[]).unwrap(), vec![]);
+    assert!(matches!(
+        evaluate("'x'.htmlChecks(1)", &[]),
+        Err(fhir_fhirpath::EvalError::Arity { .. })
+    ));
+}
+
 // Unimplemented functions must error, never return a plausible-looking answer.
 #[test]
 fn unimplemented_functions_are_undefined() {
@@ -1450,7 +1464,6 @@ fn unimplemented_functions_are_undefined() {
         "now()",
         "timeOfDay()",
         "1.5.precision()",
-        "htmlChecks()",
     ] {
         assert!(
             matches!(
