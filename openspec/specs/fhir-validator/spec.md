@@ -1126,7 +1126,7 @@ Le système SHALL émettre un Diagnostic de sévérité warning `TERMINOLOGY_002
 
 ### Requirement: Validation des références — type déclaré incohérent (REFERENCE_003)
 
-Le système SHALL émettre `REFERENCE_003` (erreur), au `path` `<élément>.reference`, lorsque, à toute profondeur, `Reference.type` (nom de type nu ou `http://hl7.org/fhir/StructureDefinition/<Type>`) diffère du type d'une référence URL FHIR (references.html 2.1.3.0.1). Une URL FHIR est une référence qui correspond entièrement à l'expression régulière de référence littérale R5 `((http|https)://([A-Za-z0-9\-\\\.\:\%\$]*\/)+)?(Type)\/[A-Za-z0-9\-\.]{1,64}(\/_history\/[A-Za-z0-9\-\.]{1,64})?`, où `Type` est un type de ressource concret connu du Registry. Les références conditionnelles, `urn:`, `#id` et les URL absolues non conformes ne sont pas des URL FHIR et SHALL être ignorées par cette règle.
+Le système SHALL émettre `REFERENCE_003` (erreur), au `path` `<élément>.reference`, lorsque, à toute profondeur, `Reference.type` (nom de type nu ou `http://hl7.org/fhir/StructureDefinition/<Type>`) diffère du type d'une référence URL FHIR (references.html 2.1.3.0.1). Une URL FHIR est une référence qui correspond entièrement à l'expression régulière de référence littérale R5 `((http|https)://([A-Za-z0-9\-\\\.\:\%\$]*\/)+)?(Type)\/[A-Za-z0-9\-\.]{1,64}(\/_history\/[A-Za-z0-9\-\.]{1,64})?`, où `Type` est un type de ressource concret connu du Registry. Une référence `#id` vers une ressource contenue (racine, ressource contenue au sein de la liste d'ids de son conteneur, entrée de Bundle ; JSON et XML) prend le `resourceType` de cette ressource contenue comme type cible, lorsque c'est un type de ressource concret connu du Registry ; sans `resourceType` ou avec un `resourceType` inconnu, aucun contrôle de type n'est fait. Les références conditionnelles, `#` seul, `urn:` et les URL absolues non conformes ne sont pas des URL FHIR et SHALL être ignorées par cette règle.
 
 #### Scenario: Type déclaré différent
 
@@ -1140,8 +1140,13 @@ Le système SHALL émettre `REFERENCE_003` (erreur), au `path` `<élément>.refe
 
 #### Scenario: Référence qui n'est pas une URL FHIR
 
-- **WHEN** `reference` vaut `urn:uuid:...`, `#p1` ou `Patient?identifier=x` et `type` vaut `Practitioner`
+- **WHEN** `reference` vaut `urn:uuid:...`, `#` ou `Patient?identifier=x` et `type` vaut `Practitioner`
 - **THEN** aucun Diagnostic `REFERENCE_003` SHALL être émis
+
+#### Scenario: Référence contenue de type différent
+
+- **WHEN** `reference` vaut `#p1`, `contained` contient une `Patient` d'`id` `p1` et `type` vaut `Practitioner`
+- **THEN** un Diagnostic `REFERENCE_003` SHALL être émis avec `path` se terminant par `.reference`
 
 ### Requirement: Validation des références — référence relative mal formée (REFERENCE_004)
 
@@ -1164,7 +1169,7 @@ Le système SHALL émettre un Diagnostic de sévérité warning `REFERENCE_004` 
 
 ### Requirement: Validation des références — type cible non autorisé (REFERENCE_005)
 
-Le système SHALL émettre `REFERENCE_005` (erreur), au `path` `<élément>.reference`, lorsque, à toute profondeur, une référence URL FHIR (même définition par expression régulière de référence littérale R5 que `REFERENCE_003` : `Type/id` relatif ou absolu http(s), `_history` optionnel) désigne un type de ressource non autorisé par la liste `targetProfile` du `Reference` de l'élément. Chaque `targetProfile` compte pour le type nommé par le chemin racine de son snapshot (un profil comme `vitalsigns` compte pour `Observation`). Un `targetProfile` autorise son type racine ET tout type qui en dérive (chaîne `baseDefinition`, via `Registry::type_ancestors`) : `Resource` autorise toute ressource, `DomainResource` toute ressource de domaine. Aucun `targetProfile`, ou un `targetProfile` que le Registry ne résout pas (cible inconnue ; tout `targetProfile` du noyau R5 se résout), SHALL autoriser tout type. Les références `#id` contenues, `urn:`, conditionnelles et logiques (`identifier` seul) NE SONT PAS contrôlées en type.
+Le système SHALL émettre `REFERENCE_005` (erreur), au `path` `<élément>.reference`, lorsque, à toute profondeur, une référence URL FHIR (même définition par expression régulière de référence littérale R5 que `REFERENCE_003` : `Type/id` relatif ou absolu http(s), `_history` optionnel) désigne un type de ressource non autorisé par la liste `targetProfile` du `Reference` de l'élément. Chaque `targetProfile` compte pour le type nommé par le chemin racine de son snapshot (un profil comme `vitalsigns` compte pour `Observation`). Un `targetProfile` autorise son type racine ET tout type qui en dérive (chaîne `baseDefinition`, via `Registry::type_ancestors`) : `Resource` autorise toute ressource, `DomainResource` toute ressource de domaine. Aucun `targetProfile`, ou un `targetProfile` que le Registry ne résout pas (cible inconnue ; tout `targetProfile` du noyau R5 se résout), SHALL autoriser tout type. Une référence `#id` désignant une ressource contenue est contrôlée avec le `resourceType` de celle-ci comme type cible (même portée que `REFERENCE_003`) ; sans `resourceType` ou avec un `resourceType` inconnu, aucun contrôle. `#` seul, `urn:`, les URL absolues non FHIR, conditionnelles et logiques (`identifier` seul) NE SONT PAS contrôlées en type.
 
 #### Scenario: Type cible interdit
 
@@ -1190,6 +1195,11 @@ Le système SHALL émettre `REFERENCE_005` (erreur), au `path` `<élément>.refe
 
 - **WHEN** un `Reference(DomainResource)` référence `Patient/1`
 - **THEN** aucun Diagnostic `REFERENCE_005` SHALL être émis
+
+#### Scenario: Référence contenue de type interdit
+
+- **WHEN** `Patient.managingOrganization.reference` vaut `#p1` et `contained` contient une `Practitioner` d'`id` `p1`
+- **THEN** un Diagnostic d'erreur `REFERENCE_005` SHALL être émis
 
 #### Scenario: Cible Resource
 
