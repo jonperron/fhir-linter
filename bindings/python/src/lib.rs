@@ -1,15 +1,12 @@
 //! Python bindings for the FHIR linter and validator.
 //!
 //! Exposes `validate()` and `lint()`, both returning a list of `Diagnostic`.
-use std::env;
 use std::sync::Arc;
 
-use fhir_definitions::Registry;
+use fhir_definitions::{DEFINITIONS_DIR_ENV, Registry};
 use fhir_linter::{Config, RuleRegistry};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-
-const DEFINITIONS_DIR_ENV: &str = "FHIR_DEFINITIONS_DIR";
 
 /// A validation or lint finding.
 #[pyclass(frozen, get_all, module = "fhir_linter")]
@@ -56,14 +53,12 @@ impl From<fhir_validator::Diagnostic> for Diagnostic {
 
 /// Resolve the definitions directory and return its shared registry.
 fn registry_for(definitions_dir: Option<String>) -> PyResult<Arc<Registry>> {
-    let dir = definitions_dir
-        .or_else(|| env::var(DEFINITIONS_DIR_ENV).ok())
+    Registry::shared_or_env(definitions_dir)
         .ok_or_else(|| {
             PyValueError::new_err(format!(
                 "no FHIR definitions: pass definitions_dir or set {DEFINITIONS_DIR_ENV}"
             ))
-        })?;
-    Registry::shared(dir)
+        })?
         .map_err(|e| PyRuntimeError::new_err(format!("cannot load definitions: {e}")))
 }
 

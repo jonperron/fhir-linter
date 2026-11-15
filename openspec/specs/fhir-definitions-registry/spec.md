@@ -250,6 +250,8 @@ Le système SHALL fournir `Registry::value_set_contains(url, system: Option<&str
 
 Le système SHALL fournir `Registry::shared(dir) -> Result<Arc<Registry>>` qui charge le registry d'un répertoire une seule fois et le partage. Le cache est propre à chaque copie liée de la crate (deux modules natifs compilés séparément dans un même processus ont chacun le leur). Le cache SHALL être indexé par le chemin canonicalisé (`defs`, `./defs` ou un lien symbolique désignent le même répertoire), SHALL être thread-safe, SHALL ne pas conserver les chargements en échec et SHALL ne jamais évincer d'entrée.
 
+Le système SHALL aussi fournir `Registry::shared_or_env(dir: Option<String>) -> Option<Result<Arc<Registry>>>` et la constante publique `DEFINITIONS_DIR_ENV = "FHIR_DEFINITIONS_DIR"`. Cette fonction SHALL utiliser `dir` s'il est fourni, sinon la variable d'environnement (absente ou non UTF-8 comptant comme non définie), charger via `Registry::shared`, et retourner `None` lorsqu'aucun répertoire n'est désigné, afin que chaque appelant formule sa propre erreur.
+
 #### Scenario: Chemins équivalents partagent le même registry
 
 - **WHEN** `Registry::shared` est appelé plusieurs fois avec des chemins désignant le même répertoire de définitions
@@ -259,6 +261,21 @@ Le système SHALL fournir `Registry::shared(dir) -> Result<Arc<Registry>>` qui c
 
 - **WHEN** `Registry::shared` est appelé avec un chemin inexistant
 - **THEN** il SHALL retourner une erreur `Error::Io` et rien ne SHALL être mis en cache
+
+#### Scenario: Répertoire explicite prioritaire sur l'environnement
+
+- **WHEN** `Registry::shared_or_env(Some(dir))` est appelé alors que `FHIR_DEFINITIONS_DIR` est définie
+- **THEN** le registry SHALL être chargé depuis `dir`
+
+#### Scenario: Repli sur la variable d'environnement
+
+- **WHEN** `Registry::shared_or_env(None)` est appelé et `FHIR_DEFINITIONS_DIR` désigne un répertoire
+- **THEN** le registry SHALL être chargé depuis ce répertoire
+
+#### Scenario: Aucun répertoire désigné
+
+- **WHEN** `Registry::shared_or_env(None)` est appelé et `FHIR_DEFINITIONS_DIR` est absente ou non UTF-8
+- **THEN** le résultat SHALL être `None`
 
 ### Requirement: Index des variantes d'éléments choix
 
