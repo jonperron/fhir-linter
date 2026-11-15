@@ -79,12 +79,17 @@ pub(crate) fn validate<'a>(
     }
 
     let in_contained = container_ids.is_some();
+    // A contained resource shares its container's ids, checked once at the container.
+    let contained_ids = container_ids.unwrap_or_else(|| {
+        references::check_duplicate_contained_ids(resource, path, diagnostics);
+        references::contained_ids(resource).into()
+    });
     let context = Walk {
         registry,
         environment,
         root_resource: environment.root_resource.unwrap_or(root),
         json,
-        contained_ids: container_ids.unwrap_or_else(|| references::contained_ids(resource).into()),
+        contained_ids,
         in_contained,
         root_id: resource
             .id

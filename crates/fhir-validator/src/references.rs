@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use fhir_definitions::{ElementDefinition, Registry};
@@ -9,29 +10,66 @@ use crate::diagnostic::Diagnostic;
 pub(crate) type ContainedId = (Arc<str>, Option<Arc<str>>);
 
 /// The ids of the resource's `contained` resources, which `#id` references resolve to.
-/// A single XML `<contained>` stays an object (the reshape keeps XML grouping).
 pub(crate) fn contained_ids(resource: &Resource) -> Vec<ContainedId> {
-    let id = |node: &Node| match &node.value {
-        Value::Object(fields) => match fields.get("id").map(|n| &n.value) {
-            Some(Value::Str(id)) => {
-                let resource_type = match fields.get("resourceType").map(|n| &n.value) {
-                    Some(Value::Str(resource_type)) => Some(Arc::clone(resource_type)),
-                    _ => None,
-                };
-                Some((Arc::clone(id), resource_type))
-            }
-            _ => None,
-        },
-        _ => None,
-    };
+    contained(resource)
+        .iter()
+        .filter_map(contained_id)
+        .collect()
+}
+
+/// Emits `REFERENCE_006` (error) at each contained resource whose id an earlier
+/// contained resource of `resource` (instance `path`) already uses: narrative.html
+/// 2.1.4.0.4 says ids SHALL be unique within the resource, contained resources included.
+pub(crate) fn check_duplicate_contained_ids(
+    resource: &Resource,
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut seen = HashSet::new();
+    for (index, item) in contained(resource).iter().enumerate() {
+        let Some((id, _)) = contained_id(item) else {
+            continue;
+        };
+        if !seen.insert(Arc::clone(&id)) {
+            let message = format!("Duplicate id for contained resource: '{id}'");
+            diagnostics.push(
+                Diagnostic::error(
+                    "REFERENCE_006",
+                    message,
+                    format!("{path}.contained[{index}]"),
+                )
+                .with_location(item.span),
+            );
+        }
+    }
+}
+
+/// The resource's `contained` resources, in order. A single XML `<contained>`
+/// stays an object (the reshape keeps XML grouping).
+fn contained(resource: &Resource) -> &[Node] {
     match resource.fields.get("contained") {
         Some(Node {
             value: Value::Array(items),
             ..
-        }) => items.iter().filter_map(id).collect(),
-        Some(single) => id(single).into_iter().collect(),
-        None => Vec::new(),
+        }) => items,
+        Some(single) => std::slice::from_ref(single),
+        None => &[],
     }
+}
+
+/// The id of one contained resource, with its `resourceType` when that is a string.
+fn contained_id(node: &Node) -> Option<ContainedId> {
+    let Value::Object(fields) = &node.value else {
+        return None;
+    };
+    let Some(Value::Str(id)) = fields.get("id").map(|n| &n.value) else {
+        return None;
+    };
+    let resource_type = match fields.get("resourceType").map(|n| &n.value) {
+        Some(Value::Str(resource_type)) => Some(Arc::clone(resource_type)),
+        _ => None,
+    };
+    Some((Arc::clone(id), resource_type))
 }
 
 /// Validate the `reference` string of one `Reference` value `item` (instance

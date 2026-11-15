@@ -274,3 +274,88 @@ fn coding_without_code_under_required_binding_is_reported() {
     let coded = json.replace(r#"days-of-week""#, r#"days-of-week","code":"mon""#);
     assert!(found(&coded, "TERMINOLOGY_001").is_empty());
 }
+
+/// A Patient with one contained Basic per id, all referenced from `Patient.link`.
+fn patient_with_contained_ids(ids: &[&str]) -> String {
+    let contained: Vec<String> = ids
+        .iter()
+        .map(|id| format!(r#"{{"resourceType":"Basic","id":"{id}","code":{{"text":"x"}}}}"#))
+        .collect();
+    let links: Vec<String> = ids
+        .iter()
+        .map(|id| format!(r##"{{"other":{{"reference":"#{id}"}},"type":"seealso"}}"##))
+        .collect();
+    patient(&format!(
+        r#""contained":[{}],"link":[{}]"#,
+        contained.join(","),
+        links.join(","),
+    ))
+}
+
+#[test]
+fn duplicate_contained_id_is_an_error() {
+    // narrative.html 2.1.4.0.4: ids SHALL be unique within the resource, contained included.
+    assert_eq!(
+        found(&patient_with_contained_ids(&["a", "a"]), "REFERENCE_006"),
+        [(Severity::Error, "Patient.contained[1]".to_owned())],
+    );
+    assert_eq!(
+        found(
+            &patient_with_contained_ids(&["a", "b", "a", "a"]),
+            "REFERENCE_006"
+        ),
+        [
+            (Severity::Error, "Patient.contained[2]".to_owned()),
+            (Severity::Error, "Patient.contained[3]".to_owned()),
+        ],
+    );
+}
+
+#[test]
+fn unique_contained_ids_are_clean() {
+    assert!(found(&patient_with_contained_ids(&["a", "b"]), "REFERENCE_006").is_empty());
+    assert!(found(&patient_with_contained_ids(&["a"]), "REFERENCE_006").is_empty());
+}
+
+#[test]
+fn duplicate_contained_id_in_xml_is_an_error() {
+    let xml = r##"<Patient xmlns="http://hl7.org/fhir"><id value="p"/>
+        <contained><Basic><id value="a"/><code><text value="x"/></code></Basic></contained>
+        <contained><Basic><id value="a"/><code><text value="y"/></code></Basic></contained>
+        <link><other><reference value="#a"/></other><type value="seealso"/></link></Patient>"##;
+    let resource = parse_xml(xml).expect("test XML parses");
+    let paths: Vec<String> = validate(&resource, registry())
+        .into_iter()
+        .filter(|d| d.code.as_ref() == "REFERENCE_006")
+        .map(|d| d.path.to_string())
+        .collect();
+    assert_eq!(paths, ["Patient.contained[1]"]);
+}
+
+#[test]
+fn duplicate_contained_id_inside_a_bundle_entry_is_an_error() {
+    let json = format!(
+        r#"{{"resourceType":"Bundle","type":"collection","entry":[{{
+        "fullUrl":"http://example.org/fhir/Patient/p","resource":{}}}]}}"#,
+        patient_with_contained_ids(&["a", "a"]),
+    );
+    let hits = found(&json, "REFERENCE_006");
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert!(hits[0].1.ends_with("resource.contained[1]"), "{hits:?}");
+}
+
+#[test]
+fn official_duplicate_contained_case_reports_the_second_occurrence() {
+    // fhir-test-cases validator/patient-duplicate-contained.json: the Java validator
+    // reports "Duplicate ID for contained resource: pat1" at Patient.contained[1].
+    let file = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/validator/patient-duplicate-contained.json");
+    let Ok(json) = std::fs::read_to_string(&file) else {
+        eprintln!("fixtures submodule not checked out; skipping");
+        return;
+    };
+    assert_eq!(
+        found(&json, "REFERENCE_006"),
+        [(Severity::Error, "Patient.contained[1]".to_owned())],
+    );
+}
