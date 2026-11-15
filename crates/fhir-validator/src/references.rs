@@ -5,12 +5,21 @@ use fhir_parser::{Node, Resource, Value};
 
 use crate::diagnostic::Diagnostic;
 
+/// The id of a contained resource, with its `resourceType` when that is a string.
+pub(crate) type ContainedId = (Arc<str>, Option<Arc<str>>);
+
 /// The ids of the resource's `contained` resources, which `#id` references resolve to.
 /// A single XML `<contained>` stays an object (the reshape keeps XML grouping).
-pub(crate) fn contained_ids(resource: &Resource) -> Vec<Arc<str>> {
+pub(crate) fn contained_ids(resource: &Resource) -> Vec<ContainedId> {
     let id = |node: &Node| match &node.value {
         Value::Object(fields) => match fields.get("id").map(|n| &n.value) {
-            Some(Value::Str(id)) => Some(Arc::clone(id)),
+            Some(Value::Str(id)) => {
+                let resource_type = match fields.get("resourceType").map(|n| &n.value) {
+                    Some(Value::Str(resource_type)) => Some(Arc::clone(resource_type)),
+                    _ => None,
+                };
+                Some((Arc::clone(id), resource_type))
+            }
             _ => None,
         },
         _ => None,
@@ -33,14 +42,15 @@ pub(crate) fn contained_ids(resource: &Resource) -> Vec<Arc<str>> {
 /// entry in `contained_ids`, or a bare `#` outside a contained resource
 /// (`in_contained`), where it would name a container. Absolute URLs and `urn:`
 /// references are not resolved. `REFERENCE_003` reports a `Reference.type` that
-/// disagrees with the type of a FHIR URL reference, and `REFERENCE_004`
+/// disagrees with the type of a FHIR URL or `#id` reference, and `REFERENCE_004`
 /// (warning) a malformed relative reference. `REFERENCE_005` reports a FHIR URL
-/// reference whose type is not allowed by the `targetProfile` list of `elem`.
+/// or `#id` reference whose type is not allowed by the `targetProfile` list of
+/// `elem`. A `#id` takes the type of the contained resource it resolves to.
 pub(crate) fn check(
     item: &Node,
     elem: &ElementDefinition,
     path: &str,
-    contained_ids: &[Arc<str>],
+    contained_ids: &[ContainedId],
     in_contained: bool,
     registry: &Registry,
     diagnostics: &mut Vec<Diagnostic>,
@@ -54,9 +64,18 @@ pub(crate) fn check(
             Diagnostic::error(problem.0, problem.1, ref_path.clone()).with_location(item.span),
         );
     }
-    // references.html 2.1.3.0.1: type and a FHIR URL reference SHALL be consistent.
+    // The type a FHIR URL names, or the type of the contained resource a `#id` resolves to.
+    let target_type = fhir_url_type(reference, registry).or_else(|| {
+        // A bare `#` names the container, not a contained resource.
+        let id = reference.strip_prefix('#').filter(|id| !id.is_empty())?;
+        let (_, resource_type) = contained_ids.iter().find(|(c, _)| c.as_ref() == id)?;
+        resource_type
+            .as_deref()
+            .filter(|t| is_resource_type(registry, t))
+    });
+    // references.html 2.1.3.0.1: type and the reference SHALL be consistent.
     let declared = string_field(item, "type");
-    if let (Some(declared), Some(url_type)) = (declared, fhir_url_type(reference, registry))
+    if let (Some(declared), Some(url_type)) = (declared, target_type)
         && declared.strip_prefix(CORE_SD).unwrap_or(declared) != url_type
     {
         let message = format!(
@@ -67,7 +86,7 @@ pub(crate) fn check(
             Diagnostic::error("REFERENCE_003", message, ref_path.clone()).with_location(item.span),
         );
     }
-    if let Some(url_type) = fhir_url_type(reference, registry)
+    if let Some(url_type) = target_type
         && !target_allowed(elem, url_type, registry)
     {
         let message = format!(
@@ -191,7 +210,7 @@ fn string_field<'a>(node: &'a Node, key: &str) -> Option<&'a str> {
 
 fn check_target(
     reference: &str,
-    contained: &[Arc<str>],
+    contained: &[ContainedId],
     in_contained: bool,
     registry: &Registry,
 ) -> Option<(&'static str, String)> {
@@ -201,7 +220,7 @@ fn check_target(
             let message = "Reference '#' points at a containing resource, but this is the root";
             return (!in_contained).then(|| ("REFERENCE_002", message.to_owned()));
         }
-        return (!contained.iter().any(|c| c.as_ref() == id)).then(|| {
+        return (!contained.iter().any(|(c, _)| c.as_ref() == id)).then(|| {
             (
                 "REFERENCE_002",
                 format!("Contained resource '{id}' not found"),
