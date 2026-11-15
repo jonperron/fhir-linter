@@ -75,8 +75,8 @@ pub struct Environment<'a> {
     pub is_subtype: Option<&'a IsSubtype<'a>>,
     /// Terminology for `memberOf()`: `member_of(value_set, system, code)`
     /// tells whether the code is in the ValueSet, `None` when that cannot be
-    /// decided (build it from `Registry::value_set_contains`). Unset,
-    /// `memberOf()` is empty.
+    /// decided (build it from `Registry::value_set_contains`). Unset, or
+    /// undecided, `memberOf()` is an error.
     pub member_of: Option<&'a MemberOf<'a>>,
 }
 

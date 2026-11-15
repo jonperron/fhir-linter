@@ -72,7 +72,7 @@ impl Evaluator<'_> {
 
     /// `memberOf(valueset)`: whether the single code, Coding or
     /// CodeableConcept input is in the ValueSet, through
-    /// [`super::Environment::member_of`]. Empty when that cannot be decided.
+    /// [`super::Environment::member_of`]. An error when that cannot be decided.
     fn member_of(
         &self,
         args: &[Expr],
@@ -81,14 +81,18 @@ impl Evaluator<'_> {
     ) -> Result<Collection, EvalError> {
         check_arity("memberOf", args, 1)?;
         let url = self.eval(&args[0], ctx)?;
-        let Some(url) = singleton(&url, "memberOf")?.and_then(Value::as_string) else {
+        // Both cardinalities are checked before either empty result.
+        let url = singleton(&url, "memberOf")?.and_then(Value::as_string);
+        let (Some(url), Some(_)) = (url, singleton(focus, "memberOf")?) else {
             return Ok(vec![]);
         };
-        let (Some(_), Some(member_of)) =
-            (singleton(focus, "memberOf")?, self.environment.member_of)
-        else {
-            return Ok(vec![]);
+        let undecided = || {
+            EvalError::Type(format!(
+                "memberOf() cannot decide membership in '{url}': the terminology is not loaded \
+                 or does not cover it",
+            ))
         };
+        let member_of = self.environment.member_of.ok_or_else(undecided)?;
         // The item itself: `singleton` gives a primitive's value, without its FHIR type.
         let item = &focus[0];
         let coding_member = |coding: &Value| {
@@ -118,9 +122,11 @@ impl Evaluator<'_> {
                 }
             }
             Value::Object(fields) if fields.contains_key("code") => coding_member(item),
-            _ => None,
+            // A plain String is empty (see the shortcut above): not a lookup that failed.
+            _ => return Ok(vec![]),
         };
-        Ok(member.map(Value::Bool).into_iter().collect())
+        // Empty would fail an invariant on membership this evaluator merely cannot decide.
+        Ok(vec![Value::Bool(member.ok_or_else(undecided)?)])
     }
 }
 

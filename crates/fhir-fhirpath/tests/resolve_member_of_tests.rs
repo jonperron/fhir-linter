@@ -140,8 +140,8 @@ fn member_of_asks_the_environment_for_a_code() -> TestResult {
         {"type":"string"}]}"#;
     let yes = format!("parameter[0].type.memberOf('{RESOURCE_TYPES}')");
     let no = format!("parameter[1].type.memberOf('{RESOURCE_TYPES}')");
-    assert_eq!(bools(&eval_member_of(&yes, json)?), [true]);
-    assert_eq!(bools(&eval_member_of(&no, json)?), [false]);
+    assert_eq!(eval_member_of(&yes, json)?, vec![Value::Bool(true)]);
+    assert_eq!(eval_member_of(&no, json)?, vec![Value::Bool(false)]);
     Ok(())
 }
 
@@ -157,7 +157,7 @@ fn member_of_checks_codings_and_concepts() -> TestResult {
     let coding = format!("extension.valueCoding.memberOf('{RESOURCE_TYPES}')");
     assert_eq!(bools(&eval_member_of(&concept, json)?), [true]);
     // The ValueSet's membership is undecided for a coding of another system.
-    assert_eq!(eval_member_of(&first, json)?, vec![]);
+    assert!(eval_member_of(&first, json).is_err());
     assert_eq!(bools(&eval_member_of(&coding, json)?), [false]);
     Ok(())
 }
@@ -172,7 +172,7 @@ fn member_of_a_concept_is_false_only_when_every_coding_is_out() -> TestResult {
     let all_out = concept(&format!("{out},{out}"));
     assert_eq!(bools(&eval_member_of(&expression, &all_out)?), [false]);
     let mixed = concept(&format!("{out},{undecided}"));
-    assert_eq!(eval_member_of(&expression, &mixed)?, vec![]);
+    assert!(eval_member_of(&expression, &mixed).is_err());
     Ok(())
 }
 
@@ -187,13 +187,22 @@ fn member_of_several_items_is_an_error() -> TestResult {
 }
 
 #[test]
-fn member_of_is_empty_when_membership_cannot_be_decided() -> TestResult {
+fn member_of_checks_the_cardinality_before_an_empty_argument() -> TestResult {
+    let json = r#"{"resourceType":"OperationDefinition","parameter":[{"type":"Patient"},
+        {"type":"Group"}]}"#;
+    let result = eval_member_of("parameter.type.memberOf({})", json);
+    assert!(result.is_err(), "{result:?}");
+    Ok(())
+}
+
+#[test]
+fn member_of_is_an_error_when_membership_cannot_be_decided() -> TestResult {
     let json = r#"{"resourceType":"OperationDefinition","parameter":[{"type":"Patient"}]}"#;
     let unknown = "parameter.type.memberOf('http://example.org/ValueSet/unknown')";
-    assert_eq!(eval_member_of(unknown, json)?, vec![]);
+    assert!(eval_member_of(unknown, json).is_err());
     // No terminology in the environment.
     let without = format!("parameter.type.memberOf('{RESOURCE_TYPES}')");
-    assert_eq!(evaluate(&without, &[resource(json)?])?, vec![]);
+    assert!(evaluate(&without, &[resource(json)?]).is_err());
     assert_eq!(
         eval_member_of(&format!("{{}}.memberOf('{RESOURCE_TYPES}')"), json)?,
         vec![]
