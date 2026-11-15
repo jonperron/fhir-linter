@@ -196,10 +196,7 @@ fn temporal_boundary(text: &str, kind: Temporal, bound: Bound, precision: i64) -
     // A part of `width` ASCII digits, or its least (low) or greatest (high) value.
     let pick = |given: Option<&str>, least: &str, greatest: &str, width: usize| {
         let part = given.unwrap_or(if low { least } else { greatest });
-        part.bytes()
-            .all(|b| b.is_ascii_digit())
-            .then(|| part.to_owned())
-            .filter(|p| p.len() == width)
+        (part.len() == width && part.bytes().all(|b| b.is_ascii_digit())).then(|| part.to_owned())
     };
     let (date, time) = match kind {
         Temporal::Time => ("", text),
@@ -216,6 +213,7 @@ fn temporal_boundary(text: &str, kind: Temporal, bound: Bound, precision: i64) -
             day.parse::<u32>()
                 .is_ok_and(|d| (1..=last_day).contains(&d))
         })?;
+        parts.next().is_none().then_some(())?;
         out.push_str(&year);
         for (part, from) in [(month, 6), (day, 8)] {
             if precision >= from {
@@ -252,6 +250,9 @@ fn temporal_boundary(text: &str, kind: Temporal, bound: Bound, precision: i64) -
         given => format!("{:0<3}", given.get(..3).unwrap_or(given)),
     };
     let millis = pick(Some(&millis), "", "", 3)?;
+    // No trailing component, and only a DateTime takes a zone.
+    parts.next().is_none().then_some(())?;
+    (kind == Temporal::DateTime || zone.is_empty()).then_some(())?;
     out.push_str(&hour);
     for (part, from, separator) in [(minute, 4, ':'), (second, 6, ':'), (millis, 9, '.')] {
         if time_precision >= from {
@@ -319,6 +320,12 @@ mod tests {
             ("2014-01-01T10:00+garbage", Temporal::DateTime),
             ("2014-01-01T10:00+15:00", Temporal::DateTime),
             ("2014-01-01T10:00+14:30", Temporal::DateTime),
+            ("2014-01-01-05", Temporal::Date),
+            ("10:30:00:15", Temporal::Time),
+            ("10:30:00.5:15", Temporal::Time),
+            ("2014-01-01T10:30:00:15", Temporal::DateTime),
+            ("10:30:00Z", Temporal::Time),
+            ("10:30:00+01:00", Temporal::Time),
         ] {
             let precision = kind.precisions()[kind.precisions().len() - 1];
             assert_eq!(

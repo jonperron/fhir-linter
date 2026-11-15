@@ -105,3 +105,28 @@ fn range_with_incomparable_units_satisfies_rng_2() -> TestResult {
     assert!(found.is_empty(), "{found:?}");
     Ok(())
 }
+
+fn ingredient_ratio_range(low: &str, high: &str) -> String {
+    format!(
+        r#"{{"resourceType":"Ingredient","status":"active","role":{{"text":"x"}},
+        "substance":{{"code":{{"concept":{{"text":"x"}}}},"strength":[{{
+        "presentationRatioRange":{{"lowNumerator":{low},"highNumerator":{high}}}}}]}}}}"#
+    )
+}
+
+#[test]
+fn ratio_range_order_is_checked_by_ratrng_2() -> TestResult {
+    let reversed = ingredient_ratio_range(&quantity("5", "mg"), &quantity("3", "mg"));
+    let found = about(&reversed, "ratrng-2")?;
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].code.as_ref(), "INVARIANT_ratrng-2");
+    assert_eq!(
+        found[0].path,
+        "Ingredient.substance.strength[0].presentationRatioRange"
+    );
+
+    let ordered = ingredient_ratio_range(&quantity("3", "mg"), &quantity("5", "mg"));
+    let found = about(&ordered, "ratrng-2")?;
+    assert!(found.is_empty(), "{found:?}");
+    Ok(())
+}
