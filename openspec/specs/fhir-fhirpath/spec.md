@@ -945,7 +945,7 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 #### Scenario: Fonctions non implémentées retournent UndefinedFunction
 
-- **WHEN** `resolve()`, `memberOf()`, `conformsTo()`, `today()`, `now()`, `timeOfDay()`, `lowBoundary()`, `highBoundary()`, `precision()`, `htmlChecks()` ou `comparable()` est évalué
+- **WHEN** `resolve()`, `memberOf()`, `conformsTo()`, `today()`, `now()`, `timeOfDay()`, `precision()` ou `htmlChecks()` est évalué
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::UndefinedFunction(name))` où `name` est le nom de la fonction
 - **AND** il SHALL NOT retourner de résultat deviné (collection vide, booléen), afin que le validateur signale la contrainte comme non vérifiée (`INVARIANT_SKIPPED`)
 
@@ -959,13 +959,39 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 - **WHEN** une expression construit une collection de jusqu'à 100 000 chaînes distinctes de jusqu'à 1 048 576 caractères chacune (par ex. `select($this + big)`)
 - **THEN** `MAX_COLLECTION_LEN` et `MAX_STRING_LEN` SHALL NOT borner la mémoire totale ; seul `MAX_EVAL_STRING_CHARS` la borne, pour les chaînes construites uniquement (les chaînes de la ressource et les littéraux ne sont pas débités)
 
+### Requirement: Fonctions lowBoundary, highBoundary et comparable
+
+`lowBoundary([precision])` et `highBoundary([precision])` SHALL s'appliquer à Integer/Long/Decimal (résultat Decimal), Date, DateTime, Time et Quantity (objet FHIR Quantity ou littéral ; frontière Decimal de la valeur, même unité, sans unité -> `'1'`). Pour un Decimal, la frontière est à une demi-unité du dernier chiffre (basse tronquée vers zéro, haute arrondie à la moitié supérieure en s'éloignant de zéro, symétrique pour les négatifs) ; la précision par défaut est 8, valide de 0 à 28, sinon vide ; la précision de la source provient du plus court texte f64 (zéros finaux et exposants perdus). Pour un temporel, la précision s'exprime en chiffres (Date 4/6/8 ; DateTime 4/6/8/10/12/14/17, défaut 17 ; Time 2/4/6/9, défaut 9) ; toute autre précision, une Date sans précision, un texte mal formé ou un argument de précision vide SHALL donner une collection vide. Les parties manquantes prennent la plus petite/grande valeur (dernier jour du mois, années bissextiles incluses, 23:59:59.999) ; une heure seule se lit `hh:00` ; un DateTime avec heure mais sans fuseau reçoit `+14:00` (bas) / `-12:00` (haut). Les littéraux d'heure SHALL pouvoir ne comporter que l'heure (`@T10`, `@2014-01-01T08`).
+
+`comparable(other)` SHALL retourner `true`/`false` selon que le moteur peut comparer les unités (mêmes règles que la comparaison de Quantity, sans conversion UCUM) et SHALL être vide sauf si chaque côté est une Quantity unique.
+
+#### Scenario: Frontières d'un Decimal
+
+- **WHEN** `1.587.lowBoundary()`, `1.587.lowBoundary(2)` et `1.587.highBoundary(2)` sont évalués
+- **THEN** les résultats SHALL être `1.5865` (demi-unité du dernier chiffre, précision 8 par défaut), `1.58` (tronqué vers zéro) et `1.59` (arrondi au demi supérieur, loin de zéro)
+
+#### Scenario: Précision invalide
+
+- **WHEN** `1.5.lowBoundary(29)` ou `@2014.lowBoundary(5)` est évalué
+- **THEN** le résultat SHALL être vide
+
+#### Scenario: Invariants Period et Range évalués
+
+- **WHEN** le validateur évalue per-1, rng-2 ou ratrng-2
+- **THEN** ces invariants SHALL être évalués et SHALL NOT produire `INVARIANT_SKIPPED`
+
+#### Scenario: comparable sur unités non convertibles
+
+- **WHEN** `1 'cm'.comparable(1 '[in_i]')` est évalué
+- **THEN** le résultat SHALL être `false` (aucune conversion UCUM)
+
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 
-Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5, et avec le crochet `is_subtype` issu du Registry (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 992 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
+Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5, et avec le crochet `is_subtype` issu du Registry (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 1055 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
 
 #### Scenario: Réussites sous le plancher
 
-- **WHEN** moins de 992 cas de la suite réussissent
+- **WHEN** moins de 1055 cas de la suite réussissent
 - **THEN** le test SHALL échouer
 
 #### Scenario: Dérive du nombre de cas

@@ -1451,11 +1451,8 @@ fn unimplemented_functions_are_undefined() {
         "today()",
         "now()",
         "timeOfDay()",
-        "1.5.lowBoundary()",
-        "1.5.highBoundary()",
         "1.5.precision()",
         "htmlChecks()",
-        "1.comparable(2)",
     ] {
         assert!(
             matches!(

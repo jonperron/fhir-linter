@@ -107,7 +107,7 @@ date_lit     = @{ "@" ~ date_part }
 time_lit     = @{ "@T" ~ time_part }
 
 date_part = @{ ASCII_DIGIT{4} ~ ("-" ~ ASCII_DIGIT{2} ~ ("-" ~ ASCII_DIGIT{2})?)? }
-time_part = @{ ASCII_DIGIT{2} ~ ":" ~ ASCII_DIGIT{2} ~ (":" ~ ASCII_DIGIT{2} ~ ("." ~ ASCII_DIGIT+)?)? }
+time_part = @{ ASCII_DIGIT{2} ~ (":" ~ ASCII_DIGIT{2} ~ (":" ~ ASCII_DIGIT{2} ~ ("." ~ ASCII_DIGIT+)?)?)? }
 timezone  = @{ "Z" | ("+" | "-") ~ ASCII_DIGIT{2} ~ ":" ~ ASCII_DIGIT{2} }
 
 // Quantity: number followed by a unit string or a calendar duration keyword
