@@ -164,7 +164,7 @@ fn integer_op(lv: &Value, rv: &Value, op: &ArithOp) -> Result<Option<Value>, Eva
 /// shortcut: an Object does not carry its FHIR type, so a FHIR Quantity (or a
 /// descendant: Age, Duration...) is recognised by its typed `value: decimal` and
 /// its Quantity element names; upgrade when Object carries its type.
-fn as_quantity(v: &Value) -> Option<(f64, Option<&str>)> {
+pub(super) fn as_quantity(v: &Value) -> Option<(f64, Option<&str>)> {
     let fields = match v {
         Value::Quantity(value, unit) => return Some((*value, Some(unit))),
         Value::Object(fields) => fields,
@@ -215,7 +215,11 @@ fn as_quantity(v: &Value) -> Option<(f64, Option<&str>)> {
 /// match, `Some(None)` when they cannot be compared (different units, with no
 /// UCUM conversion, or a unit on one side only), `None` when either is not a
 /// Quantity.
-fn quantity_values(a: &Value, b: &Value, equivalent: bool) -> Option<Option<(f64, f64)>> {
+pub(super) fn quantity_values(
+    a: &Value,
+    b: &Value,
+    equivalent: bool,
+) -> Option<Option<(f64, f64)>> {
     let ((x, x_unit), (y, y_unit)) = (as_quantity(a)?, as_quantity(b)?);
     let comparable = match (x_unit, y_unit) {
         (None, None) => true,

@@ -12,6 +12,7 @@ use crate::error::EvalError;
 use crate::value::{Collection, Value};
 
 mod base64;
+mod boundary;
 mod collection;
 mod helpers;
 mod math;
@@ -491,6 +492,9 @@ impl Evaluator<'_> {
             return r;
         }
         if let Some(r) = self.call_type_function(name, args, &values, ctx) {
+            return r;
+        }
+        if let Some(r) = self.call_boundary_function(name, args, &values, ctx) {
             return r;
         }
         if let Some(r) = self.call_misc_function(name, args, focus, ctx) {
