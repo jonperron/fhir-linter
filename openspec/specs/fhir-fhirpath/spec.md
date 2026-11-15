@@ -873,7 +873,7 @@ Le système SHALL définir la constante `MAX_EVAL_STRING_CHARS` = 16 777 216 (`c
 
 ### Requirement: Variables d'environnement
 
-Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` suivi d'un identifiant délimité par accents graves, et `%'chaîne'` en un nœud `Expr::External` (nom sans le `%`), et les évaluer comme suit. Il SHALL exposer `pub struct Environment { resource: Option<&Value>, root_resource: Option<&Value>, is_subtype: Option<&IsSubtype> }` où `pub type IsSubtype = dyn Fn(&str, &str) -> bool` est construit par l'appelant à partir de `Registry::type_ancestors` (`is_subtype(nom, nom)` signifie « nom est un type FHIR ») et `evaluate_parsed_with_environment(expr, context, is_choice_variant, &Environment)`. `evaluate`, `evaluate_parsed` et `evaluate_parsed_with_choices` SHALL conserver leur signature et utiliser les valeurs par défaut.
+Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` suivi d'un identifiant délimité par accents graves, et `%'chaîne'` en un nœud `Expr::External` (nom sans le `%`), et les évaluer comme suit. Il SHALL exposer `pub struct Environment { resource: Option<&Value>, root_resource: Option<&Value>, is_subtype: Option<&IsSubtype>, member_of: Option<&MemberOf> }` où `pub type IsSubtype = dyn Fn(&str, &str) -> bool` est construit par l'appelant à partir de `Registry::type_ancestors` (`is_subtype(nom, nom)` signifie « nom est un type FHIR »), `pub type MemberOf = dyn Fn(&str, Option<&str>, &str) -> Option<bool>` (valueset, système, code ; `None` = indécidable) est construit par l'appelant à partir de `Registry::value_set_contains`, et `evaluate_parsed_with_environment(expr, context, is_choice_variant, &Environment)`. `evaluate`, `evaluate_parsed` et `evaluate_parsed_with_choices` SHALL conserver leur signature et utiliser les valeurs par défaut.
 
 - `%context` SHALL être la collection d'entrée d'origine, inchangée à l'intérieur de `where`, `select`, etc.
 - `%ucum` = `http://unitsofmeasure.org`, `%sct` = `http://snomed.info/sct`, `%loinc` = `http://loinc.org`, `%vs-[nom]` = `http://hl7.org/fhir/ValueSet/[nom]`, `%ext-[nom]` = `http://hl7.org/fhir/StructureDefinition/[nom]` (un nom vide est une erreur).
@@ -945,9 +945,30 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 #### Scenario: Fonctions non implémentées retournent UndefinedFunction
 
-- **WHEN** `resolve()`, `memberOf()`, `conformsTo()`, `today()`, `now()`, `timeOfDay()`, `precision()` ou `htmlChecks()` est évalué
+- **WHEN** `conformsTo()`, `today()`, `now()`, `timeOfDay()`, `precision()` ou `htmlChecks()` est évalué
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::UndefinedFunction(name))` où `name` est le nom de la fonction
 - **AND** il SHALL NOT retourner de résultat deviné (collection vide, booléen), afin que le validateur signale la contrainte comme non vérifiée (`INVARIANT_SKIPPED`)
+
+#### Scenario: resolve() d'une référence contenue
+
+- **WHEN** `resolve()` est évalué sur une Reference `#id` et que `%rootResource.contained` contient une ressource de cet `id`, ou sur `#` seul
+- **THEN** le résultat SHALL être cette ressource contenue (pour `#` : `%rootResource`, qui retombe sur `%resource`) ; une entrée vide donne une collection vide
+
+#### Scenario: resolve() d'une référence non suivable
+
+- **WHEN** `resolve()` est évalué sur une référence Bundle-locale ou serveur, un `#id` absent, une Reference sans `reference`, ou sans ressource racine
+- **THEN** l'évaluateur SHALL retourner une `EvalError` (et non une collection vide, écart volontaire avec fhirpath.html qui dit « ignoré »), de sorte que le validateur émette `INVARIANT_SKIPPED` au lieu d'une fausse violation ; la résolution Bundle-locale est une limitation connue
+
+#### Scenario: memberOf() par type d'élément
+
+- **WHEN** `memberOf(valueset)` est évalué avec le crochet `member_of`
+- **THEN** un élément de type `code` SHALL être cherché sans système ; un Coding requiert système et code ; un CodeableConcept est `true` si un coding est dans le ValueSet, `false` si chaque coding en est prouvé hors, sinon vide ; une `String` simple donne vide
+- **AND** l'absence de crochet, un ValueSet inconnu ou indécidable, ou une entrée vide SHALL donner une collection vide ; plusieurs items en entrée SHALL donner une erreur
+
+#### Scenario: Invariants resolve()/memberOf() évalués
+
+- **WHEN** le validateur évalue apd-1, ctm-1, dgr-1, docRef-1/2, enc-2, obs-9, prc-1, prov-1/2/3, exs-1 ou opd-3
+- **THEN** ils SHALL être évalués lorsque resolvables, au lieu d'être toujours ignorés
 
 #### Scenario: Dédoublonnage hors du plafond de collection
 
@@ -987,11 +1008,11 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 
-Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5, et avec le crochet `is_subtype` issu du Registry (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 1055 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
+Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5, et avec le crochet `is_subtype` issu du Registry (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 1056 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
 
 #### Scenario: Réussites sous le plancher
 
-- **WHEN** moins de 1055 cas de la suite réussissent
+- **WHEN** moins de 1056 cas de la suite réussissent
 - **THEN** le test SHALL échouer
 
 #### Scenario: Dérive du nombre de cas
