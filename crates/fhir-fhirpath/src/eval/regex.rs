@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use regex_lite::Regex;
 
@@ -7,12 +8,17 @@ use super::helpers::check_string_len;
 use crate::error::EvalError;
 
 thread_local! {
-    static CACHE: RefCell<HashMap<String, Regex>> = RefCell::new(HashMap::new());
+    static CACHE: RefCell<HashMap<String, Arc<Regex>>> = RefCell::new(HashMap::new());
 }
 
 /// Build (or fetch from the per-thread cache) a `Regex` with optional FHIRPath 3.0 flags
-/// (`i`, `m`, `s`).
-pub(super) fn build_regex(pattern: &str, flags: &str, context: &str) -> Result<Regex, EvalError> {
+/// (`i`, `m`, `s`). Shared through `Arc`: a cloned `Regex` would allocate a fresh
+/// match buffer on every cache hit.
+pub(super) fn build_regex(
+    pattern: &str,
+    flags: &str,
+    context: &str,
+) -> Result<Arc<Regex>, EvalError> {
     let prefix: String = flags
         .chars()
         .filter(|c| matches!(c, 'i' | 'm' | 's'))
@@ -21,15 +27,16 @@ pub(super) fn build_regex(pattern: &str, flags: &str, context: &str) -> Result<R
     let full = format!("{prefix}{pattern}");
     CACHE.with(|cache| {
         if let Some(re) = cache.borrow().get(&full) {
-            return Ok(re.clone());
+            return Ok(Arc::clone(re));
         }
         let re = Regex::new(&full)
+            .map(Arc::new)
             .map_err(|e| EvalError::Type(format!("{context}: invalid pattern: {e}")))?;
         let mut cache = cache.borrow_mut();
         if cache.len() >= 256 {
             cache.clear();
         }
-        cache.insert(full, re.clone());
+        cache.insert(full, Arc::clone(&re));
         Ok(re)
     })
 }
@@ -163,6 +170,16 @@ mod tests {
             regex_replace_all("abcdefghij", pattern, "[$10|${1}0]", "")?,
             "[j|a0]"
         );
+        Ok(())
+    }
+
+    // A cache hit shares the stored regex instead of cloning it, so its
+    // match buffers are reused across calls.
+    #[test]
+    fn cache_hit_shares_the_compiled_regex() -> Result<(), EvalError> {
+        let first = build_regex("cache-hit-[0-9]+", "i", "test")?;
+        let second = build_regex("cache-hit-[0-9]+", "i", "test")?;
+        assert!(Arc::ptr_eq(&first, &second));
         Ok(())
     }
 }
