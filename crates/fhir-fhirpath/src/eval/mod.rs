@@ -14,6 +14,7 @@ use crate::value::{Collection, Value};
 mod base64;
 mod boundary;
 mod collection;
+mod fhir_functions;
 mod helpers;
 mod math;
 mod misc;
@@ -72,6 +73,11 @@ pub struct Environment<'a> {
     /// Unset, asking whether a String is a FHIR string type (`code`, `uri`...)
     /// is an error, as the String's FHIR type cannot be checked.
     pub is_subtype: Option<&'a IsSubtype<'a>>,
+    /// Terminology for `memberOf()`: `member_of(value_set, system, code)`
+    /// tells whether the code is in the ValueSet, `None` when that cannot be
+    /// decided (build it from `Registry::value_set_contains`). Unset,
+    /// `memberOf()` is empty.
+    pub member_of: Option<&'a MemberOf<'a>>,
 }
 
 impl std::fmt::Debug for Environment<'_> {
@@ -80,12 +86,16 @@ impl std::fmt::Debug for Environment<'_> {
             .field("resource", &self.resource)
             .field("root_resource", &self.root_resource)
             .field("is_subtype", &self.is_subtype.map(|_| "Fn"))
+            .field("member_of", &self.member_of.map(|_| "Fn"))
             .finish()
     }
 }
 
 /// FHIR type inheritance, see [`Environment::is_subtype`].
 pub type IsSubtype<'a> = dyn Fn(&str, &str) -> bool + 'a;
+
+/// ValueSet membership, see [`Environment::member_of`].
+pub type MemberOf<'a> = dyn Fn(&str, Option<&str>, &str) -> Option<bool> + 'a;
 
 pub(super) struct Evaluator<'a> {
     is_choice_variant: &'a dyn Fn(&str, &str) -> bool,
@@ -498,6 +508,9 @@ impl Evaluator<'_> {
             return r;
         }
         if let Some(r) = self.call_misc_function(name, args, focus, ctx) {
+            return r;
+        }
+        if let Some(r) = self.call_fhir_function(name, args, focus, ctx) {
             return r;
         }
         Err(EvalError::UndefinedFunction(name.to_owned()))

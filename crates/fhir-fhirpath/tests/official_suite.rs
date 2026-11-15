@@ -61,8 +61,9 @@ use quick_xml::events::{BytesStart, Event};
 /// `active` was a String, and System names keep the System rules on typed
 /// values, see `fhir_type_tests.rs`), then to 1055 by lowBoundary(),
 /// highBoundary() and comparable() (60 cases and testPeriodInvariantNew) and
-/// hour-only date-time and time literals (2 testLiteral cases).
-const MIN_PASSED: u32 = 1055;
+/// hour-only date-time and time literals (2 testLiteral cases), then to 1056
+/// by resolve() of contained references (testMultipleResolve).
+const MIN_PASSED: u32 = 1056;
 
 /// Cases that must pass whatever the total: the boundary functions behind
 /// the FHIR per-1, rng-2 and ratrng-2 invariants. Not listed: 12.500 and
@@ -355,11 +356,15 @@ fn run_case(
     // FHIR type inheritance for is/as/ofType (`code` is a `string`).
     let is_subtype =
         |child: &str, ancestor: &str| registry.type_ancestors(child).any(|code| code == ancestor);
+    let member_of = |value_set: &str, system: Option<&str>, code: &str| {
+        registry.value_set_contains(value_set, system, code)
+    };
     // The input file is `%resource`, also when `context` selects a node in it.
     let environment = Environment {
         resource: context.first(),
         root_resource: None,
         is_subtype: Some(&is_subtype),
+        member_of: Some(&member_of),
     };
     // Choice elements navigate as in the validator (`Observation.effective`).
     let is_choice_variant = |base: &str, suffix: &str| registry.is_choice_variant(base, suffix);

@@ -119,10 +119,9 @@ impl Evaluator<'_> {
                     .collect()
             }
 
-            // Unimplemented functions (resolve, memberOf, conformsTo, now, today,
-            // timeOfDay, htmlChecks, comparable, lowBoundary, highBoundary,
-            // precision) fall through to `UndefinedFunction`: a fake answer
-            // would turn an unchecked invariant into a verdict.
+            // Other functions fall through to the FHIR functions, then to
+            // `UndefinedFunction`: a fake answer would turn an unchecked
+            // invariant into a verdict.
             _ => return Ok(None),
         };
         Ok(Some(col))

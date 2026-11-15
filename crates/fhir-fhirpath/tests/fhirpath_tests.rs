@@ -1445,8 +1445,6 @@ fn get_value_returns_non_null_items() {
 #[test]
 fn unimplemented_functions_are_undefined() {
     for expr in [
-        "resolve()",
-        "memberOf('http://hl7.org/fhir/ValueSet/x')",
         "conformsTo('http://hl7.org/fhir/StructureDefinition/Patient')",
         "today()",
         "now()",
