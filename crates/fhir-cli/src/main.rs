@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
-use fhir_definitions::Registry;
+use fhir_definitions::{DEFINITIONS_DIR_ENV, Registry};
 use fhir_linter::{Config, RuleRegistry};
 use fhir_parser::{ParseError, Resource, Span};
 use fhir_validator::{Diagnostic, Severity};
@@ -40,7 +40,7 @@ struct Cli {
     #[arg(long, value_enum, default_value_t = FhirVersion::R5)]
     fhir_version: FhirVersion,
     /// Directory holding the FHIR definitions (`profiles-resources.json`, ...).
-    #[arg(long, env = "FHIR_DEFINITIONS_DIR", default_value = "definitions/r5")]
+    #[arg(long, env = DEFINITIONS_DIR_ENV, default_value = "definitions/r5")]
     definitions: PathBuf,
     /// Treat warnings as errors for the exit code.
     #[arg(long)]
