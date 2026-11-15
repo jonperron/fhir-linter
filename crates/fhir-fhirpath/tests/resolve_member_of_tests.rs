@@ -163,6 +163,30 @@ fn member_of_checks_codings_and_concepts() -> TestResult {
 }
 
 #[test]
+fn member_of_a_concept_is_false_only_when_every_coding_is_out() -> TestResult {
+    let concept =
+        |codings: &str| format!(r#"{{"resourceType":"Basic","code":{{"coding":[{codings}]}}}}"#);
+    let out = r#"{"system":"http://hl7.org/fhir/fhir-types","code":"Basic"}"#;
+    let undecided = r#"{"system":"http://example.org/other","code":"Patient"}"#;
+    let expression = format!("code.memberOf('{RESOURCE_TYPES}')");
+    let all_out = concept(&format!("{out},{out}"));
+    assert_eq!(bools(&eval_member_of(&expression, &all_out)?), [false]);
+    let mixed = concept(&format!("{out},{undecided}"));
+    assert_eq!(eval_member_of(&expression, &mixed)?, vec![]);
+    Ok(())
+}
+
+#[test]
+fn member_of_several_items_is_an_error() -> TestResult {
+    let json = r#"{"resourceType":"OperationDefinition","parameter":[{"type":"Patient"},
+        {"type":"Group"}]}"#;
+    let expression = format!("parameter.type.memberOf('{RESOURCE_TYPES}')");
+    let result = eval_member_of(&expression, json);
+    assert!(result.is_err(), "{result:?}");
+    Ok(())
+}
+
+#[test]
 fn member_of_is_empty_when_membership_cannot_be_decided() -> TestResult {
     let json = r#"{"resourceType":"OperationDefinition","parameter":[{"type":"Patient"}]}"#;
     let unknown = "parameter.type.memberOf('http://example.org/ValueSet/unknown')";

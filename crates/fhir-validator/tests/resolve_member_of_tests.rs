@@ -83,7 +83,8 @@ fn observation(group_member: &str) -> String {
     format!(
         r##"{{"resourceType":"Observation","status":"final","code":{{"text":"x"}},
         "contained":[{{"resourceType":"Group","id":"grp","type":"specimen",
-                "membership":"enumerated","member":[{{"entity":{{"reference":"{group_member}"}}}}]}},
+                "membership":"enumerated",
+                "member":[{{"entity":{{"reference":"{group_member}"}}}}]}},
             {{"resourceType":"Specimen","id":"spec"}},
             {{"resourceType":"Patient","id":"pat"}}],
         "specimen":{{"reference":"#grp"}}}}"##
