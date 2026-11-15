@@ -9,12 +9,14 @@ mod loaded_fields_tests;
 mod loader;
 mod model;
 mod registry;
+mod shared;
 
 pub use model::{
     AdditionalBinding, Binding, ChoiceValue, CodeSystem, Constraint, Discriminator,
     ElementDefinition, Include, Slicing, StructureDefinition, TypeProfiles, ValueSet,
 };
 pub use registry::Registry;
+pub use shared::DEFINITIONS_DIR_ENV;
 
 use thiserror::Error;
 
