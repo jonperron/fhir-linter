@@ -8,10 +8,11 @@ use fhir_parser::{Node, Resource, ResourceId, Value};
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
+use crate::references::ContainedId;
 
 /// The ids of a resource's `contained` resources, shared by every contained resource
 /// (one allocation, not one copy per contained resource).
-pub(crate) type ContainedIds = Arc<[crate::references::ContainedId]>;
+pub(crate) type ContainedIds = Arc<[ContainedId]>;
 
 /// A resource inside another one (`contained`, `Bundle.entry.resource`,
 /// `Parameters.parameter.resource`), to validate against its own type.

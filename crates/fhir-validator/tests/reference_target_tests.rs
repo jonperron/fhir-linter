@@ -135,6 +135,13 @@ fn contained_reference_to_a_type_outside_target_profiles_is_an_error() {
     );
     let json = patient_linking_contained("Patient", r##"{"reference":"#a"}"##);
     assert!(found(&json, "REFERENCE_005").is_empty());
+    // A bare `#` names the container, never a contained resource with an empty id.
+    let json = patient(
+        r##""contained":[{"resourceType":"Basic","id":"","code":{"text":"x"}}],
+        "link":[{"other":{"reference":"#","type":"Patient"},"type":"seealso"}]"##,
+    );
+    assert!(found(&json, "REFERENCE_005").is_empty());
+    assert!(found(&json, "REFERENCE_003").is_empty());
 }
 
 #[test]

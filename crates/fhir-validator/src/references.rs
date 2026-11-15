@@ -66,7 +66,8 @@ pub(crate) fn check(
     }
     // The type a FHIR URL names, or the type of the contained resource a `#id` resolves to.
     let target_type = fhir_url_type(reference, registry).or_else(|| {
-        let id = reference.strip_prefix('#')?;
+        // A bare `#` names the container, not a contained resource.
+        let id = reference.strip_prefix('#').filter(|id| !id.is_empty())?;
         let (_, resource_type) = contained_ids.iter().find(|(c, _)| c.as_ref() == id)?;
         resource_type
             .as_deref()
