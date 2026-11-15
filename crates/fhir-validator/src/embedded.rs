@@ -11,7 +11,7 @@ use crate::diagnostic::Diagnostic;
 
 /// The ids of a resource's `contained` resources, shared by every contained resource
 /// (one allocation, not one copy per contained resource).
-pub(crate) type ContainedIds = Arc<[Arc<str>]>;
+pub(crate) type ContainedIds = Arc<[crate::references::ContainedId]>;
 
 /// A resource inside another one (`contained`, `Bundle.entry.resource`,
 /// `Parameters.parameter.resource`), to validate against its own type.

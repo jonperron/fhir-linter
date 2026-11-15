@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use fhir_definitions::Registry;
-use fhir_parser::parse_json;
+use fhir_parser::{parse_json, parse_xml};
 use fhir_validator::{Severity, validate};
 
 fn registry() -> &'static Registry {
@@ -90,7 +90,7 @@ fn nested_references_are_checked_at_every_depth() {
 }
 
 #[test]
-fn resource_target_logical_contained_and_urn_references_are_not_type_checked() {
+fn resource_target_logical_and_urn_references_are_not_type_checked() {
     // Extension.value[x] Reference has no targetProfile; Provenance.target is Reference(Resource).
     let extension = patient(
         r#""extension":[{"url":"http://example.org/x","valueReference":{"reference":"Device/1"}}]"#,
@@ -100,17 +100,110 @@ fn resource_target_logical_contained_and_urn_references_are_not_type_checked() {
         "recorded":"2024-01-01T00:00:00Z","agent":[{"who":{"reference":"Device/1"}}]}"#;
     assert!(found(provenance, "REFERENCE_005").is_empty());
     for reference in [
-        r##"{"reference":"#c1"}"##,
         r#"{"reference":"urn:uuid:a6f5d8e2-6a0f-4b4c-9b0a-1d2e3f4a5b6c"}"#,
         r#"{"identifier":{"value":"x"}}"#,
         r#"{"reference":"Practitioner?identifier=x"}"#,
     ] {
-        let json = patient(&format!(
-            r#""contained":[{{"resourceType":"Practitioner","id":"c1"}}],
-            "managingOrganization":{reference}"#
-        ));
+        let json = patient(&format!(r#""managingOrganization":{reference}"#));
         assert!(found(&json, "REFERENCE_005").is_empty(), "{reference}");
     }
+}
+
+/// A Patient with one contained resource `a` of `contained_type`, linked through
+/// `Patient.link.other` (Reference(Patient | RelatedPerson)) with `other`.
+fn patient_linking_contained(contained_type: &str, other: &str) -> String {
+    patient(&format!(
+        r#""contained":[{{"resourceType":"{contained_type}","id":"a"{extra}}}],
+        "link":[{{"other":{other},"type":"seealso"}}]"#,
+        extra = if contained_type == "Basic" {
+            r#","code":{"text":"x"}"#
+        } else {
+            ""
+        },
+    ))
+}
+
+#[test]
+fn contained_reference_to_a_type_outside_target_profiles_is_an_error() {
+    let json = patient_linking_contained("Basic", r##"{"reference":"#a"}"##);
+    assert_eq!(
+        found(&json, "REFERENCE_005"),
+        [(
+            Severity::Error,
+            "Patient.link[0].other.reference".to_owned()
+        )],
+    );
+    let json = patient_linking_contained("Patient", r##"{"reference":"#a"}"##);
+    assert!(found(&json, "REFERENCE_005").is_empty());
+}
+
+#[test]
+fn contained_reference_type_must_match_the_contained_resource() {
+    let other = r##"{"reference":"#a","type":"Patient"}"##;
+    let json = patient_linking_contained("Basic", other);
+    assert_eq!(
+        found(&json, "REFERENCE_003"),
+        [(
+            Severity::Error,
+            "Patient.link[0].other.reference".to_owned()
+        )],
+    );
+    let json = patient_linking_contained("Patient", other);
+    assert!(found(&json, "REFERENCE_003").is_empty());
+    // An unknown resourceType (STRUCTURE_000) gives the reference no type to check.
+    let json = patient_linking_contained("NotAType", other);
+    assert!(found(&json, "REFERENCE_003").is_empty());
+    assert!(found(&json, "REFERENCE_005").is_empty());
+}
+
+#[test]
+fn contained_reference_in_xml_is_type_checked() {
+    let codes = |contained: &str| -> Vec<String> {
+        let xml = format!(
+            r##"<Patient xmlns="http://hl7.org/fhir"><id value="p"/>
+            <contained>{contained}</contained>
+            <link><other><reference value="#a"/><type value="Patient"/></other>
+            <type value="seealso"/></link></Patient>"##
+        );
+        let resource = parse_xml(&xml).expect("test XML parses");
+        validate(&resource, registry())
+            .into_iter()
+            .map(|d| d.code.to_string())
+            .filter(|code| code == "REFERENCE_003" || code == "REFERENCE_005")
+            .collect()
+    };
+    let basic = r#"<Basic><id value="a"/><code><text value="x"/></code></Basic>"#;
+    assert_eq!(codes(basic), ["REFERENCE_003", "REFERENCE_005"]);
+    assert!(codes(r#"<Patient><id value="a"/></Patient>"#).is_empty());
+}
+
+#[test]
+fn contained_reference_inside_a_bundle_entry_is_type_checked() {
+    let bundle = |contained_type: &str| {
+        format!(
+            r#"{{"resourceType":"Bundle","type":"collection","entry":[{{
+            "fullUrl":"http://example.org/fhir/Patient/p","resource":{}}}]}}"#,
+            patient_linking_contained(contained_type, r##"{"reference":"#a","type":"Patient"}"##),
+        )
+    };
+    let paths = |json: &str, code: &str| -> Vec<String> {
+        found(json, code)
+            .into_iter()
+            .map(|(_, path)| path)
+            .collect()
+    };
+    let json = bundle("Basic");
+    for code in ["REFERENCE_005", "REFERENCE_003"] {
+        let hits = paths(&json, code);
+        assert_eq!(hits.len(), 1, "{code}: {hits:?}");
+        assert!(
+            hits[0].ends_with("link[0].other.reference"),
+            "{code}: {hits:?}"
+        );
+    }
+    let json = bundle("Patient");
+    assert!(paths(&json, "REFERENCE_005").is_empty());
+    assert!(paths(&json, "REFERENCE_003").is_empty());
 }
 
 #[test]
