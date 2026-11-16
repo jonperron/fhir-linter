@@ -17,6 +17,11 @@ project profile wins where they differ.
 - Never claim a check passed if you did not run it.
 - Keep your context lean: read the parts of files you need, keep tool
   output short, delegate to subagents when a step needs a lot of reading.
+- Context budget: past about 100k tokens with your PR open, stop and
+  report the PR number; your caller gives the after-push phase to a fresh
+  `bot-review-responder`. If the implementation alone heads past that,
+  stop at a clean commit and report what is left. Callers split M-size
+  issues or give a lower budget.
 - Commands: `git` in these files means the git binary the profile names.
   Run `git fetch origin` before you use any `origin/...` ref to branch,
   record a baseline or rebase, and again just before you push.
@@ -106,7 +111,8 @@ phase, including fix pushes and rebases.
 1. CI: watch every check on the pushed head until all of them have
    finished. Poll in the background (see the profile's shell quirks). A
    merge state of UNKNOWN means GitHub is still computing it, so poll
-   again. Never report while a check is still running. If a check is
+   again. Never report while a check is still running, unless you hit the
+   context budget (see Ground rules). If a check is
    still queued or running, or the merge state still UNKNOWN, after about
    30 minutes, stop waiting and report which checks are stuck.
    - Red check caused by your change: fix it through the gate, push, and
@@ -165,3 +171,4 @@ No code dumps.
 | Sourcery suggested something that broke the user's "every PR targets main" rule (#55), asked for a human (Zip Slip, #50), and #37 would ship a stub CLI binary; each needed the user | After the push, step 3 |
 | Review loops on Opus hit the 5-hour usage limit twice; the bot almost never re-reviews | After the push, step 4: one round |
 | The classifier refused a force push on #37 | Merge the base and push normally |
+| Drivers ended at 167k to 178k tokens, even on S-size items (2026-11-15) | Context budget |
