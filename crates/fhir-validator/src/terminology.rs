@@ -11,7 +11,8 @@ use crate::diagnostic::Diagnostic;
 /// provably outside the bound ValueSet: an error for `required`, a warning for
 /// `extensible`. Membership that cannot be decided from the loaded definitions
 /// (filters, external code systems) is not reported. A bound Coding with a
-/// code but no system also gets a `TERMINOLOGY_002` warning.
+/// code but no system also gets a `TERMINOLOGY_002` warning. Bound or not, a code
+/// system URI naming a ValueSet gets `TERMINOLOGY_003`.
 pub(crate) fn check(
     node: &Node,
     elem: &ElementDefinition,
@@ -20,6 +21,7 @@ pub(crate) fn check(
     registry: &Registry,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    check_system_is_code_system(node, elem, path, registry, diagnostics);
     let Some(binding) = &elem.binding else {
         return;
     };
@@ -59,6 +61,38 @@ pub(crate) fn check(
             }
         }
     }
+}
+
+/// Emit `TERMINOLOGY_003` (error) when a code system URI is the canonical URL of a
+/// loaded ValueSet.
+///
+/// `Coding.system` and `ValueSet.compose.include.system` (which `exclude` reuses) name
+/// the code system that defines the codes (datatypes.html#Coding,
+/// valueset-definitions.html#ValueSet.compose.include.system). URIs unknown to the
+/// Registry are not reported.
+fn check_system_is_code_system(
+    node: &Node,
+    elem: &ElementDefinition,
+    path: &str,
+    registry: &Registry,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if !matches!(
+        elem.path.as_ref(),
+        "Coding.system" | "ValueSet.compose.include.system"
+    ) {
+        return;
+    }
+    let Value::Str(system) = &node.value else {
+        return;
+    };
+    // shortcut: a URL that is both a ValueSet and a CodeSystem would be reported; the R5
+    // bundle has none, add a CodeSystem lookup if a loaded package ever does.
+    if registry.value_set(system).is_none() {
+        return;
+    }
+    let message = format!("'{system}' at '{path}' is a ValueSet, not a code system");
+    diagnostics.push(Diagnostic::error("TERMINOLOGY_003", message, path).with_location(node.span));
 }
 
 /// Return a description of the offending code when `item` is provably not in `vs`.
