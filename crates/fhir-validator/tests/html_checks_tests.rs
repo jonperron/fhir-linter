@@ -78,6 +78,8 @@ fn txt1_fails_for_active_or_unlisted_content() -> TestResult {
         "<p><font color=\"red\">deprecated</font></p>",
         "<p><ins>change marking, chapter 9.4</ins></p>",
         "<p><a xmlns:xlink=\"http://www.w3.org/1999/xlink\" xlink:href=\"x\">x</a></p>",
+        "<p>a <p>nested paragraph</p></p>",
+        "<p>a <i><div>block in a paragraph</div></i></p>",
     ] {
         let [json, xml] = findings(&registry, inner)?;
         assert_eq!(json, errors(), "JSON {inner}");
@@ -99,6 +101,7 @@ fn txt1_and_txt2_pass_for_basic_formatting() -> TestResult {
         "<img src=\"#photo\" alt=\"contained\"/>",
         "<ul><li lang=\"en\" dir=\"ltr\">x</li></ul>",
         "<pre xml:space=\"preserve\">x</pre>",
+        "<p>a</p><div><p>b</p></div><ul><li><p>c</p></li></ul>",
         "<x:b xmlns:x=\"http://www.w3.org/1999/xhtml\">prefixed</x:b>",
     ] {
         let [json, xml] = findings(&registry, inner)?;
@@ -160,6 +163,7 @@ fn official_fixtures_pass_or_fail_txt1_as_expected() -> TestResult {
     }
     for file in [
         "validator/list-xhtml-attribute.xml",
+        "validator/list-xhtml-nested.xml",
         "validator/pat-security-bad-xhtml.json",
     ] {
         assert!(fixture_txt1_errors(&registry, file)? > 0, "{file}");
