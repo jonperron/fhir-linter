@@ -5,7 +5,8 @@ use indexmap::IndexMap;
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
-use crate::resolve::{is_primitive, resolve};
+use crate::resolve::resolve;
+use fhir_definitions::is_primitive_type;
 
 /// Check the cardinality of every child of `def_path` in one object (instance `path`).
 pub(crate) fn check_children_cardinality(
@@ -78,7 +79,7 @@ fn check_choice(
             // A `_variant` beside its value is the same variant, counted once via the value.
             let extension_only = name.is_none_or(|n| {
                 !fields.contains_key(n)
-                    && ty.as_deref().is_some_and(is_primitive)
+                    && ty.as_deref().is_some_and(is_primitive_type)
                     && is_extension_shape(node)
             });
             (e.path == elem.path && extension_only).then_some((bare, node))
@@ -175,7 +176,7 @@ fn present<'a>(
         .filter(|node| !is_empty_array(node))
         .or_else(|| {
             // Only primitives take a `_name`; skip building the key for the rest.
-            let primitive = elem.types.first().is_some_and(|t| is_primitive(t));
+            let primitive = elem.types.first().is_some_and(|t| is_primitive_type(t));
             primitive
                 .then(|| fields.get(format!("_{name}").as_str()))
                 .flatten()

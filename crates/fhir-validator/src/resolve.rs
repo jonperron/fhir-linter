@@ -1,5 +1,5 @@
 //! Element lookups in a StructureDefinition shared by the validation layers.
-use fhir_definitions::{ElementDefinition, Registry, StructureDefinition};
+use fhir_definitions::{ElementDefinition, Registry, StructureDefinition, capitalise};
 use std::sync::Arc;
 
 /// Names with path punctuation are never valid element names.
@@ -33,13 +33,6 @@ pub(crate) fn resolve<'a>(
         })
 }
 
-pub(crate) fn capitalise(s: &str) -> String {
-    let mut c = s.chars();
-    c.next()
-        .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
-        .unwrap_or_default()
-}
-
 /// The StructureDefinition of `ty` when it is a complex datatype.
 pub(crate) fn complex_type<'a>(
     ty: &str,
@@ -48,9 +41,4 @@ pub(crate) fn complex_type<'a>(
     registry
         .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{ty}"))
         .filter(|t| t.kind.as_ref() == "complex-type")
-}
-
-/// Primitive FHIR type names start with a lowercase letter.
-pub(crate) fn is_primitive(ty: &str) -> bool {
-    ty.starts_with(|c: char| c.is_ascii_lowercase())
 }

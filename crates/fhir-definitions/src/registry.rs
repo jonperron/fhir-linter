@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use crate::Result;
 use crate::loader;
 use crate::model::{CodeSystem, Include, StructureDefinition, ValueSet};
+use crate::type_code::capitalise;
 
 /// Canonical URL prefix of the core definitions; a type code appended gives its URL.
 const CORE_PREFIX: &str = "http://hl7.org/fhir/StructureDefinition/";
@@ -339,14 +340,6 @@ fn index_choice_suffixes(
         suffixes.extend(element.types.iter().map(|code| capitalise(code)));
     }
     index
-}
-
-fn capitalise(s: &str) -> String {
-    let mut chars = s.chars();
-    chars
-        .next()
-        .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
-        .unwrap_or_default()
 }
 
 #[cfg(test)]

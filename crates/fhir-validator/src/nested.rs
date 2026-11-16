@@ -9,9 +9,10 @@ use crate::cardinality::check_children_cardinality;
 use crate::diagnostic::Diagnostic;
 use crate::embedded::{self, ContainedIds, Embedded, child_element, holds_resource, typed_element};
 use crate::profile::check_type_profiles;
-use crate::resolve::{complex_type, is_primitive, resolve};
+use crate::resolve::{complex_type, resolve};
 use crate::type_check::{check_type, is_valid_id};
 use crate::{invariants, references, terminology};
+use fhir_definitions::is_primitive_type;
 
 /// What every level of the walk shares.
 struct Walk<'a, 'e> {
@@ -244,7 +245,7 @@ fn walk(
         // `_name` carries the id/extensions of primitive `name`, so it must name a primitive.
         if let Some(bare) = name.strip_prefix('_') {
             let primitive = resolve(sd, &format!("{prefix}{bare}"), bare)
-                .and_then(|(elem, ty)| Some((elem, ty.filter(|t| is_primitive(t))?)));
+                .and_then(|(elem, ty)| Some((elem, ty.filter(|t| is_primitive_type(t))?)));
             if let Some((elem, ty)) = primitive {
                 // A primitive with a value is checked with its `_name` when the value is reached.
                 if !fields.contains_key(bare) {
@@ -309,7 +310,7 @@ fn walk(
 
         // Element.id is a `string`; R5 snapshots label many as `id` in the fhir-type extension.
         let check_as = if name == "id" { "string" } else { ty.as_ref() };
-        let extension = is_primitive(&ty)
+        let extension = is_primitive_type(&ty)
             .then(|| fields.get(format!("_{name}").as_str()))
             .flatten();
         check_type(
@@ -322,7 +323,7 @@ fn walk(
             diagnostics,
         );
         terminology::check(node, elem, &ty, &child_path, context.registry, diagnostics);
-        if is_primitive(&ty) {
+        if is_primitive_type(&ty) {
             check_primitive(
                 Some(node),
                 extension,

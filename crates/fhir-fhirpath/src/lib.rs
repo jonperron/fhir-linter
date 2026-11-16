@@ -18,7 +18,7 @@ pub use ast::Expr;
 pub use error::{EvalError, ParseError};
 pub use eval::{Environment, IsSubtype, MemberOf};
 pub use value::{
-    ChildElement, Collection, Value, from_parser_value, node_to_typed_value,
+    ChildElement, Collection, Value, from_parser_value, is_primitive_type, node_to_typed_value,
     resource_to_typed_value, resource_to_value,
 };
 pub use xml_text::typed_xml_text;
