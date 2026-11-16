@@ -60,6 +60,25 @@ impl Evaluator<'_> {
                 focus.to_vec()
             }
 
+            "now" | "today" => {
+                check_arity(name, args, 0)?;
+                let now = match self.now.get() {
+                    Some(now) => now,
+                    None => {
+                        let text = super::temporal::now_text().ok_or_else(|| {
+                            EvalError::Type("system clock outside years 1970-9999".into())
+                        })?;
+                        self.now.get_or_init(|| text.into())
+                    }
+                };
+                if name == "now" {
+                    vec![Value::DateTime(Arc::clone(now))]
+                } else {
+                    // `now_text` always starts with the ASCII `YYYY-MM-DD`.
+                    vec![Value::Date(Arc::from(&now[..10]))]
+                }
+            }
+
             // ── FHIR-specific helpers ──────────────────────────────────────
             "extension" => {
                 check_arity(name, args, 1)?;

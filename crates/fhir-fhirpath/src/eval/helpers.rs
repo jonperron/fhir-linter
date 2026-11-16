@@ -251,6 +251,10 @@ pub(super) fn values_equal(a: &Value, b: &Value) -> Option<bool> {
         // A complex value never equals a primitive. Without type knowledge an XML
         // primitive with extensions is still an Object; see `resource_to_typed_value`.
         (Value::Object(_), _) | (_, Value::Object(_)) => Some(false),
+        // N2 §6.1.1 "Otherwise, equals returns false": a Date or DateTime
+        // never converts to a Time (testDateNotEqualTimeMinute).
+        (Value::Date(_) | Value::DateTime(_), Value::Time(_))
+        | (Value::Time(_), Value::Date(_) | Value::DateTime(_)) => Some(false),
         _ => temporal_order(a, b).map(|order| order.is_eq()),
     }
 }

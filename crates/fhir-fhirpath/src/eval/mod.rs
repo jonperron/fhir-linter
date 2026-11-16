@@ -3,7 +3,7 @@
 /// The evaluator walks an [`Expr`] AST and produces a [`Collection`].
 /// Implemented functions are grouped by category; any other function name
 /// yields [`EvalError::UndefinedFunction`].
-use std::cell::Cell;
+use std::cell::{Cell, OnceCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -48,6 +48,7 @@ pub fn eval(
         total: None,
         index: None,
         string_chars: &Cell::new(0),
+        now: &OnceCell::new(),
         variables: None,
     }
     .eval(expr, context)
@@ -103,6 +104,9 @@ pub(super) struct Evaluator<'a> {
     /// Characters of String values built so far, shared by every nested
     /// evaluator (see [`helpers::MAX_EVAL_STRING_CHARS`]).
     string_chars: &'a Cell<usize>,
+    /// `now()` text, read once so every `now()` and `today()` of one
+    /// evaluation agrees (N2 §5.10).
+    now: &'a OnceCell<Arc<str>>,
     environment: &'a Environment<'a>,
     /// `%context`: the input collection the evaluation started from.
     context: &'a [Value],
