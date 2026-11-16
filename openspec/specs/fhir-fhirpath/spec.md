@@ -1073,11 +1073,11 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 
-Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5, et avec le crochet `is_subtype` issu du Registry (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 1078 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
+Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5, et avec le crochet `is_subtype` issu du Registry (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 1106 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
 
 #### Scenario: Réussites sous le plancher
 
-- **WHEN** moins de 1078 cas de la suite réussissent
+- **WHEN** moins de 1106 cas de la suite réussissent
 - **THEN** le test SHALL échouer
 
 #### Scenario: Dérive du nombre de cas
@@ -1312,4 +1312,46 @@ Les opérateurs et les fonctions de chaînes, mathématiques et de conversion SH
 
 - **WHEN** `status.exists()` est évalué sur `{"_status": 5}`
 - **THEN** le résultat SHALL être `[Bool(false)]`
+
+### Requirement: Arithmétique de dates avec durées calendaires
+
+Le système SHALL implémenter N2 §6.6.7/§6.6.8 : `Date`, `DateTime` et `Time` `+`/`-` une `Quantity` de durée calendaire (mots-clés `year`..`millisecond` au singulier ou pluriel, ou UCUM `'d'`, `'wk'`, `'h'`, `'min'`, `'s'`, `'ms'` ; `'month'` etc. entre guillemets sont acceptés comme le mot-clé). Le résultat SHALL conserver la précision et le texte du fuseau de la valeur. Un décalage en mois ou années SHALL ramener le jour à la fin du mois (années bissextiles comprises). Un montant au-dessus des secondes SHALL perdre ses décimales (`7.7 days` donne 7). Une unité plus fine que la valeur SHALL être convertie à la précision de la valeur, par troncature sans arrondi vers le pas supérieur (`@2019-03-01 + 23 hours` inchangé ; `@2014 + 24 months` donne `@2016` ; `@T10:00:00 + 0.9999996 seconds` inchangé). Un `Time` SHALL boucler modulo 24 h. Les fractions SHALL être réécrites sur 3 chiffres.
+
+Les cas suivants SHALL être des erreurs : UCUM `'a'` et `'mo'`, unités hors temps (`'cm'`), nombre sans unité, `Quantity + Date` (sens inverse), jours/semaines sur une valeur d'année ou de mois, unités d'un jour ou plus sur un `Time` (non définis par N2), montant NaN ou infini, résultat hors années 0001 à 9999, opérande invalide (mois, jour ou heure/minute hors bornes, seconde au-dessus de 60, année hors 0001 à 9999, horaire sur une date partielle comme `@2014T10:00`). La seconde 60 SHALL être acceptée en opérande ; un décalage d'un jour ou moins sur une seconde 60 SHALL être une erreur (N2 est muette), un décalage en mois ou années SHALL la conserver.
+
+#### Scenario: Décalage en mois avec ajustement du jour
+
+- **WHEN** `@2020-01-31 + 1 month` puis `@2019-03-31 - 1 month` sont évalués
+- **THEN** les résultats SHALL être `@2020-02-29` et `@2019-02-28`
+
+#### Scenario: Troncature à la précision de la valeur
+
+- **WHEN** `@2019-03-01 + 23 hours`, `@2014 + 24 months` et `@2019-03-01 + 7.7 days` sont évalués
+- **THEN** les résultats SHALL être `@2019-03-01`, `@2016` et `@2019-03-08`
+
+#### Scenario: Montant inférieur au pas sans arrondi
+
+- **WHEN** `@T10:00:00 + 0.9999996 seconds` et `@2015-02-04T10:00:00.000Z + 1.005 seconds` sont évalués
+- **THEN** les résultats SHALL être `@T10:00:00` et `@2015-02-04T10:00:01.005Z`
+
+#### Scenario: Time modulo 24 h
+
+- **WHEN** `@T23:30:00 + 1 hour` est évalué
+- **THEN** le résultat SHALL être `@T00:30:00`
+
+#### Scenario: Unités et opérandes invalides
+
+- **WHEN** `@2019 + 1 'a'`, `@2019-01-01 + 1 'cm'`, `@2019-01-01 + 1`, `1 day + @2019-01-01`, `@2019 + 1 day`, `@T10:00 + 1 day` ou `@9999-12-31 + 1 day` est évalué
+- **THEN** l'évaluateur SHALL retourner une erreur
+
+#### Scenario: Opérande de date ou d'heure invalide
+
+- **WHEN** `@1900-02-29 + 1 day`, `@2015-13-01 + 1 day`, `@2015-02-30 + 1 day`, `@2015-02-04T24:00:00Z + 1 hour`, `@2015-02-04T10:60:00Z + 1 hour`, `@0000-01-01 + 1 day` ou `@2014T10:00 + 1 hour` est évalué
+- **THEN** l'évaluateur SHALL retourner une erreur
+- **AND** `@2000-02-29 + 1 day` et `@1900-02-28 + 1 day` SHALL donner `@2000-03-01` et `@1900-03-01`
+
+#### Scenario: Seconde intercalaire
+
+- **WHEN** `@2016-12-31T23:59:60Z + 0 seconds` puis `@2016-12-31T23:59:60Z + 1 year` sont évalués
+- **THEN** le premier SHALL être une erreur et le second SHALL donner `@2017-12-31T23:59:60Z`
 
