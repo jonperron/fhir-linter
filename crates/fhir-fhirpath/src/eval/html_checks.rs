@@ -6,6 +6,7 @@
 //! - no head, body, external stylesheet references, deprecated elements, scripts,
 //!   forms, base/link/xlink, frames, iframes, objects or event attributes, so that
 //!   the narrative holds no active content;
+//! - the HTML 4.0 content model of a paragraph: no block element inside a `p`;
 //! - some non-whitespace content (text or an image).
 use quick_xml::XmlVersion;
 use quick_xml::escape::resolve_xml_entity;
@@ -144,12 +145,35 @@ const ATTRIBUTES: &[&str] = &[
 // or the reference validator restricts style content.
 const URL_ATTRIBUTES: &[&str] = &["href", "src", "cite", "longdesc", "usemap"];
 
+/// The HTML 4.01 %block elements of [`ELEMENTS`]. A paragraph holds only %inline content
+/// (`<!ELEMENT P - O (%inline;)*>`), so none of these may sit inside a `p`, at any depth
+/// short of a `map` (`<!ELEMENT MAP - - ((%block;) | AREA)+>`).
+const BLOCKS: &[&[u8]] = &[
+    b"p",
+    b"h1",
+    b"h2",
+    b"h3",
+    b"h4",
+    b"h5",
+    b"h6",
+    b"ul",
+    b"ol",
+    b"pre",
+    b"dl",
+    b"div",
+    b"blockquote",
+    b"hr",
+    b"table",
+    b"address",
+];
+
 /// Whether the xhtml markup (a narrative `div`, or a fragment as in the official
 /// HTMLChecks tests) has only allowed elements and attributes, no active URL, and some
 /// non-whitespace content. Malformed markup fails.
 pub(super) fn html_checks(markup: &str) -> bool {
     let mut reader = NsReader::from_str(markup);
-    let mut depth = 0usize;
+    // One entry per open element: whether its content is a paragraph's (%inline only).
+    let mut open: Vec<bool> = Vec::new();
     let mut has_content = false;
     loop {
         let (namespace, event) = match reader.read_resolved_event() {
@@ -161,16 +185,21 @@ pub(super) fn html_checks(markup: &str) -> bool {
                 if !element_allowed(&namespace, e) {
                     return false;
                 }
-                has_content |= e.local_name().as_ref() == b"img";
+                let name = e.local_name();
+                let name = name.as_ref();
+                let in_paragraph = open.last().copied().unwrap_or(false);
+                if in_paragraph && BLOCKS.contains(&name) {
+                    return false;
+                }
+                has_content |= name == b"img";
                 if matches!(event, Event::Start(_)) {
-                    depth += 1;
+                    open.push(name != b"map" && (in_paragraph || name == b"p"));
                 }
             }
             Event::End(_) => {
-                let Some(outer) = depth.checked_sub(1) else {
+                if open.pop().is_none() {
                     return false;
-                };
-                depth = outer;
+                }
             }
             Event::Text(ref t) => {
                 let Ok(text) = t.decode() else { return false };
@@ -198,7 +227,7 @@ pub(super) fn html_checks(markup: &str) -> bool {
             // A declaration, a processing instruction (`xml-stylesheet`) or a DTD is not
             // narrative content.
             Event::Decl(_) | Event::PI(_) | Event::DocType(_) => return false,
-            Event::Eof => return depth == 0 && has_content,
+            Event::Eof => return open.is_empty() && has_content,
         }
     }
 }
@@ -325,6 +354,39 @@ mod tests {
         assert!(!html_checks(&div("<p>x &#xZZ;</p>")));
         assert!(html_checks(&div("<p>&lt;&gt;&quot;&apos;&amp;</p>")));
         assert!(!html_checks("<p>x</div>"));
+    }
+
+    #[test]
+    fn rejects_blocks_inside_a_paragraph() {
+        // HTML 4.01 `<!ELEMENT P - O (%inline;)*>`: no %block element at any depth.
+        for block in [
+            "p",
+            "div",
+            "h2",
+            "ul",
+            "ol",
+            "dl",
+            "pre",
+            "blockquote",
+            "address",
+        ] {
+            assert!(
+                !html_checks(&div(&format!("<p>a<{block}>b</{block}></p>"))),
+                "{block}"
+            );
+        }
+        assert!(!html_checks(&div(
+            "<p>a<b><table><tr><td>b</td></tr></table></b></p>"
+        )));
+        assert!(!html_checks(&div("<p>a<hr/></p>")));
+        // `map` holds blocks even inside a paragraph (`<!ELEMENT MAP - - ((%block;) | AREA)+>`).
+        assert!(html_checks(&div("<p>a<map name=\"m\"><p>b</p></map></p>")));
+        assert!(html_checks(&div(
+            "<p>a</p><div><p>b</p></div><ul><li><p>c</p></li></ul>"
+        )));
+        assert!(html_checks(&div(
+            "<p>a<b>b</b><br/><span>c</span></p><hr/>"
+        )));
     }
 
     #[test]
