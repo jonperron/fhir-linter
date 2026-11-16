@@ -195,7 +195,7 @@ mod tests {
     fn matches_and_matches_full_use_single_line_mode() -> Result<(), EvalError> {
         assert!(regex_matches("A\n\t\t\tB", "A.*B", "")?);
         assert!(regex_matches_full("A\n\t\t\tB", "A.*B", "")?);
-        assert!(regex_matches_full("A\nB", "A.B", "i")?);
+        assert!(regex_matches_full("a\nb", "A.B", "i")?);
         // A caller-supplied `s` repeats the prefix, which stays valid.
         assert!(regex_matches("A\nB", "A.B", "s")?);
         Ok(())
