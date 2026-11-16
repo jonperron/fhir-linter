@@ -126,7 +126,15 @@ pub(crate) fn check_type(
         // No hand-written check: the R5 definition of the type decides. The decimal regex has
         // a typo and the date family needs range checks, so those stay hand-written above.
         t if REGEX_CHECKED.contains(&t) => match value {
-            Value::Str(s) => registry_format_error(s, fhir_type, path, registry),
+            Value::Str(s) => registry_format_error(s, fhir_type, path, registry).or_else(|| {
+                // references.html: `url|version`; the version is a string, never empty.
+                (fhir_type == "canonical" && s.ends_with('|')).then(|| {
+                    (
+                        "TYPE_003",
+                        format!("Canonical at '{path}' has an empty version after '|': '{s}'"),
+                    )
+                })
+            }),
             _ => Some(expected("string")),
         },
         // R5 publishes no regex for xhtml.
