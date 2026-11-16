@@ -367,6 +367,11 @@ Les fonctions de chaînes de N1 §5.6 (`indexOf`, `lastIndexOf`, `substring`, `s
 - **WHEN** `'abc123'.matches('[0-9]+')` est évalué
 - **THEN** le résultat SHALL être `[Bool(true)]`
 
+#### Scenario: matches et matchesFull évaluent en mode « single line »
+
+- **WHEN** `'a\nb'.matches('a.b')` est évalué
+- **THEN** le résultat SHALL être `[Bool(true)]` (`.` correspond aussi à un saut de ligne ; `matches` et `matchesFull` activent le flag `s`, `replaceMatches` non)
+
 #### Scenario: matches avec flag insensible à la casse
 
 - **WHEN** `'Hello'.matches('hello', 'i')` est évalué

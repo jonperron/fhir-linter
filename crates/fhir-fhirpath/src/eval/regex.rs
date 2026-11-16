@@ -42,7 +42,7 @@ pub(super) fn build_regex(
 }
 
 pub(super) fn regex_matches(text: &str, pattern: &str, flags: &str) -> Result<bool, EvalError> {
-    build_regex(pattern, flags, "matches()").map(|re| re.is_match(text))
+    build_regex(pattern, &single_line(flags), "matches()").map(|re| re.is_match(text))
 }
 
 pub(super) fn regex_matches_full(
@@ -51,7 +51,13 @@ pub(super) fn regex_matches_full(
     flags: &str,
 ) -> Result<bool, EvalError> {
     let anchored = format!(r"\A(?:{pattern})\z");
-    build_regex(&anchored, flags, "matchesFull()").map(|re| re.is_match(text))
+    build_regex(&anchored, &single_line(flags), "matchesFull()").map(|re| re.is_match(text))
+}
+
+/// The FHIRPath spec has matches() and matchesFull() "use 'single line'
+/// mode" (`.` matches a newline). The `s` lands in the cache key prefix.
+fn single_line(flags: &str) -> String {
+    format!("{flags}s")
 }
 
 pub(super) fn regex_replace_all(
@@ -180,6 +186,28 @@ mod tests {
         let first = build_regex("cache-hit-[0-9]+", "i", "test")?;
         let second = build_regex("cache-hit-[0-9]+", "i", "test")?;
         assert!(Arc::ptr_eq(&first, &second));
+        Ok(())
+    }
+
+    // FHIRPath matches() and matchesFull() use "single line" mode: `.`
+    // also matches a newline (official testMatchesSingleLineMode1).
+    #[test]
+    fn matches_and_matches_full_use_single_line_mode() -> Result<(), EvalError> {
+        assert!(regex_matches("A\n\t\t\tB", "A.*B", "")?);
+        assert!(regex_matches_full("A\n\t\t\tB", "A.*B", "")?);
+        assert!(regex_matches_full("A\nB", "A.B", "i")?);
+        // A caller-supplied `s` repeats the prefix, which stays valid.
+        assert!(regex_matches("A\nB", "A.B", "s")?);
+        Ok(())
+    }
+
+    // The spec says nothing on single-line mode for replaceMatches(), so it
+    // keeps the default; the same pattern compiled for matches() must not
+    // leak its single-line entry through the cache.
+    #[test]
+    fn single_line_entry_is_not_shared_with_replace_matches() -> Result<(), EvalError> {
+        assert!(regex_matches("A\nB", "A.B", "")?);
+        assert_eq!(regex_replace_all("A\nB", "A.B", "x", "")?, "A\nB");
         Ok(())
     }
 }
