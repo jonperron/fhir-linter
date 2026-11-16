@@ -30,12 +30,13 @@ fn basic(system: &str) -> Resource {
     parse_json(&json).unwrap()
 }
 
-fn official(name: &str) -> Option<Resource> {
+/// An official case; a missing fixture fails (run `git submodule update --init`).
+fn official(name: &str) -> Resource {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/validator")
         .join(name);
-    let source = std::fs::read_to_string(path).ok()?; // submodule not checked out
-    Some(parse_xml(&source).unwrap())
+    let source = std::fs::read_to_string(path).expect("fixtures submodule checked out");
+    parse_xml(&source).unwrap()
 }
 
 #[test]
@@ -48,9 +49,7 @@ fn coding_system_naming_a_value_set_is_an_error_in_json() {
 
 #[test]
 fn coding_system_naming_a_value_set_is_an_error_in_xml() {
-    let Some(resource) = official("code-wrong-system-vs.xml") else {
-        return;
-    };
+    let resource = official("code-wrong-system-vs.xml");
     assert_eq!(
         findings(&resource),
         vec![(Severity::Error, "Basic.code.coding.system".to_owned())]
@@ -59,9 +58,7 @@ fn coding_system_naming_a_value_set_is_an_error_in_xml() {
 
 #[test]
 fn value_set_include_system_naming_a_value_set_is_an_error() {
-    let Some(resource) = official("vs-wrong-vs.xml") else {
-        return;
-    };
+    let resource = official("vs-wrong-vs.xml");
     assert_eq!(
         findings(&resource),
         vec![(
@@ -90,4 +87,16 @@ fn code_systems_and_unknown_uris_are_not_reported() {
     ] {
         assert!(findings(&basic(system)).is_empty(), "{system}");
     }
+}
+
+#[test]
+fn coding_system_with_an_extension_in_xml_is_still_checked() {
+    let source = r#"<Basic xmlns="http://hl7.org/fhir"><code><coding>
+        <system value="http://hl7.org/fhir/ValueSet/account-type">
+          <extension url="http://example.org/x"><valueString value="y"/></extension>
+        </system><code value="x"/></coding></code></Basic>"#;
+    assert_eq!(
+        findings(&parse_xml(source).unwrap()),
+        vec![(Severity::Error, "Basic.code.coding.system".to_owned())]
+    );
 }
