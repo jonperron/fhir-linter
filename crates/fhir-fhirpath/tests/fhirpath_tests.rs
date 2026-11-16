@@ -1155,6 +1155,24 @@ fn math_sqrt_on_decimal_input() {
     }
 }
 
+/// N2 sqrt() and power(): a result that cannot be represented is empty.
+#[test]
+fn math_unrepresentable_result_is_empty() {
+    for expression in [
+        "(-1).sqrt()",
+        "(-2.5).sqrt()",
+        "(-1).power(0.5)",
+        "10.0.power(400)",
+        "0.power(-1)",
+    ] {
+        let result = evaluate(expression, &[]).unwrap();
+        assert!(
+            result.is_empty(),
+            "{expression}: expected empty, got {result:?}"
+        );
+    }
+}
+
 #[test]
 fn math_abs_decimal_value() {
     match evaluate("(-3.5).abs()", &[]).unwrap().as_slice() {

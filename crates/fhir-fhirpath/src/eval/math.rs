@@ -108,8 +108,8 @@ impl Evaluator<'_> {
             "sqrt" => {
                 check_arity(name, args, 0)?;
                 match focus.first() {
-                    Some(Value::Integer(n)) => vec![Value::Decimal((*n as f64).sqrt())],
-                    Some(Value::Decimal(d)) => vec![Value::Decimal(d.sqrt())],
+                    Some(Value::Integer(n)) => representable((*n as f64).sqrt()),
+                    Some(Value::Decimal(d)) => representable(d.sqrt()),
                     Some(v) => {
                         return Err(EvalError::Type(format!(
                             "sqrt() requires number, got {}",
@@ -176,8 +176,8 @@ impl Evaluator<'_> {
                     None => return Ok(Some(vec![])),
                 };
                 match focus.first() {
-                    Some(Value::Integer(n)) => vec![Value::Decimal((*n as f64).powf(exp))],
-                    Some(Value::Decimal(d)) => vec![Value::Decimal(d.powf(exp))],
+                    Some(Value::Integer(n)) => representable((*n as f64).powf(exp)),
+                    Some(Value::Decimal(d)) => representable(d.powf(exp)),
                     Some(v) => {
                         return Err(EvalError::Type(format!(
                             "power() requires number, got {}",
@@ -205,5 +205,15 @@ impl Evaluator<'_> {
             _ => return Ok(None),
         };
         Ok(Some(col))
+    }
+}
+
+/// N2 sqrt() and power(): a result that cannot be represented (NaN or
+/// infinity) is empty.
+fn representable(result: f64) -> Collection {
+    if result.is_finite() {
+        vec![Value::Decimal(result)]
+    } else {
+        vec![]
     }
 }

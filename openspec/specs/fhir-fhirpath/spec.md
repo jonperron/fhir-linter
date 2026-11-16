@@ -451,7 +451,7 @@ Les fonctions de chaînes de N1 §5.6 (`indexOf`, `lastIndexOf`, `substring`, `s
 
 ### Requirement: Fonctions mathématiques
 
-Le système SHALL implémenter `abs()`, `ceiling()`, `floor()`, `round()`, `round(precision)`, `sqrt()`, `exp()`, `ln()`, `log(base)`, `power(exponent)`, `truncate()`.
+Le système SHALL implémenter `abs()`, `ceiling()`, `floor()`, `round()`, `round(precision)`, `sqrt()`, `exp()`, `ln()`, `log(base)`, `power(exponent)`, `truncate()`. Conformément à FHIRPath N2, `sqrt()` et `power(exponent)` SHALL retourner une collection vide lorsque le résultat n'est pas représentable (NaN ou infini).
 
 #### Scenario: abs sur valeur négative
 
@@ -473,7 +473,10 @@ Le système SHALL implémenter `abs()`, `ceiling()`, `floor()`, `round()`, `roun
 - **WHEN** `4.sqrt()` est évalué
 - **THEN** le résultat SHALL être `[Decimal(2.0)]`
 
----
+#### Scenario: Résultat non représentable
+
+- **WHEN** `(-1).sqrt()`, `(-1).power(0.5)`, `10.0.power(400)` ou `0.power(-1)` est évalué
+- **THEN** le résultat SHALL être une collection vide
 
 ### Requirement: Fonctions de conversion
 
