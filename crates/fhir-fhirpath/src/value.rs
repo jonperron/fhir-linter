@@ -507,7 +507,9 @@ fn primitive(
     Value::Primitive(Box::new(value.primitive_value().clone()), children, ty)
 }
 
-/// FHIR primitive type codes are lower camel case (`code`, `dateTime`).
-fn is_primitive_type(code: &str) -> bool {
+/// FHIR primitive type codes are lower camel case (`code`, `dateTime`); complex
+/// types and resources start upper case. Defined here because `fhir-definitions`
+/// depends on this crate; other crates use its re-export there.
+pub fn is_primitive_type(code: &str) -> bool {
     code.starts_with(|c: char| c.is_ascii_lowercase())
 }

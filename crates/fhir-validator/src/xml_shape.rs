@@ -26,7 +26,8 @@ use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
 use crate::embedded::{concrete_resource, holds_resource, typed_element};
-use crate::resolve::{complex_type, is_primitive, resolve};
+use crate::resolve::{complex_type, resolve};
+use fhir_definitions::is_primitive_type;
 
 type Fields = IndexMap<Arc<str>, Node>;
 
@@ -160,7 +161,7 @@ impl Shaper<'_> {
                 out.insert(Arc::clone(name), self.embedded(node, &child_path));
                 continue;
             }
-            if is_primitive(&ty) {
+            if is_primitive_type(&ty) {
                 let extension_path = format!("{path}._{name}");
                 let (values, extensions): (Vec<Node>, Vec<Node>) = items(node, &child_path)
                     .into_iter()
