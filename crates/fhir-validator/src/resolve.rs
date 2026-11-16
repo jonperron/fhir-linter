@@ -39,6 +39,6 @@ pub(crate) fn complex_type<'a>(
     registry: &'a Registry,
 ) -> Option<&'a StructureDefinition> {
     registry
-        .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{ty}"))
+        .core(ty)
         .filter(|t| t.kind.as_ref() == "complex-type")
 }

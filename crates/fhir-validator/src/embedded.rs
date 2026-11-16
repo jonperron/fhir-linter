@@ -36,8 +36,7 @@ pub(crate) fn concrete_resource<'a>(
     registry: &'a Registry,
     resource_type: &str,
 ) -> Result<&'a StructureDefinition, String> {
-    let url = format!("http://hl7.org/fhir/StructureDefinition/{resource_type}");
-    let definition = registry.structure_definition(&url);
+    let definition = registry.core(resource_type);
     definition
         .filter(|sd| sd.kind.as_ref() == "resource" && !sd.is_abstract)
         .ok_or_else(|| match definition {
@@ -89,9 +88,7 @@ pub(crate) fn child_element(
 ) -> Option<(Arc<str>, Arc<str>)> {
     registry.child_element(parent, name).or_else(|| {
         let type_name = parent.split('.').next()?;
-        let sd = registry.structure_definition(&format!(
-            "http://hl7.org/fhir/StructureDefinition/{type_name}"
-        ))?;
+        let sd = registry.core(type_name)?;
         let (_, target) = content_target(registry, sd, sd.element(&format!("{parent}.{name}"))?)?;
         let ty = target.types.first()?;
         let definition = match ty.as_ref() {
@@ -107,7 +104,7 @@ pub(crate) fn child_element(
 /// `resourceType` rather than by the element.
 pub(crate) fn holds_resource(ty: &str, registry: &Registry) -> bool {
     registry
-        .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{ty}"))
+        .core(ty)
         .is_some_and(|t| t.kind.as_ref() == "resource")
 }
 

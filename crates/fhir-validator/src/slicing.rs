@@ -317,11 +317,7 @@ fn test(
             };
             // The type itself; an abstract slice type (Resource) takes its specialisations,
             // but a concrete one does not: `canonical` specialises `uri` yet is another type.
-            let is_abstract = |t: &str| {
-                registry
-                    .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{t}"))
-                    .is_some_and(|sd| sd.is_abstract)
-            };
+            let is_abstract = |t: &str| registry.core(t).is_some_and(|sd| sd.is_abstract);
             types.iter().any(|t| {
                 actual == *t || is_abstract(t) && registry.type_ancestors(actual).any(|a| a == *t)
             })

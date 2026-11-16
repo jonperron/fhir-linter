@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use fhir_definitions::{ElementDefinition, Registry};
+use fhir_definitions::{CORE_PREFIX, ElementDefinition, Registry};
 use fhir_parser::{Node, Resource, Value};
 
 use crate::diagnostic::Diagnostic;
@@ -114,7 +114,7 @@ pub(crate) fn check(
     // references.html 2.1.3.0.1: type and the reference SHALL be consistent.
     let declared = string_field(item, "type");
     if let (Some(declared), Some(url_type)) = (declared, target_type)
-        && declared.strip_prefix(CORE_SD).unwrap_or(declared) != url_type
+        && declared.strip_prefix(CORE_PREFIX).unwrap_or(declared) != url_type
     {
         let message = format!(
             "Reference.type '{declared}' does not match type '{url_type}' \
@@ -183,11 +183,9 @@ fn target_allowed(elem: &ElementDefinition, url_type: &str, registry: &Registry)
     })
 }
 
-const CORE_SD: &str = "http://hl7.org/fhir/StructureDefinition/";
-
 fn is_resource_type(registry: &Registry, name: &str) -> bool {
     registry
-        .structure_definition(&format!("{CORE_SD}{name}"))
+        .core(name)
         .is_some_and(|sd| sd.kind.as_ref() == "resource" && !sd.is_abstract)
 }
 

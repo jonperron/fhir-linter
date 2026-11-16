@@ -19,10 +19,7 @@ fn registry() -> &'static Registry {
 
 /// Expression of constraint `key` on the root element of type `ty`.
 fn constraint_expression(ty: &str, key: &str) -> TestResult<String> {
-    let url = format!("http://hl7.org/fhir/StructureDefinition/{ty}");
-    let sd = registry()
-        .structure_definition(&url)
-        .ok_or("type is not defined")?;
+    let sd = registry().core(ty).ok_or("type is not defined")?;
     let root = sd.element(ty).ok_or("no root element")?;
     let constraint = root
         .constraints

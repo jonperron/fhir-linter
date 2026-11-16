@@ -18,7 +18,7 @@ fn is_given(node: Option<&Node>) -> bool {
 fn has_element(resource: &Resource, registry: &Registry, name: &str) -> bool {
     let rt = resource.resource_type.as_ref();
     registry
-        .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{rt}"))
+        .core(rt)
         .is_some_and(|sd| sd.element(&format!("{rt}.{name}")).is_some())
 }
 

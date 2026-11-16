@@ -20,12 +20,11 @@ fn registry() -> &'static Registry {
 
 /// The R5 core profile `name` with its snapshot edited by `edit`.
 fn edited(name: &str, edit: impl FnOnce(&mut Vec<ElementDefinition>)) -> StructureDefinition {
-    let url = format!("http://hl7.org/fhir/StructureDefinition/{name}");
-    let core = registry().structure_definition(&url).expect("core profile");
+    let core = registry().core(name).expect("core profile");
     let mut snapshot = core.snapshot.clone();
     edit(&mut snapshot);
     StructureDefinition::new(
-        Arc::from(url),
+        core.url.clone(),
         core.name.clone(),
         core.kind.clone(),
         false,

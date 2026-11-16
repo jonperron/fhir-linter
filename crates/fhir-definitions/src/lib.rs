@@ -16,7 +16,7 @@ pub use model::{
     AdditionalBinding, Binding, ChoiceValue, CodeSystem, Constraint, Discriminator,
     ElementDefinition, Include, Slicing, StructureDefinition, TypeProfiles, ValueSet,
 };
-pub use registry::Registry;
+pub use registry::{CORE_PREFIX, Registry};
 pub use shared::DEFINITIONS_DIR_ENV;
 pub use type_code::{capitalise, is_primitive_type};
 

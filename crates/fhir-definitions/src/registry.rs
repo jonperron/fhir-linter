@@ -9,7 +9,7 @@ use crate::model::{CodeSystem, Include, StructureDefinition, ValueSet};
 use crate::type_code::capitalise;
 
 /// Canonical URL prefix of the core definitions; a type code appended gives its URL.
-const CORE_PREFIX: &str = "http://hl7.org/fhir/StructureDefinition/";
+pub const CORE_PREFIX: &str = "http://hl7.org/fhir/StructureDefinition/";
 
 /// Indexed registry of FHIR R5 definitions, built once and shared via `Arc`.
 ///
@@ -90,6 +90,12 @@ impl Registry {
         self.structure_definitions.get(url)
     }
 
+    /// Look up a core `StructureDefinition` by name (`Patient`, `string`): the
+    /// definition whose canonical URL is [`CORE_PREFIX`] followed by `name`.
+    pub fn core(&self, name: &str) -> Option<&StructureDefinition> {
+        self.structure_definition(&format!("{CORE_PREFIX}{name}"))
+    }
+
     /// The `regex` extension R5 publishes on the `<code>.value` element of the primitive type
     /// `code` (`uri` gives `\S*`). `None` for complex types, resources, unknown codes and
     /// `xhtml`, which publishes none.
@@ -101,9 +107,7 @@ impl Registry {
     /// - not trust the `decimal` one: its exponent `[0-9]{1,9}}` has a stray `}` (a typo in
     ///   R5), so an engine either rejects the pattern or makes every exponent end in `}`.
     pub fn primitive_regex(&self, code: &str) -> Option<&str> {
-        self.structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{code}"))?
-            .value_regex
-            .as_deref()
+        self.core(code)?.value_regex.as_deref()
     }
 
     /// The type `code` and its ancestors, nearest first, by following `baseDefinition`:
@@ -113,9 +117,7 @@ impl Registry {
     /// the core namespace or not loaded, and after as many steps as there are definitions, so a
     /// cyclic chain cannot loop.
     pub fn type_ancestors<'a>(&'a self, code: &'a str) -> impl Iterator<Item = &'a str> + 'a {
-        let first = self
-            .structure_definition(&format!("{CORE_PREFIX}{code}"))
-            .map(|sd| (code, sd));
+        let first = self.core(code).map(|sd| (code, sd));
         std::iter::successors(first, |(_, sd)| {
             let base = sd.base_definition.as_deref()?;
             Some((
@@ -152,9 +154,7 @@ impl Registry {
     /// read the reference when the loader keeps it).
     pub fn child_element(&self, parent: &str, name: &str) -> Option<(Arc<str>, Arc<str>)> {
         let type_name = parent.split('.').next()?;
-        let sd = self.structure_definition(&format!(
-            "http://hl7.org/fhir/StructureDefinition/{type_name}"
-        ))?;
+        let sd = self.core(type_name)?;
         let (element, ty) = match sd.element(&format!("{parent}.{name}")) {
             Some(element) => (element, element.types.first()?),
             // A type suffix is capitalised, so a choice can only split before an uppercase letter.
@@ -421,6 +421,20 @@ mod tests {
         assert_eq!(sd.name.as_ref(), "Patient");
         assert_eq!(sd.kind.as_ref(), "resource");
         assert!(!sd.snapshot.is_empty(), "snapshot should have elements");
+    }
+
+    #[test]
+    fn core_looks_up_by_name_under_the_core_prefix() {
+        let registry = &*REGISTRY;
+        let sd = registry
+            .core("Patient")
+            .expect("Patient is a core definition");
+        assert_eq!(
+            sd.url.as_ref(),
+            "http://hl7.org/fhir/StructureDefinition/Patient"
+        );
+        assert!(registry.core("NotAType").is_none());
+        assert!(registry.core("").is_none());
     }
 
     #[test]
