@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use fhir_definitions::{CORE_PREFIX, ElementDefinition, Registry};
@@ -8,6 +8,77 @@ use crate::diagnostic::Diagnostic;
 
 /// The id of a contained resource, with its `resourceType` when that is a string.
 pub(crate) type ContainedId = (Arc<str>, Option<Arc<str>>);
+
+/// The `resourceType` of the Bundle entries with each `fullUrl`; `None` when entries
+/// sharing a fullUrl disagree on it.
+pub(crate) type BundleTargets = HashMap<Arc<str>, Option<Arc<str>>>;
+
+/// The entries of a Bundle that references inside it resolve to (bundle.html 2.4.5.1: "Look
+/// for an entry with a fullUrl that matches the reference.value"). Emits `REFERENCE_007` at
+/// each entry whose RESTful `fullUrl` does not end with the resource id (Bundle.entry.fullUrl:
+/// "The fullUrl SHALL NOT disagree with the id in the resource").
+pub(crate) fn bundle_entries(
+    resource: &Resource,
+    path: &str,
+    registry: &Registry,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> BundleTargets {
+    let entries = match resource.fields.get("entry") {
+        Some(Node {
+            value: Value::Array(items),
+            ..
+        }) => items.as_slice(),
+        Some(single) => std::slice::from_ref(single),
+        None => &[],
+    };
+    let mut found = BundleTargets::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let Some(full_url) = string_field(entry, "fullUrl") else {
+            continue;
+        };
+        let Value::Object(fields) = &entry.value else {
+            continue;
+        };
+        let Some(resource) = fields.get("resource") else {
+            continue;
+        };
+        let id = string_field(resource, "id");
+        if let (Some(id), Some(url_id)) = (id, restful_id(full_url, registry))
+            && id != url_id
+        {
+            let message = format!(
+                "The fullUrl '{full_url}' is a RESTful URL, so it must end with the resource \
+                 id '{id}'"
+            );
+            diagnostics.push(
+                Diagnostic::error("REFERENCE_007", message, format!("{path}.entry[{index}]"))
+                    .with_location(entry.span),
+            );
+        }
+        if let Some(resource_type) = string_field(resource, "resourceType") {
+            found
+                .entry(Arc::from(full_url))
+                .and_modify(|known: &mut Option<Arc<str>>| {
+                    if known.as_deref() != Some(resource_type) {
+                        *known = None;
+                    }
+                })
+                .or_insert_with(|| Some(Arc::from(resource_type)));
+        }
+    }
+    found
+}
+
+/// The id part of an absolute URL that matches the R5 RESTful URL regex.
+fn restful_id<'a>(url: &'a str, registry: &Registry) -> Option<&'a str> {
+    fhir_url_type(url, registry).filter(|_| has_scheme(url))?;
+    let segments: Vec<&str> = url.rsplit('/').take(3).collect();
+    match segments.as_slice() {
+        [_, "_history", id] => Some(id),
+        [id, ..] => Some(id),
+        [] => None,
+    }
+}
 
 /// The ids of the resource's `contained` resources, which `#id` references resolve to.
 pub(crate) fn contained_ids(resource: &Resource) -> Vec<ContainedId> {
@@ -83,13 +154,17 @@ fn contained_id(node: &Node) -> Option<ContainedId> {
 /// disagrees with the type of a FHIR URL or `#id` reference, and `REFERENCE_004`
 /// (warning) a malformed relative reference. `REFERENCE_005` reports a FHIR URL
 /// or `#id` reference whose type is not allowed by the `targetProfile` list of
-/// `elem`. A `#id` takes the type of the contained resource it resolves to.
+/// `elem`. A `#id` takes the type of the contained resource it resolves to, and an absolute
+/// reference (such as `urn:uuid:`) the type of the `bundle` entries whose fullUrl it matches,
+/// when they all have the same type.
+#[allow(clippy::too_many_arguments)] // the reference, its definition and where it resolves
 pub(crate) fn check(
     item: &Node,
     elem: &ElementDefinition,
     path: &str,
     contained_ids: &[ContainedId],
     in_contained: bool,
+    bundle: &BundleTargets,
     registry: &Registry,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -111,6 +186,7 @@ pub(crate) fn check(
             .as_deref()
             .filter(|t| is_resource_type(registry, t))
     });
+    let target_type = target_type.or_else(|| bundle_type(reference, bundle, registry));
     // references.html 2.1.3.0.1: type and the reference SHALL be consistent.
     let declared = string_field(item, "type");
     if let (Some(declared), Some(url_type)) = (declared, target_type)
@@ -145,6 +221,20 @@ pub(crate) fn check(
         diagnostics
             .push(Diagnostic::warning("REFERENCE_004", message, ref_path).with_location(item.span));
     }
+}
+
+/// The resource type of the `bundle` entries whose fullUrl is the absolute `reference`, when
+/// there is at least one and they agree. Relative references are not resolved here.
+fn bundle_type<'a>(
+    reference: &str,
+    bundle: &'a BundleTargets,
+    registry: &Registry,
+) -> Option<&'a str> {
+    if !has_scheme(reference) {
+        return None;
+    }
+    let resource_type = bundle.get(reference)?.as_deref()?;
+    is_resource_type(registry, resource_type).then_some(resource_type)
 }
 
 /// A relative reference to a known type that fails the R5 literal reference regex.

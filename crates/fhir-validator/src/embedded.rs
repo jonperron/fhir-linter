@@ -8,11 +8,14 @@ use fhir_parser::{Node, Resource, ResourceId, Value};
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
-use crate::references::ContainedId;
+use crate::references::{BundleTargets, ContainedId};
 
 /// The ids of a resource's `contained` resources, shared by every contained resource
 /// (one allocation, not one copy per contained resource).
 pub(crate) type ContainedIds = Arc<[ContainedId]>;
+
+/// The entries of the innermost Bundle holding a resource, shared like [`ContainedIds`].
+pub(crate) type BundleEntries = Arc<BundleTargets>;
 
 /// A resource inside another one (`contained`, `Bundle.entry.resource`,
 /// `Parameters.parameter.resource`), to validate against its own type.
@@ -28,6 +31,8 @@ pub(crate) struct Embedded<'a> {
     pub container_ids: Option<ContainedIds>,
     /// For a contained resource, its container's FHIRPath value: `%rootResource`.
     pub container: Option<FhirPathValue>,
+    /// The entries of the innermost Bundle holding it, where absolute references resolve.
+    pub bundle: BundleEntries,
 }
 
 /// The concrete resource StructureDefinition of `resource_type`, or the `STRUCTURE_000`
@@ -111,11 +116,14 @@ pub(crate) fn holds_resource(ty: &str, registry: &Registry) -> bool {
 /// Queue for validation each resource that `node` (an element typed `Resource`, instance
 /// `path`) holds. `typed` is its FHIRPath value as converted with its parent, when known;
 /// `container` is set for `contained`: the ids and the value of the container (see
-/// [`Embedded::container_ids`] and [`Embedded::container`]).
+/// [`Embedded::container_ids`] and [`Embedded::container`]); `bundle` is
+/// [`Embedded::bundle`].
+#[allow(clippy::too_many_arguments)] // the node, its place and where its references resolve
 pub(crate) fn queue<'a>(
     node: &Node,
     typed: Option<&[FhirPathValue]>,
     container: Option<(&ContainedIds, &FhirPathValue)>,
+    bundle: &BundleEntries,
     registry: &'a Registry,
     path: &str,
     queue: &mut Vec<Embedded<'a>>,
@@ -207,6 +215,7 @@ pub(crate) fn queue<'a>(
             // A resource contained in a contained one (dom-2) still resolves against the root.
             container_ids: container.map(|(ids, _)| Arc::clone(ids)),
             container: container.map(|(_, value)| value.clone()),
+            bundle: Arc::clone(bundle),
         });
     }
 }
@@ -272,6 +281,7 @@ mod tests {
             node,
             None,
             Some((&ids, &container)),
+            &Arc::default(),
             &registry,
             "Patient.contained",
             &mut queued,
