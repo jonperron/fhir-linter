@@ -110,6 +110,21 @@ pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collecti
     if let Some(result) = integer_op(lv, rv, &op)? {
         return Ok(vec![result]);
     }
+    let temporal = lv.primitive_value();
+    if matches!(
+        temporal,
+        Value::Date(_) | Value::DateTime(_) | Value::Time(_)
+    ) && matches!(op, ArithOp::Add | ArithOp::Sub)
+        && let Some((amount, unit)) = as_quantity(rv)
+    {
+        let amount = if matches!(op, ArithOp::Sub) {
+            -amount
+        } else {
+            amount
+        };
+        let unit = unit.ok_or_else(|| EvalError::Type("a duration needs a unit".into()))?;
+        return Ok(vec![super::temporal::add_duration(temporal, amount, unit)?]);
+    }
     let a = lv
         .as_decimal()
         .ok_or_else(|| EvalError::Type("arithmetic requires numbers".into()))?;

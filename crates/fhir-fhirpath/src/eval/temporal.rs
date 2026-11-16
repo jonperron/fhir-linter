@@ -5,6 +5,10 @@
 //! shortcut: values keep their text and are parsed on each comparison; store
 //! the parsed parts if profiling shows the cost.
 use std::cmp::Ordering;
+use std::sync::Arc;
+
+use crate::error::EvalError;
+use crate::value::Value;
 
 /// Components from year (or hour for a Time) down to seconds, and the
 /// zone offset in minutes.
@@ -122,6 +126,221 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
     (year, month, day)
+}
+
+/// Calendar duration units from year to millisecond, with the UCUM codes
+/// N1 §4.1.8 lets stand for them. UCUM `a` and `mo` are definite durations,
+/// not calendar ones, so they are absent (testPlusDate14, testPlusDate16).
+const DURATION_UNITS: [&[&str]; 7] = [
+    &["year"],
+    &["month"],
+    &["day", "d"],
+    &["hour", "h"],
+    &["minute", "min"],
+    &["second", "s"],
+    &["millisecond", "ms"],
+];
+
+/// Milliseconds in a day, hour, minute, second and millisecond: the units
+/// from [`DURATION_UNITS`] index 2 on.
+const UNIT_MILLIS: [i64; 5] = [86_400_000, 3_600_000, 60_000, 1000, 1];
+
+/// `value + amount unit` for a Date, DateTime or Time (N2 §6.6.7; `-` passes
+/// a negated amount, §6.6.8). The result keeps the value's precision and
+/// zone text. Amounts above seconds lose their decimals, and a unit finer
+/// than the value converts to the value's precision, truncated.
+pub(super) fn add_duration(value: &Value, amount: f64, unit: &str) -> Result<Value, EvalError> {
+    let (text, is_time) = match value {
+        Value::Date(text) | Value::DateTime(text) => (text, false),
+        Value::Time(text) => (text, true),
+        _ => {
+            return Err(EvalError::Type(
+                "date arithmetic requires a date or time".into(),
+            ));
+        }
+    };
+    let bad_unit = || EvalError::Type(format!("'{unit}' is not a calendar duration"));
+    let (index, amount) = match unit {
+        "week" | "wk" => (2, amount.trunc() * 7.0),
+        _ => {
+            let index = DURATION_UNITS
+                .iter()
+                .position(|names| names.contains(&unit))
+                .ok_or_else(bad_unit)?;
+            (index, if index < 5 { amount.trunc() } else { amount })
+        }
+    };
+    if is_time && index < 3 {
+        // not settled by N2: a Time has no calendar to add days or months to.
+        return Err(EvalError::Type(format!("cannot add {unit} to a Time")));
+    }
+    let mut fields = TemporalFields::parse(text, is_time)
+        .ok_or_else(|| EvalError::Type(format!("invalid date/time: {text}")))?;
+    let out_of_range = || EvalError::Type(format!("{text} + {amount} {unit} is out of range"));
+    if !amount.is_finite() {
+        return Err(out_of_range());
+    }
+    if index < 2 {
+        let months = (amount as i64)
+            .checked_mul(if index == 0 { 12 } else { 1 })
+            .ok_or_else(out_of_range)?;
+        // A year-precision value takes whole years only.
+        let months = if fields.precision == 0 {
+            months / 12 * 12
+        } else {
+            months
+        };
+        fields.add_months(months).ok_or_else(out_of_range)?;
+    } else if fields.precision < 2 {
+        // not settled by N2: a day has no fixed length in months or years.
+        return Err(EvalError::Type(format!(
+            "cannot add {unit} to {text}, which has no day"
+        )));
+    } else {
+        let step = UNIT_MILLIS[fields.precision - 2];
+        // Rounding to a micro-step first keeps 1.005 s at 1005 ms, not 1004.
+        let steps = ((amount * UNIT_MILLIS[index - 2] as f64 / step as f64) * 1e6).round() / 1e6;
+        let steps = steps.trunc();
+        // 1e18 ms is far past 9999 years yet keeps the sum inside i64.
+        if !steps.is_finite() || (steps * step as f64).abs() > 1e18 {
+            return Err(out_of_range());
+        }
+        fields.add_millis(steps as i64 * step);
+    }
+    fields.format(text, is_time).map(Arc::from).map_or_else(
+        || Err(out_of_range()),
+        |text| {
+            Ok(match value {
+                Value::Date(_) => Value::Date(text),
+                Value::DateTime(_) => Value::DateTime(text),
+                _ => Value::Time(text),
+            })
+        },
+    )
+}
+
+/// The year-to-millisecond fields of a date/time text, the index of its
+/// most precise field and its zone text. A Time sits on 1970-01-01.
+struct TemporalFields<'a> {
+    fields: [i64; 7],
+    precision: usize,
+    zone: &'a str,
+}
+
+impl<'a> TemporalFields<'a> {
+    fn parse(text: &'a str, is_time: bool) -> Option<Self> {
+        let (date, time) = if is_time {
+            ("1970-01-01", text)
+        } else {
+            text.split_once('T').unwrap_or((text, ""))
+        };
+        let (clock, _) = split_zone(time)?;
+        let mut fields = [0, 1, 1, 0, 0, 0, 0];
+        let mut count = 0;
+        let (whole, fraction) = clock.split_once('.').unwrap_or((clock, ""));
+        let parts = date
+            .split('-')
+            .chain(whole.split(':'))
+            .filter(|p| !p.is_empty());
+        for part in parts {
+            *fields.get_mut(count)? = part.parse().ok()?;
+            count += 1;
+        }
+        if !fraction.is_empty() {
+            // shortcut: the fraction is written back as three digits (`.5` gives
+            // `.500`, sub-millisecond digits dropped); keep the original digits if
+            // a caller needs them.
+            let millis: String = fraction.chars().chain("00".chars()).take(3).collect();
+            fields[6] = millis.parse().ok()?;
+            count = 7;
+        }
+        let precision = count.checked_sub(1)?;
+        let zone = &time[clock.len()..];
+        Some(Self {
+            fields,
+            precision,
+            zone,
+        })
+    }
+
+    /// Shift by whole months, clamping the day to the end of the month.
+    fn add_months(&mut self, months: i64) -> Option<()> {
+        let total = self.fields[0]
+            .checked_mul(12)?
+            .checked_add(self.fields[1] - 1)?
+            .checked_add(months)?;
+        let (year, month) = (total.div_euclid(12), total.rem_euclid(12) + 1);
+        if !(1..=9999).contains(&year) {
+            return None;
+        }
+        let next_month_start = if month == 12 {
+            days_from_civil(year + 1, 1, 1)
+        } else {
+            days_from_civil(year, month + 1, 1)
+        };
+        let month_length = next_month_start - days_from_civil(year, month, 1);
+        self.fields[0] = year;
+        self.fields[1] = month;
+        self.fields[2] = self.fields[2].min(month_length);
+        Some(())
+    }
+
+    /// Shift by milliseconds, carrying into the date. A Time wraps at
+    /// midnight as the carried days are dropped on output.
+    fn add_millis(&mut self, millis: i64) {
+        let [year, month, day, hour, minute, second, milli] = self.fields;
+        let total = days_from_civil(year, month, day) * 86_400_000
+            + hour * 3_600_000
+            + minute * 60_000
+            + second * 1000
+            + milli
+            + millis;
+        let (year, month, day) = civil_from_days(total.div_euclid(86_400_000));
+        let of_day = total.rem_euclid(86_400_000);
+        self.fields = [
+            year,
+            month,
+            day,
+            of_day / 3_600_000,
+            of_day / 60_000 % 60,
+            of_day / 1000 % 60,
+            of_day % 1000,
+        ];
+    }
+
+    /// The text of the shifted value in its original shape; `None` when the
+    /// year leaves 0001-9999.
+    fn format(&self, original: &str, is_time: bool) -> Option<String> {
+        if !(1..=9999).contains(&self.fields[0]) && !is_time {
+            return None;
+        }
+        let mut text = String::new();
+        let first_clock_field = if is_time { 3 } else { 0 };
+        for (index, field) in self.fields.iter().enumerate() {
+            if index < first_clock_field || index > self.precision {
+                continue;
+            }
+            let separator = match index {
+                0 => "",
+                1 | 2 => "-",
+                3 if is_time => "",
+                3 => "T",
+                6 => ".",
+                _ => ":",
+            };
+            let width = match index {
+                0 => 4,
+                6 => 3,
+                _ => 2,
+            };
+            text.push_str(&format!("{separator}{field:0width$}"));
+        }
+        if self.precision < 3 && original.contains('T') {
+            text.push('T');
+        }
+        text.push_str(self.zone);
+        Some(text)
+    }
 }
 
 /// The current UTC date-time as DateTime text with milliseconds and a
