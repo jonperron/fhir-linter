@@ -113,11 +113,15 @@ fn validate_one<'a>(
 ) -> Vec<embedded::Embedded<'a>> {
     let is_subtype =
         |child: &str, ancestor: &str| registry.type_ancestors(child).any(|code| code == ancestor);
+    let member_of = |value_set: &str, system: Option<&str>, code: &str| {
+        registry.value_set_contains(value_set, system, code)
+    };
     // fhirpath.html: %rootResource is the container only for a contained resource.
     let environment = fhir_fhirpath::Environment {
         resource: Some(root),
         root_resource: Some(container.unwrap_or(root)),
         is_subtype: Some(&is_subtype),
+        member_of: Some(&member_of),
     };
     let embedded = nested::validate(
         resource,

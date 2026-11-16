@@ -651,23 +651,20 @@ fn valid_nested_resource_has_no_nested_errors() {
 
 #[test]
 fn unevaluable_invariants_are_reported_as_information() {
-    // dgr-1 calls resolve(), which the evaluator does not implement.
+    // txt-1 calls htmlChecks(), which the evaluator does not implement.
     let resource = parse_json(
-        r#"{"resourceType":"DiagnosticReport","id":"d1","status":"final","code":{"text":"x"},
-        "composition":{"reference":"Composition/c1"}}"#,
+        r#"{"resourceType":"Patient","id":"p1","text":{"status":"generated",
+        "div":"<div xmlns=\"http://www.w3.org/1999/xhtml\">x</div>"}}"#,
     )
     .unwrap();
     let skipped: Vec<_> = validate(&resource, &load_registry())
         .into_iter()
         .filter(|d| d.code.as_ref() == "INVARIANT_SKIPPED")
         .collect();
-    assert!(
-        !skipped.is_empty(),
-        "expected skipped DiagnosticReport invariants"
-    );
+    assert!(!skipped.is_empty(), "expected skipped Narrative invariants");
     for d in &skipped {
         assert_eq!(d.severity, Severity::Information);
-        assert_eq!(d.path, "DiagnosticReport");
+        assert_eq!(d.path, "Patient.text.div");
         assert!(d.message.starts_with("constraint "), "{}", d.message);
     }
 }
@@ -735,10 +732,10 @@ fn dom6_is_evaluated_not_skipped() {
     }
 }
 
-// dgr-1 calls `resolve()`, which the evaluator does not implement: it must be
+// dgr-1 calls `resolve()` on a Composition the validator cannot see: it is
 // reported as skipped, never as a violation.
 #[test]
-fn dgr1_with_unimplemented_resolve_is_skipped_not_violated() {
+fn dgr1_with_unresolvable_composition_is_skipped_not_violated() {
     let json = r#"{"resourceType":"DiagnosticReport","status":"final","code":{"text":"x"},
         "composition":{"reference":"Composition/c1"}}"#;
     let resource = parse_json(json).unwrap();
@@ -750,30 +747,36 @@ fn dgr1_with_unimplemented_resolve_is_skipped_not_violated() {
     assert_eq!(found, ["Information INVARIANT_SKIPPED DiagnosticReport"]);
 }
 
-// docRef-1 is `facilityType.empty() or context.where(resolve() is Encounter).empty()`:
-// with no facilityType the left side decides `or`, so the unimplemented
-// `resolve()` on the right must not make it skipped.
+// docRef-1 is `facilityType.empty() or context.where(resolve() is Encounter).empty()`.
 #[test]
 fn docref1_decided_by_left_side_is_checked_not_skipped() {
-    let docref1 = |facility_type: &str| {
+    let docref1_with = |facility_type: &str, context: &str| {
         let json = format!(
-            r#"{{"resourceType":"DocumentReference","status":"current",{facility_type}
+            r##"{{"resourceType":"DocumentReference","status":"current",{facility_type}
+            "contained":[{{"resourceType":"Encounter","id":"enc","status":"completed"}}],
             "content":[{{"attachment":{{"url":"http://example.org/doc"}}}}],
-            "context":[{{"reference":"Encounter/e1"}}]}}"#
+            "context":[{{"reference":"{context}"}}]}}"##
         );
         let resource = parse_json(&json).unwrap();
         validate(&resource, &load_registry())
             .into_iter()
-            .filter(|d| d.message.contains("docRef-1"))
+            .filter(|d| d.code.contains("docRef-1") || d.message.contains("docRef-1"))
             .map(|d| format!("{:?} {} {}", d.severity, d.code, d.path))
             .collect::<Vec<_>>()
     };
-    let found = docref1("");
-    assert!(found.is_empty(), "{found:?}");
-    // With facilityType the right side must be evaluated: this proves the
-    // constraint is loaded and run, so the empty result above is a real pass.
-    let found = docref1(r#""facilityType":{"text":"x"},"#);
-    assert_eq!(found, ["Information INVARIANT_SKIPPED DocumentReference"]);
+    let facility_type = r#""facilityType":{"text":"x"},"#;
+    // With no facilityType the left side decides `or`.
+    assert!(docref1_with("", "#enc").is_empty());
+    // An Encounter the validator cannot see is skipped, never a violation.
+    assert_eq!(
+        docref1_with(facility_type, "Encounter/e1"),
+        ["Information INVARIANT_SKIPPED DocumentReference"],
+    );
+    // A contained Encounter resolves: the constraint is loaded and run.
+    assert_eq!(
+        docref1_with(facility_type, "#enc"),
+        ["Warning INVARIANT_docRef-1 DocumentReference"],
+    );
 }
 
 #[test]

@@ -4,7 +4,7 @@
 //!
 //! FHIR R5 uses FHIRPath release 2 (2.0.0). This crate implements a subset
 //! of it, plus a few later additions; functions it does not implement
-//! (for example `resolve()` or `memberOf()`) return
+//! (for example `conformsTo()` or `htmlChecks()`) return
 //! [`EvalError::UndefinedFunction`] rather than a guessed result.
 
 mod ast;
@@ -16,7 +16,7 @@ mod xml_text;
 
 pub use ast::Expr;
 pub use error::{EvalError, ParseError};
-pub use eval::{Environment, IsSubtype};
+pub use eval::{Environment, IsSubtype, MemberOf};
 pub use value::{
     ChildElement, Collection, Value, from_parser_value, node_to_typed_value,
     resource_to_typed_value, resource_to_value,
