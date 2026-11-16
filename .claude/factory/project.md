@@ -28,6 +28,8 @@ and write a new copy of this file with the same headings.
   from `origin/<branch>` and push with
   `--force-with-lease=<branch>:origin/<branch> origin <local>:<branch>`.
 - `gh` has no `/usr/bin` copy: call it bare.
+- A `git fetch` can fail on a ref lock while another agent fetches in
+  parallel: run it again.
 
 ## Shell quirks
 
@@ -42,9 +44,22 @@ shell. Work with them, not around them:
 - Commit messages: write the message to a scratch file with the Write
   tool, then `git commit -F <file>`.
 - `rtk` mangles or hides `cat`, `grep` and `cargo test` output. Read
-  files with the Read tool, search with the Grep tool (or
-  `/usr/bin/grep`), and run tests as `rtk proxy cargo test ...` when you
-  need their output.
+  files with the Read tool (see "body elided" below), search with the
+  Grep tool, and run tests as `rtk proxy cargo test ...` when you need
+  their output.
+- Some agents have no Grep or Glob tool: use `/usr/bin/grep` and
+  `find`.
+- `rtk` can print "caveman: body elided" in place of function bodies,
+  in the Read tool and in `cat` / `sed`, even through `rtk proxy`. What
+  works: `sed -n 'a,bp'` on small ranges inside a body,
+  `awk '{print NR": "$0}' <file>`, or a Python one-liner that prints the
+  file. Give a reviewer subagent the same workaround.
+- `gh pr checks --watch` under `rtk` prints only a summary and exits
+  early. Poll CI with a script you write with the Write tool and run in
+  the background (see Waiting).
+- Scratchpad: it is shared by every agent. Use your own subfolder named
+  after your branch or worktree, never fixed file names (`wait.sh`,
+  `pr.md`, a harness `Cargo.toml`): other agents overwrite them.
 - Run Bash calls one at a time when the auto-mode classifier is active:
   parallel calls can lose its verdict and must be re-run alone.
 - Waiting: foreground `sleep` is blocked and subagents have no Monitor
@@ -57,9 +72,13 @@ shell. Work with them, not around them:
 
 ## Worktree setup
 
-Run in every fresh worktree, before building, as separate Bash calls
-(the guard refuses the loop form). The download script deletes the zip
-archives after extraction, so only link the JSON files and sentinels:
+Run first in every fresh worktree, before you check out a PR branch,
+build or test, as separate Bash calls (the guard refuses the loop
+form). Agents that skipped it saw tests fail. If the PR branch is
+checked out in another (often finished) agent's worktree, work on a new
+local branch from `origin/<branch>` (see Git quirks). The download
+script deletes the zip archives after extraction, so only link the JSON
+files and sentinels:
 
 ```bash
 ln -sf "$PRIMARY"/definitions/r5/*.json definitions/r5/
@@ -94,9 +113,14 @@ When bindings are touched, also:
 
 Run each as its own Bash call, with no `cd` and no chaining:
 
-- Python: `tox -c bindings/python -e py312`
+- Python: `uvx tox -c bindings/python -e py312` (`tox` is not on
+  `PATH`)
 - TypeScript: `npm --prefix bindings/typescript run build:debug`, then
-  `npm --prefix bindings/typescript exec vitest run`
+  `FHIR_DEFINITIONS_DIR=<worktree>/definitions/r5 npm --prefix bindings/typescript exec -- vitest run --root bindings/typescript`
+  with the worktree's absolute path. The config's default
+  `../../definitions/r5` is relative to the current directory, and
+  `--root` makes vitest find the config and tests; without both, most
+  tests fail.
 
 Say so in the report if a toolchain is missing; do not claim it passed.
 
@@ -108,6 +132,9 @@ Say so in the report if a toolchain is missing; do not claim it passed.
 | `bindings/python/**` | `python-reviewer` |
 | `bindings/typescript/**` | `typescript-reviewer` |
 | parsers, input handling, dependencies | `security` |
+
+Every task that changes a routed file also runs, after the reviewers,
+the `build`, `linter` and `test` agents (`CLAUDE.md`, Subagents).
 
 Severity scale used by the loop: CRITICAL and MAJOR block; MINOR and NIT do
 not.
@@ -126,6 +153,11 @@ subagent. Known unrelated failures to leave alone: `fhir-linter`,
 - Review comments: `gh api --paginate repos/jonperron/fhir-linter/pulls/<N>/comments`
   (and `.../reviews`). Always pass `--paginate`; the default page holds 30.
 - Reply: `gh api repos/jonperron/fhir-linter/pulls/<N>/comments/<id>/replies -f body=...`
+- Weekly budget: 2,500,000 diff characters per 7 days. Once spent, it
+  posts only a notice with the wait: that is not a review, so report
+  it as such; your caller decides whether to wait. To re-request after
+  the wait, comment
+  `@sourcery-ai review` on the PR.
 
 ## Behaviour baseline
 
