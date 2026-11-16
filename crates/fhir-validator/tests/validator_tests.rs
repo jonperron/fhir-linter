@@ -1953,6 +1953,88 @@ fn cardinality_003_location_is_the_array_span() {
 }
 
 #[test]
+fn empty_json_array_produces_structure_005_error() {
+    // resource-formats.html#comparison: "JSON objects and arrays are never empty".
+    // Shapes of list-empty2.json and json-empty-primitive-array{,-ext,-both,-ext-only}.json.
+    for (json, path) in [
+        (
+            r#"{"resourceType":"List","status":"current","mode":"changes","entry":[]}"#,
+            "List.entry",
+        ),
+        (
+            r#"{"resourceType":"Patient","name":[{"family":"C","given":[]}]}"#,
+            "Patient.name[0].given",
+        ),
+        (
+            r#"{"resourceType":"Patient","name":[{"family":"C","_given":[]}]}"#,
+            "Patient.name[0].given",
+        ),
+        (
+            r#"{"resourceType":"Patient","name":[{"family":"C","given":[],"_given":[]}]}"#,
+            "Patient.name[0].given",
+        ),
+        (
+            r#"{"resourceType":"Patient","name":[{"family":"C","given":["P"],"_given":[]}]}"#,
+            "Patient.name[0].given",
+        ),
+        (
+            r#"{"resourceType":"Patient","name":[{"_given":[],"given":[]}]}"#,
+            "Patient.name[0].given",
+        ),
+        (
+            r#"{"resourceType":"Observation","valueQuantity":[]}"#,
+            "Observation.valueQuantity",
+        ),
+        (
+            r#"{"resourceType":"Observation","_valueString":[]}"#,
+            "Observation.valueString",
+        ),
+        (
+            r#"{"resourceType":"Patient","contained":[]}"#,
+            "Patient.contained",
+        ),
+        (
+            concat!(
+                r#"{"resourceType":"Patient","#,
+                r#""contained":[{"resourceType":"Patient","name":[{"given":[]}]}]}"#,
+            ),
+            "Patient.contained[0].name[0].given",
+        ),
+        (
+            r#"{"resourceType":"Patient","name":[{"extension":[]}]}"#,
+            "Patient.name[0].extension",
+        ),
+    ] {
+        let resource = parse_json(json).unwrap();
+        let found: Vec<_> = validate(&resource, &load_registry())
+            .into_iter()
+            .filter(|d| d.code.as_ref() == "STRUCTURE_005")
+            .collect();
+        assert_eq!(found.len(), 1, "{json}: {found:?}");
+        assert_eq!(found[0].severity, Severity::Error);
+        assert_eq!(found[0].path, path, "{json}");
+        let location = found[0].location.expect("location");
+        assert_eq!(&json[location.offset as usize..][..2], "[]", "{json}");
+    }
+}
+
+#[test]
+fn null_only_arrays_get_no_structure_005() {
+    // json.html#primitive: an all-null array SHOULD be omitted (CARDINALITY_003), not an error.
+    for json in [
+        r#"{"resourceType":"Patient","identifier":[null]}"#,
+        r#"{"resourceType":"Patient","name":[{"given":["a"],"_given":[null]}]}"#,
+        r#"{"resourceType":"Patient","name":[{"family":"C","given":["a"]}]}"#,
+    ] {
+        let found = codes_for(json);
+        assert!(
+            !found.iter().any(|(code, _)| code == "STRUCTURE_005"),
+            "{json}: {found:?}"
+        );
+    }
+}
+
+#[test]
 fn empty_array_on_max_one_element_gets_structure_002_and_cardinality_003() {
     let found = codes_for(r#"{"resourceType":"Patient","gender":[]}"#);
     for code in ["STRUCTURE_002", "CARDINALITY_003"] {

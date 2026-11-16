@@ -38,7 +38,8 @@ struct Walk<'a, 'e> {
 /// Validate the resource's elements at every depth, starting at the top level (instance
 /// `path`), and return the resources embedded in it, for the caller to validate in turn.
 ///
-/// Applies the structural (`STRUCTURE_001`, and `STRUCTURE_002` array shape when `json`),
+/// Applies the structural (`STRUCTURE_001`; for JSON also `STRUCTURE_002` array shape and
+/// `STRUCTURE_005` empty array),
 /// cardinality (`CARDINALITY_001/002/003`), primitive type (`TYPE_*`), terminology
 /// (`TERMINOLOGY_*`), reference (`REFERENCE_*`) and invariant (`INVARIANT_*`) checks
 /// recursively into backbone elements, complex types and `contentReference` targets. Each
@@ -247,6 +248,13 @@ fn walk(
             let primitive = resolve(sd, &format!("{prefix}{bare}"), bare)
                 .and_then(|(elem, ty)| Some((elem, ty.filter(|t| is_primitive_type(t))?)));
             if let Some((elem, ty)) = primitive {
+                // Reported at the property, once even when `name` is `[]` too.
+                if context.json
+                    && is_empty_json_array(node)
+                    && !fields.get(bare).is_some_and(is_empty_json_array)
+                {
+                    push_empty_array(node, &format!("{path}.{bare}"), diagnostics);
+                }
                 // A primitive with a value is checked with its `_name` when the value is reached.
                 if !fields.contains_key(bare) {
                     let bare_path = format!("{path}.{bare}");
@@ -284,6 +292,9 @@ fn walk(
             continue;
         };
         if context.json {
+            if is_empty_json_array(node) {
+                push_empty_array(node, &child_path, diagnostics);
+            }
             check_array_shape(node, elem, &child_path, diagnostics);
         }
         let Some((elem, sd, ty)) = typed_element(context.registry, sd, elem, ty) else {
@@ -486,6 +497,23 @@ fn push_not_element(node: &Node, path: &str, diagnostics: &mut Vec<Diagnostic>) 
         Diagnostic::error(
             "TYPE_001",
             format!("Expected Element object at '{path}'"),
+            path.to_owned(),
+        )
+        .with_location(node.span),
+    );
+}
+
+fn is_empty_json_array(node: &Node) -> bool {
+    matches!(&node.value, Value::Array(items) if items.is_empty())
+}
+
+/// Emit `STRUCTURE_005` for an empty JSON array (resource-formats.html#comparison: "JSON
+/// objects and arrays are never empty"). An all-null array is only a SHOULD (CARDINALITY_003).
+fn push_empty_array(node: &Node, path: &str, diagnostics: &mut Vec<Diagnostic>) {
+    diagnostics.push(
+        Diagnostic::error(
+            "STRUCTURE_005",
+            format!("Array cannot be empty at '{path}': omit the property if it has no values"),
             path.to_owned(),
         )
         .with_location(node.span),
