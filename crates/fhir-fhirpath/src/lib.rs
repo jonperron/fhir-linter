@@ -4,7 +4,7 @@
 //!
 //! FHIR R5 uses FHIRPath release 2 (2.0.0). This crate implements a subset
 //! of it, plus a few later additions; functions it does not implement
-//! (for example `conformsTo()` or `htmlChecks()`) return
+//! (for example `conformsTo()`) return
 //! [`EvalError::UndefinedFunction`] rather than a guessed result.
 
 mod ast;

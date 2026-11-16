@@ -651,20 +651,21 @@ fn valid_nested_resource_has_no_nested_errors() {
 
 #[test]
 fn unevaluable_invariants_are_reported_as_information() {
-    // txt-1 calls htmlChecks(), which the evaluator does not implement.
+    // enc-2 calls resolve(), which cannot follow a reference outside the resource.
     let resource = parse_json(
-        r#"{"resourceType":"Patient","id":"p1","text":{"status":"generated",
-        "div":"<div xmlns=\"http://www.w3.org/1999/xhtml\">x</div>"}}"#,
+        r#"{"resourceType":"Encounter","status":"completed",
+        "participant":[{"type":[{"text":"attender"}],
+            "actor":{"reference":"Patient/elsewhere"}}]}"#,
     )
     .unwrap();
     let skipped: Vec<_> = validate(&resource, &load_registry())
         .into_iter()
         .filter(|d| d.code.as_ref() == "INVARIANT_SKIPPED")
         .collect();
-    assert!(!skipped.is_empty(), "expected skipped Narrative invariants");
+    assert!(!skipped.is_empty(), "expected a skipped enc-2");
     for d in &skipped {
         assert_eq!(d.severity, Severity::Information);
-        assert_eq!(d.path, "Patient.text.div");
+        assert_eq!(d.path, "Encounter.participant[0]");
         assert!(d.message.starts_with("constraint "), "{}", d.message);
     }
 }

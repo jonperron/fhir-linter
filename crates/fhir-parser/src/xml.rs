@@ -39,6 +39,8 @@ const DTD_NOT_ALLOWED: &str = "a DTD is not allowed in FHIR XML";
 /// - A literal control below U+0020 other than tab, LF and CR is not well-formed.
 ///   XML 1.0 also forbids it as a character reference (`&#1;`); XML 1.1 allows that.
 pub fn parse_xml(source: &str) -> Result<Resource, ParseError> {
+    // The reader skips a UTF-8 BOM in its byte offsets, which then miss the source slices.
+    let source = source.strip_prefix('\u{feff}').unwrap_or(source);
     // A literal control is not well-formed in XML 1.0 nor (as a RestrictedChar) in 1.1.
     if let Some(offset) = source.find(crate::is_disallowed_control) {
         let (line, col) = LineIndex::new(source).location(offset as u32);
@@ -610,6 +612,25 @@ mod tests {
         let div = text.get("div").expect("div field present");
         let raw = "<div xmlns=\"http://www.w3.org/1999/xhtml\">a &amp; b &lt; &#65;</div>";
         assert!(matches!(&div.value, Value::Str(s) if s.as_ref() == raw));
+    }
+
+    #[test]
+    fn parse_xhtml_div_after_a_byte_order_mark() {
+        // Official examples such as r5/narrative/ex-list.xml start with a UTF-8 BOM.
+        let raw = "<div xmlns=\"http://www.w3.org/1999/xhtml\">x</div>";
+        let source = format!(
+            "\u{feff}<Patient xmlns=\"http://hl7.org/fhir\"><text>\
+             <status value=\"generated\"/>{raw}</text></Patient>",
+        );
+        let resource = parse_xml(&source).unwrap();
+        let Value::Object(text) = &resource.fields.get("text").unwrap().value else {
+            panic!("text should be an object");
+        };
+        let div = text.get("div").expect("div field present");
+        assert!(
+            matches!(&div.value, Value::Str(s) if s.as_ref() == raw),
+            "{div:?}"
+        );
     }
 
     #[test]

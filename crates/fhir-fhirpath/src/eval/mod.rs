@@ -16,6 +16,7 @@ mod boundary;
 mod collection;
 mod fhir_functions;
 mod helpers;
+mod html_checks;
 mod math;
 mod misc;
 mod regex;

@@ -62,8 +62,9 @@ use quick_xml::events::{BytesStart, Event};
 /// values, see `fhir_type_tests.rs`), then to 1055 by lowBoundary(),
 /// highBoundary() and comparable() (60 cases and testPeriodInvariantNew) and
 /// hour-only date-time and time literals (2 testLiteral cases), then to 1056
-/// by resolve() of contained references (testMultipleResolve).
-const MIN_PASSED: u32 = 1056;
+/// by resolve() of contained references (testMultipleResolve), then to 1060
+/// by htmlChecks() (htmlTest01-04).
+const MIN_PASSED: u32 = 1060;
 
 /// Cases that must pass whatever the total: the boundary functions behind
 /// the FHIR per-1, rng-2 and ratrng-2 invariants. Not listed: 12.500 and

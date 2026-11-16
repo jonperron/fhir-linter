@@ -15,8 +15,8 @@ thiserror        = { workspace = true }
 indexmap         = { workspace = true }
 fhir-parser      = { workspace = true }
 regex-lite       = { workspace = true }
+quick-xml        = { workspace = true }
 
 [dev-dependencies]
-quick-xml        = { workspace = true }
 # The official suite types its inputs with the R5 Registry, as the validator does.
 fhir-definitions = { workspace = true }

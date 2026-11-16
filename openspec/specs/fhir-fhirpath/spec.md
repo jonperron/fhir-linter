@@ -945,7 +945,7 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 #### Scenario: Fonctions non implémentées retournent UndefinedFunction
 
-- **WHEN** `conformsTo()`, `today()`, `now()`, `timeOfDay()`, `precision()` ou `htmlChecks()` est évalué
+- **WHEN** `conformsTo()`, `today()`, `now()`, `timeOfDay()`, `precision()` est évalué
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::UndefinedFunction(name))` où `name` est le nom de la fonction
 - **AND** il SHALL NOT retourner de résultat deviné (collection vide, booléen), afin que le validateur signale la contrainte comme non vérifiée (`INVARIANT_SKIPPED`)
 
@@ -1006,13 +1006,37 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 - **WHEN** `1 'cm'.comparable(1 '[in_i]')` est évalué
 - **THEN** le résultat SHALL être `false` (aucune conversion UCUM)
 
+### Requirement: Fonction htmlChecks (extension FHIR)
+
+`htmlChecks()` SHALL retourner un Boolean pour une entrée à une seule chaîne, et la collection vide pour une entrée vide ou non chaîne. Elle SHALL retourner `true` quand le balisage (un `div` ou un fragment) ne contient que les éléments autorisés (HTML 4.0 chapitres 7 à 11 sauf 9.4, chapitre 15, non dépréciés, plus `a`, `img`, `map`, `area`) sans espace de noms ou dans l'espace de noms XHTML ; uniquement des attributs autorisés hors événements (liste plate, raccourci documenté) ; aucune URL `javascript:`, `vbscript:` ou `data:` non image dans `href`, `src`, `cite`, `longdesc`, `usemap` ; aucun DTD, déclaration ou instruction de traitement ; aucun `<` ou `>` dans les commentaires ou sections CDATA ; et au moins du texte non blanc (espaces Unicode, y compris en CDATA, non comptés), une entité prédéfinie XML ou un `img`. Une entité nommée autre que les cinq prédéfinies (`&nbsp;`, `&Tab;`), une référence de caractère invalide ou un balisage mal formé SHALL donner `false`.
+
+#### Scenario: Div valide
+
+- **WHEN** `htmlChecks()` est évalué sur `<div xmlns="http://www.w3.org/1999/xhtml">texte</div>`
+- **THEN** le résultat SHALL être `true`
+
+#### Scenario: Contenu interdit
+
+- **WHEN** l'entrée contient `<script>`, un attribut `onclick`, un lien `javascript:` ou un balisage mal formé
+- **THEN** le résultat SHALL être `false`
+
+#### Scenario: Entité non définie
+
+- **WHEN** `htmlChecks()` est évalué sur un `div` contenant `&nbsp;`
+- **THEN** le résultat SHALL être `false`
+
+#### Scenario: Entrée vide ou non chaîne
+
+- **WHEN** l'entrée est vide ou n'est pas une chaîne
+- **THEN** le résultat SHALL être la collection vide
+
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 
-Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5, et avec le crochet `is_subtype` issu du Registry (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 1056 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
+Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5, et avec le crochet `is_subtype` issu du Registry (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 1060 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
 
 #### Scenario: Réussites sous le plancher
 
-- **WHEN** moins de 1056 cas de la suite réussissent
+- **WHEN** moins de 1060 cas de la suite réussissent
 - **THEN** le test SHALL échouer
 
 #### Scenario: Dérive du nombre de cas

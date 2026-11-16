@@ -314,19 +314,17 @@ fn reference_choice_variant_in_an_extension_is_checked() -> TestResult {
 }
 
 #[test]
-fn nested_skipped_constraint_names_the_node_path() -> TestResult {
-    // txt-1 calls htmlChecks(), which the evaluator does not implement, so it is
-    // skipped on the nested Narrative.div, at its path.
+fn nested_constraint_failure_names_the_node_path() -> TestResult {
+    // txt-1 (htmlChecks()) runs on the nested Narrative.div and fails, at its path.
     let found = diagnostics(
         r#"{"resourceType":"Patient","text":{"status":"generated",
-        "div":"<div xmlns=\"http://www.w3.org/1999/xhtml\">x</div>"}}"#,
+        "div":"<div xmlns=\"http://www.w3.org/1999/xhtml\"><script>x</script></div>"}}"#,
     )?;
     let txt_1 = found
         .iter()
-        .find(|d| d.message.starts_with("constraint txt-1 not checked"))
-        .ok_or_else(|| format!("no txt-1 skip: {found:?}"))?;
-    assert_eq!(txt_1.code.as_ref(), "INVARIANT_SKIPPED");
-    assert_eq!(txt_1.severity, Severity::Information);
+        .find(|d| d.code.as_ref() == "INVARIANT_txt-1")
+        .ok_or_else(|| format!("no txt-1 error: {found:?}"))?;
+    assert_eq!(txt_1.severity, Severity::Error);
     assert_eq!(txt_1.path, "Patient.text.div");
     assert!(txt_1.location.is_some(), "{txt_1:?}");
     Ok(())
