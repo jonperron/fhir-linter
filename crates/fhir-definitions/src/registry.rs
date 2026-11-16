@@ -424,6 +424,20 @@ mod tests {
     }
 
     #[test]
+    fn core_looks_up_by_name_under_the_core_prefix() {
+        let registry = &*REGISTRY;
+        let sd = registry
+            .core("Patient")
+            .expect("Patient is a core definition");
+        assert_eq!(
+            sd.url.as_ref(),
+            "http://hl7.org/fhir/StructureDefinition/Patient"
+        );
+        assert!(registry.core("NotAType").is_none());
+        assert!(registry.core("").is_none());
+    }
+
+    #[test]
     fn registry_resolves_valueset_by_url() {
         let registry = &*REGISTRY;
         let vs = registry

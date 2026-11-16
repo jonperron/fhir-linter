@@ -429,3 +429,17 @@ Le chargeur SHALL conserver `StructureDefinition.baseDefinition`, sans suffixe d
 - **WHEN** une base est hors de `http://hl7.org/fhir/StructureDefinition/`, non chargée, ou forme un cycle
 - **THEN** la marche SHALL s'arrêter sans boucler indéfiniment
 
+
+### Requirement: Recherche d'une définition du noyau par nom
+
+Le crate SHALL exporter la constante `CORE_PREFIX` (`http://hl7.org/fhir/StructureDefinition/`). `Registry::core(name)` SHALL retourner la `StructureDefinition` dont l'URL canonique est `CORE_PREFIX` suivi de `name`, ou `None` si aucune ne correspond.
+
+#### Scenario: Nom connu
+
+- **WHEN** `core("Patient")` est appelé sur le bundle R5
+- **THEN** la définition retournée SHALL avoir l'URL `http://hl7.org/fhir/StructureDefinition/Patient`
+
+#### Scenario: Nom inconnu ou vide
+
+- **WHEN** `core("NotAType")` ou `core("")` est appelé
+- **THEN** le résultat SHALL être `None`
