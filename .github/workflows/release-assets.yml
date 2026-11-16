@@ -35,7 +35,7 @@ jobs:
           version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
           [ "$TAG" = "fhir-linter-v$version" ] || { echo "tag $TAG != $version"; exit 1; }
 
-      - uses: taiki-e/install-action@c114f6e1756596f56b6d3c93a9c0bbd6b5ec1154 # cargo-llvm-cov
+      - uses: taiki-e/install-action@c114f6e1756596f56b6d3c93a9c0bbd6b5ec1154 # cargo-llvm-cov tag; tool: overrides its default
         with:
           tool: cargo-audit@0.22.2
           fallback: none
