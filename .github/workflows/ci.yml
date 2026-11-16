@@ -127,7 +127,7 @@ jobs:
         if: steps.cache-fhir-r5.outputs.cache-hit != 'true'
         run: bash scripts/download-definitions.sh
 
-      - run: pip install tox ruff
+      - run: pip install tox==4.65.0 ruff==0.17.5  # tox 4.65.0 still installs on Python 3.10
 
       - run: ruff check bindings/python && ruff format --check bindings/python
 
