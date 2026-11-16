@@ -188,9 +188,35 @@ impl Registry {
     ///
     /// Returns `None` when membership cannot be decided from the loaded
     /// definitions (unknown ValueSet/CodeSystem, filters, excludes, fragments).
-    /// With `system == None` any system of the ValueSet may match.
+    /// With `system == None` the code's system is unknown: `Some(false)` still
+    /// holds when no system has the code, but `Some(true)` is given only when the
+    /// ValueSet draws its codes from a single system (else `None`, as the code
+    /// could belong to another system).
     pub fn value_set_contains(&self, url: &str, system: Option<&str>, code: &str) -> Option<bool> {
-        self.vs_contains(url, system, code, 0)
+        let found = self.vs_contains(url, system, code, 0);
+        if found == Some(true) && system.is_none() {
+            let mut systems = HashSet::new();
+            if !self.collect_systems(url, 0, &mut systems) || systems.len() > 1 {
+                return None;
+            }
+        }
+        found
+    }
+
+    /// Gathers the code systems a ValueSet includes; `false` when they cannot be told
+    /// (unknown ValueSet or an include with no system and no ValueSet).
+    fn collect_systems<'a>(&'a self, url: &str, depth: u8, systems: &mut HashSet<&'a str>) -> bool {
+        let Some(vs) = self.value_sets.get(url).filter(|_| depth <= 8) else {
+            return false;
+        };
+        vs.includes.iter().all(|inc| {
+            systems.extend(inc.system.as_deref());
+            let nested = inc
+                .value_sets
+                .iter()
+                .all(|nested| self.collect_systems(nested, depth + 1, systems));
+            nested && (inc.system.is_some() || !inc.value_sets.is_empty())
+        })
     }
 
     fn vs_contains(&self, url: &str, system: Option<&str>, code: &str, depth: u8) -> Option<bool> {
@@ -626,6 +652,47 @@ mod tests {
     }
 
     #[test]
+    fn value_set_contains_without_system_is_undecided_across_several_systems() {
+        let dir =
+            std::env::temp_dir().join(format!("fhir_def_multi_system_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        for file in [
+            "profiles-resources.json",
+            "profiles-types.json",
+            "profiles-others.json",
+        ] {
+            fs::write(dir.join(file), r#"{"entry": []}"#).unwrap();
+        }
+        let vs = |name: &str, includes: &str| {
+            format!(
+                r#"{{"resource": {{"resourceType": "ValueSet", "url": "http://x/vs/{name}",
+                "name": "{name}", "compose": {{"include": [{includes}]}}}}}}"#
+            )
+        };
+        let listed = |system: &str| {
+            format!(r#"{{"system": "http://x/{system}", "concept": [{{"code": "a"}}]}}"#)
+        };
+        let bundle = format!(
+            r#"{{"entry": [{}, {}, {}]}}"#,
+            vs("one", &listed("cs1")),
+            vs("two", &format!("{}, {}", listed("cs1"), listed("cs2"))),
+            vs("nested", r#"{"valueSet": ["http://x/vs/two"]}"#),
+        );
+        fs::write(dir.join("valuesets.json"), bundle).unwrap();
+        let registry = Registry::from_definitions_dir(&dir);
+        fs::remove_dir_all(&dir).unwrap();
+        let registry = registry.unwrap();
+        let contains = |vs: &str, system, code| {
+            registry.value_set_contains(&format!("http://x/vs/{vs}"), system, code)
+        };
+        assert_eq!(contains("one", None, "a"), Some(true));
+        assert_eq!(contains("two", None, "a"), None);
+        assert_eq!(contains("nested", None, "a"), None);
+        assert_eq!(contains("two", None, "b"), Some(false));
+        assert_eq!(contains("two", Some("http://x/cs2"), "a"), Some(true));
+    }
+
+    #[test]
     fn value_set_contains_decides_membership_from_the_bundled_definitions() {
         const VS: &str = "http://hl7.org/fhir/ValueSet/";
         let gender = Some("http://hl7.org/fhir/administrative-gender");
@@ -642,12 +709,14 @@ mod tests {
                 Some(false),
             ),
             // Enumerated concepts.
-            ("security-label-data-examples", None, "N", Some(true)),
+            // Several code systems: a systemless "N" could be from another one.
+            ("security-label-data-examples", None, "N", None),
             ("security-label-data-examples", None, "V", Some(false)),
             // include.filter is never evaluated.
             ("example-filter", None, "anything", None),
             // include.valueSet: decided by the imported ValueSet (fhir-types).
-            ("elementdefinition-types", None, "Patient", Some(true)),
+            // (several code systems, so a systemless hit is undecided)
+            ("elementdefinition-types", None, "Patient", None),
             ("elementdefinition-types", None, "NotAType", Some(false)),
             // compose.exclude (with a filtered include): undecidable.
             ("encounter-participant-type", None, "ADM", None),

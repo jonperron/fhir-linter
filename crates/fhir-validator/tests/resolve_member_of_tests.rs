@@ -69,11 +69,14 @@ fn enc2_gives_no_error_for_a_reference_it_cannot_resolve() -> TestResult {
         "urn:uuid:5b3f6d36-1d4e-4f5c-9b0e-8f7a1c1e0e7d",
     ] {
         let findings = about(&encounter(actor, true), "enc-2")?;
-        assert!(
-            findings
-                .iter()
-                .all(|(severity, ..)| *severity == Severity::Information),
-            "{actor}: {findings:?}",
+        assert_eq!(
+            findings,
+            vec![(
+                Severity::Information,
+                "INVARIANT_SKIPPED".to_owned(),
+                "Encounter.participant[0]".to_owned(),
+            )],
+            "{actor}",
         );
     }
     Ok(())

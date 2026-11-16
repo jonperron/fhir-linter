@@ -1212,6 +1212,30 @@ Le système SHALL émettre `REFERENCE_005` (erreur), au `path` `<élément>.refe
 - **WHEN** `Provenance.target` (`Reference(Resource)`) référence un type quelconque
 - **THEN** aucun Diagnostic `REFERENCE_005` SHALL être émis
 
+### Requirement: Validation des références — id dupliqué entre ressources contenues (REFERENCE_006)
+
+Le système SHALL émettre `REFERENCE_006` (erreur), au `path` `<ressource>.contained[i]`, pour chaque ressource contenue dont l'`id` est déjà utilisé par une ressource contenue précédente du même conteneur (deuxième occurrence et suivantes), avec le message `Duplicate id for contained resource: '<id>'`. Les `id` sont comparés quel que soit le `resourceType`. Une ressource contenue sans `id` de type chaîne est ignorée. Le contrôle s'applique une fois par ressource conteneur (ressource de premier niveau, chaque entrée de Bundle et chaque ressource embarquée) ; une ressource contenue partage l'espace d'ids de son conteneur et n'est pas recontrôlée. Base normative R5 (narrative.html 2.1.4.0.4 : « The id attribute SHALL have a unique value within the resource ... Contained resources are included in the id uniqueness scope of the resource that contains them » ; references.html#contained). Une référence `#id` vers un id dupliqué SHALL continuer de se résoudre vers la première ressource correspondante. Hors périmètre : l'unicité de tous les attributs `id` d'éléments, et l'`id` contenu face à l'id logique du conteneur.
+
+#### Scenario: Deux ressources contenues de même id
+
+- **WHEN** `contained` contient deux ressources d'`id` `a`
+- **THEN** un Diagnostic d'erreur `REFERENCE_006` SHALL être émis avec `path` = `<ressource>.contained[1]`
+
+#### Scenario: Même id, resourceType différent
+
+- **WHEN** `contained` contient une `Organization` et une `Practitioner` d'`id` `a`
+- **THEN** un Diagnostic `REFERENCE_006` SHALL être émis pour la seconde
+
+#### Scenario: Ids distincts ou absents
+
+- **WHEN** les ressources contenues ont des `id` distincts, ou n'ont pas d'`id`
+- **THEN** aucun Diagnostic `REFERENCE_006` SHALL être émis
+
+#### Scenario: Entrée de Bundle
+
+- **WHEN** une ressource d'une entrée de Bundle contient deux ressources contenues de même `id`
+- **THEN** un Diagnostic `REFERENCE_006` SHALL être émis, une seule fois par doublon
+
 ### Requirement: Validation de cardinalité — tableau vide d'un élément optionnel (CARDINALITY_003)
 
 Pour un élément déclaré avec `min = 0` dont la valeur JSON est un tableau vide (`[]`) ou un tableau ne contenant que des `null`, le système SHALL émettre un `Diagnostic` avec code `CARDINALITY_003` et severity `Warning`, à toute profondeur, avec `path` = chemin d'instance de l'élément, `location` = span du tableau, et message `Element '<path>' is an array with no values and should be omitted` (R5 json.html : les objets ne sont jamais vides, un tableau de seuls `null` SHOULD être omis). Lorsque le `_nom` d'un élément primitif est un objet ou un tableau contenant au moins un objet, l'élément SHALL être considéré présent et aucun `CARDINALITY_003` ne SHALL être émis. Les variantes `[x]` ne SHALL PAS être soumises à cette règle. Coexistence voulue : un élément de `max="1"` fourni sous la forme `[]` reçoit aussi `STRUCTURE_002` en plus de `CARDINALITY_001` ou `CARDINALITY_003` ; lorsqu'un profil rend requis (`min >= 1`) un élément optionnel de la base, un `[]` reçoit le `CARDINALITY_003` de la base et le `CARDINALITY_001` du profil (la déduplication code + `path` ne fusionne pas des codes différents).

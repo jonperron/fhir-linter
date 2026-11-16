@@ -962,8 +962,8 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 #### Scenario: memberOf() par type d'élément
 
 - **WHEN** `memberOf(valueset)` est évalué avec le crochet `member_of`
-- **THEN** un élément de type `code` SHALL être cherché sans système ; un Coding requiert système et code ; un CodeableConcept est `true` si un coding est dans le ValueSet, `false` si chaque coding en est prouvé hors, sinon vide ; une `String` simple donne vide
-- **AND** l'absence de crochet, un ValueSet inconnu ou indécidable, ou une entrée vide SHALL donner une collection vide ; plusieurs items en entrée SHALL donner une erreur
+- **THEN** un élément de type `code` SHALL être cherché sans système ; un Coding requiert système et code ; un CodeableConcept est `true` si un coding est dans le ValueSet, `false` si chaque coding en est prouvé hors, sinon erreur (indécidable) ; une `String` simple donne vide
+- **AND** l'absence de crochet, un ValueSet inconnu ou indécidable SHALL donner une `EvalError` (le validateur émet `INVARIANT_SKIPPED`, jamais une fausse violation) ; une entrée vide ou un argument vide SHALL donner une collection vide ; plusieurs items en entrée SHALL donner une erreur, même si l'argument est vide
 
 #### Scenario: Invariants resolve()/memberOf() évalués
 
