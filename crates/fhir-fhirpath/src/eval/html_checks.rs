@@ -8,6 +8,7 @@
 //!   the narrative holds no active content;
 //! - some non-whitespace content (text or an image).
 use quick_xml::XmlVersion;
+use quick_xml::escape::resolve_xml_entity;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::ResolveResult;
 use quick_xml::reader::NsReader;
@@ -175,15 +176,24 @@ pub(super) fn html_checks(markup: &str) -> bool {
                 let Ok(text) = t.decode() else { return false };
                 has_content |= text.chars().any(|c| !c.is_whitespace());
             }
-            // `&#32;` is whitespace; a named entity (`&amp;`) is content.
-            Event::GeneralRef(ref r) => {
-                has_content |= !matches!(r.resolve_char_ref(), Ok(Some(c)) if c.is_whitespace());
-            }
+            // `&#32;` is whitespace; a predefined entity (`&amp;`) is content; any other
+            // named entity is undefined without a DTD, so not well-formed.
+            Event::GeneralRef(ref r) => match r.resolve_char_ref() {
+                Ok(Some(c)) => has_content |= !c.is_whitespace(),
+                Ok(None) => match r.decode() {
+                    Ok(name) if resolve_xml_entity(&name).is_some() => has_content = true,
+                    _ => return false,
+                },
+                Err(_) => return false,
+            },
             // An HTML parser ends a comment or a CDATA section at the first `>`, so markup
             // inside one would turn live once the narrative is rendered as text/html.
             Event::Comment(ref t) if has_markup(t) => return false,
             Event::CData(ref t) if has_markup(t) => return false,
-            Event::CData(ref t) => has_content |= t.iter().any(|b| !b.is_ascii_whitespace()),
+            Event::CData(ref t) => match std::str::from_utf8(t) {
+                Ok(text) => has_content |= text.chars().any(|c| !c.is_whitespace()),
+                Err(_) => return false,
+            },
             Event::Comment(_) => {}
             // A declaration, a processing instruction (`xml-stylesheet`) or a DTD is not
             // narrative content.
@@ -305,6 +315,22 @@ mod tests {
             "<div xmlns=\"http://www.w3.org/1999/xhtml\"/>"
         ));
         assert!(!html_checks(""));
+    }
+
+    #[test]
+    fn rejects_undefined_entities_and_mismatched_tags() {
+        // XML defines only five named entities; `&Tab;` or `&nbsp;` is not well-formed.
+        assert!(!html_checks(&div("<p>&Tab;</p>")));
+        assert!(!html_checks(&div("<p>x &nbsp; y</p>")));
+        assert!(!html_checks(&div("<p>x &#xZZ;</p>")));
+        assert!(html_checks(&div("<p>&lt;&gt;&quot;&apos;&amp;</p>")));
+        assert!(!html_checks("<p>x</div>"));
+    }
+
+    #[test]
+    fn unicode_whitespace_cdata_is_no_content() {
+        assert!(!html_checks(&div("<![CDATA[\u{a0}\u{2003}]]>")));
+        assert!(html_checks(&div("<![CDATA[x]]>")));
     }
 
     #[test]
