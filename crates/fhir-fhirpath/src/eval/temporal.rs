@@ -123,3 +123,28 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let year = year_of_era + era * 400 + i64::from(month <= 2);
     (year, month, day)
 }
+
+/// The current UTC date-time as DateTime text with milliseconds and a
+/// `+00:00` zone, for `now()` and `today()` (N2 §5.10).
+///
+/// shortcut: UTC, not the local zone, as std cannot read it; add a zone
+/// source to `Environment` if callers need local dates.
+///
+/// `None` when the system clock is before 1970 or past year 9999, which no
+/// FHIRPath DateTime can hold.
+pub(super) fn now_text() -> Option<String> {
+    let since_epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    let millis = i64::try_from(since_epoch.as_millis()).ok()?;
+    let (year, month, day) = civil_from_days(millis.div_euclid(86_400_000));
+    if year > 9999 {
+        return None;
+    }
+    let millis_of_day = millis.rem_euclid(86_400_000);
+    let (hour, minute) = (millis_of_day / 3_600_000, millis_of_day / 60_000 % 60);
+    let (second, millisecond) = (millis_of_day / 1000 % 60, millis_of_day % 1000);
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millisecond:03}+00:00"
+    ))
+}

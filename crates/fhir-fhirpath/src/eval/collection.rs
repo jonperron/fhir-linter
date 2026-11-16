@@ -258,6 +258,12 @@ impl Evaluator<'_> {
                     .cloned()
                     .collect()
             }
+            // N2 §6.5.1: `union()` is the `|` operator.
+            "union" => {
+                check_arity(name, args, 1)?;
+                let other = self.eval(&args[0], ctx)?;
+                distinct(focus.iter().cloned().chain(other))
+            }
             "combine" => {
                 check_arity(name, args, 1)?;
                 let other = self.eval(&args[0], ctx)?;
