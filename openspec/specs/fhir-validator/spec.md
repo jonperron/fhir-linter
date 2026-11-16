@@ -346,7 +346,7 @@ Le système SHALL émettre un `Diagnostic` avec code `TYPE_002` et severity `Err
 
 ### Requirement: Validation de type — format date/heure et expressions régulières R5 (TYPE_003)
 
-Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Error` lorsqu'une valeur de type `string`, `markdown`, `base64Binary`, `uri`, `url`, `canonical`, `oid` ou `uuid` ne correspond pas à l'expression régulière R5 du type, lue depuis le Registry et ancrée en `\A(?:...)\z`. Une chaîne vide pour ces types SHALL produire `TYPE_003` (R5 json.html : les valeurs de propriété string ne peuvent jamais être vides ; les regex `uri` et `base64Binary` acceptent `""`). Une valeur non vide composée uniquement de whitespace qui satisfait la regex (en pratique `string`, `markdown` et `base64Binary`, dont le whitespace est ignoré) SHALL produire `TYPE_008` et non `TYPE_003` (voir TYPE_008). Le message `TYPE_003` SHALL être `Invalid <type> format at '<path>': '<value>'`, sauf pour `base64Binary` : `Invalid base64Binary format at '<path>'` (sans la charge utile). Pour `base64Binary`, le whitespace ASCII SHALL être ignoré avant l'application de la regex (R5 datatypes.html, RFC 4648). `xhtml` n'a pas de regex R5 (chaîne uniquement). `decimal`, la famille des dates, les types entiers, `integer64`, `code` et `id` conservent des contrôles écrits à la main (la regex R5 de `decimal` contient une coquille).
+Le système SHALL émettre un `Diagnostic` avec code `TYPE_003` et severity `Error` lorsqu'une valeur de type `string`, `markdown`, `base64Binary`, `uri`, `url`, `canonical`, `oid` ou `uuid` ne correspond pas à l'expression régulière R5 du type, lue depuis le Registry et ancrée en `\A(?:...)\z`. Une chaîne vide pour ces types SHALL produire `TYPE_003` (R5 json.html : les valeurs de propriété string ne peuvent jamais être vides ; les regex `uri` et `base64Binary` acceptent `""`). Une valeur non vide composée uniquement de whitespace qui satisfait la regex (en pratique `string`, `markdown` et `base64Binary`, dont le whitespace est ignoré) SHALL produire `TYPE_008` et non `TYPE_003` (voir TYPE_008). Le message `TYPE_003` SHALL être `Invalid <type> format at '<path>': '<value>'`, sauf pour `base64Binary` : `Invalid base64Binary format at '<path>'` (sans la charge utile). Pour `base64Binary`, le whitespace ASCII SHALL être ignoré avant l'application de la regex (R5 datatypes.html, RFC 4648). Une valeur `canonical` qui passe la regex et `maxLength` mais se termine par `|` (version vide après la barre, ex. `http://x.org/SD/x|`, `|`, `#x|`) SHALL produire `TYPE_003` avec le message `Canonical at '<path>' has an empty version after '|': '<value>'` (R5 datatypes.html : la version est ajoutée après `|`, et une version est une chaîne, jamais vide ; cas officiel patient-ig-ig) ; `uri` et `url` terminés par `|` ne sont pas concernés. `xhtml` n'a pas de regex R5 (chaîne uniquement). `decimal`, la famille des dates, les types entiers, `integer64`, `code` et `id` conservent des contrôles écrits à la main (la regex R5 de `decimal` contient une coquille).
 
 Pour les types date/heure, le format SHALL être conforme aux expressions régulières R5 :
 
@@ -430,7 +430,11 @@ Pour les types date/heure, le format SHALL être conforme aux expressions régul
 - **WHEN** un champ de type `base64Binary` contient `"not base64!"`
 - **THEN** un Diagnostic `TYPE_003` SHALL être émis
 
----
+#### Scenario: canonical avec version vide
+
+- **WHEN** un champ de type `canonical` contient `"http://x.org/SD/x|"`
+- **THEN** un Diagnostic `TYPE_003` SHALL être émis avec le message `Canonical at '<path>' has an empty version after '|': 'http://x.org/SD/x|'`
+- **AND** un `uri` ou `url` de même valeur ne SHALL produire aucun Diagnostic `TYPE_003`
 
 ### Requirement: Validation de type — whitespace dans un code (TYPE_004)
 
