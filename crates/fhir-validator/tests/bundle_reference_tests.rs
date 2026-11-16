@@ -49,9 +49,12 @@ fn full_url_disagreeing_with_the_resource_id_is_an_error_in_xml() {
 #[test]
 fn full_url_disagreeing_with_the_resource_id_is_an_error_in_json() {
     let json = r#"{"resourceType":"Bundle","type":"collection","entry":[
-        {"fullUrl":"http://acme.com/Patient/pat1","resource":{"resourceType":"Patient","id":"pat1"}},
-        {"fullUrl":"http://acme.com/fhir/Patient/pat1","resource":{"resourceType":"Patient","id":"pat2"}},
-        {"fullUrl":"urn:uuid:9e2a3c3e-5d1c-4d3e-9a7c-0b0c7e3b1a01","resource":{"resourceType":"Patient","id":"x"}},
+        {"fullUrl":"http://acme.com/Patient/pat1",
+         "resource":{"resourceType":"Patient","id":"pat1"}},
+        {"fullUrl":"http://acme.com/fhir/Patient/pat1",
+         "resource":{"resourceType":"Patient","id":"pat2"}},
+        {"fullUrl":"urn:uuid:9e2a3c3e-5d1c-4d3e-9a7c-0b0c7e3b1a01",
+         "resource":{"resourceType":"Patient","id":"x"}},
         {"fullUrl":"http://acme.com/Patient/pat3","resource":{"resourceType":"Patient"}}
     ]}"#;
     assert_eq!(
@@ -157,7 +160,10 @@ fn shared_full_url_bundle(types: &[&str]) -> String {
     let url = "urn:uuid:00000000-0000-4000-8000-0000000000aa";
     let entries: Vec<String> = types
         .iter()
-        .map(|t| format!(r#"{{"fullUrl":"{url}","resource":{{"resourceType":"{t}"}}}}"#))
+        .map(|t| match *t {
+            "" => format!(r#"{{"fullUrl":"{url}"}}"#),
+            t => format!(r#"{{"fullUrl":"{url}","resource":{{"resourceType":"{t}"}}}}"#),
+        })
         .collect();
     format!(
         r#"{{"resourceType":"Bundle","type":"collection","entry":[{},
@@ -176,6 +182,25 @@ fn shared_full_url_resolves_only_when_the_types_agree() {
         vec![pair("REFERENCE_003", path)]
     );
     assert_eq!(check(&["Patient", "Basic"]), vec![]);
+    // An entry with no resource leaves the fullUrl ambiguous.
+    assert_eq!(check(&["Patient", ""]), vec![]);
+}
+
+#[test]
+fn the_entry_type_wins_over_the_type_a_restful_full_url_names() {
+    let url = "http://acme.com/Patient/p1";
+    let bundle = format!(
+        r#"{{"resourceType":"Bundle","type":"collection","entry":[
+        {{"fullUrl":"{url}","resource":{{"resourceType":"Basic","id":"p1",
+          "code":{{"text":"x"}}}}}},
+        {{"resource":{{"resourceType":"Observation","status":"final","code":{{"text":"x"}},
+          "subject":{{"reference":"{url}","type":"Basic"}}}}}}]}}"#
+    );
+    let found = findings(&parse_json(&bundle).unwrap());
+    assert!(
+        !found.iter().any(|(code, _)| code == "REFERENCE_003"),
+        "{found:?}"
+    );
 }
 
 #[test]

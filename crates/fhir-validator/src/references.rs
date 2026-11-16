@@ -39,10 +39,8 @@ pub(crate) fn bundle_entries(
         let Value::Object(fields) = &entry.value else {
             continue;
         };
-        let Some(resource) = fields.get("resource") else {
-            continue;
-        };
-        let id = string_field(resource, "id");
+        let entry_resource = fields.get("resource");
+        let id = entry_resource.and_then(|node| string_field(node, "id"));
         if let (Some(id), Some(url_id)) = (id, restful_id(full_url, registry))
             && id != url_id
         {
@@ -55,16 +53,16 @@ pub(crate) fn bundle_entries(
                     .with_location(entry.span),
             );
         }
-        if let Some(resource_type) = string_field(resource, "resourceType") {
-            found
-                .entry(Arc::from(full_url))
-                .and_modify(|known: &mut Option<Arc<str>>| {
-                    if known.as_deref() != Some(resource_type) {
-                        *known = None;
-                    }
-                })
-                .or_insert_with(|| Some(Arc::from(resource_type)));
-        }
+        // An entry without a resource type leaves its fullUrl ambiguous, never resolved.
+        let resource_type = entry_resource.and_then(|node| string_field(node, "resourceType"));
+        found
+            .entry(Arc::from(full_url))
+            .and_modify(|known: &mut Option<Arc<str>>| {
+                if known.as_deref() != resource_type {
+                    *known = None;
+                }
+            })
+            .or_insert_with(|| resource_type.map(Arc::from));
     }
     found
 }
@@ -154,9 +152,10 @@ fn contained_id(node: &Node) -> Option<ContainedId> {
 /// disagrees with the type of a FHIR URL or `#id` reference, and `REFERENCE_004`
 /// (warning) a malformed relative reference. `REFERENCE_005` reports a FHIR URL
 /// or `#id` reference whose type is not allowed by the `targetProfile` list of
-/// `elem`. A `#id` takes the type of the contained resource it resolves to, and an absolute
-/// reference (such as `urn:uuid:`) the type of the `bundle` entries whose fullUrl it matches,
-/// when they all have the same type.
+/// `elem`. A `#id` takes the type of the contained resource it resolves to. An absolute
+/// reference whose text equals the fullUrl of `bundle` entries (such as `urn:uuid:`, or a
+/// RESTful URL) takes their resource type when it is the same for all, else it is left
+/// unresolved; other absolute URLs and `urn:` references are not resolved.
 #[allow(clippy::too_many_arguments)] // the reference, its definition and where it resolves
 pub(crate) fn check(
     item: &Node,
@@ -177,16 +176,19 @@ pub(crate) fn check(
             Diagnostic::error(problem.0, problem.1, ref_path.clone()).with_location(item.span),
         );
     }
-    // The type a FHIR URL names, or the type of the contained resource a `#id` resolves to.
-    let target_type = fhir_url_type(reference, registry).or_else(|| {
-        // A bare `#` names the container, not a contained resource.
-        let id = reference.strip_prefix('#').filter(|id| !id.is_empty())?;
-        let (_, resource_type) = contained_ids.iter().find(|(c, _)| c.as_ref() == id)?;
-        resource_type
-            .as_deref()
-            .filter(|t| is_resource_type(registry, t))
-    });
-    let target_type = target_type.or_else(|| bundle_type(reference, bundle, registry));
+    // A matching Bundle entry is authoritative (ambiguous matches stay unresolved); else the
+    // type a FHIR URL names, or the type of the contained resource a `#id` resolves to.
+    let target_type = match bundle.get(reference).filter(|_| has_scheme(reference)) {
+        Some(known) => known.as_deref().filter(|t| is_resource_type(registry, t)),
+        None => fhir_url_type(reference, registry).or_else(|| {
+            // A bare `#` names the container, not a contained resource.
+            let id = reference.strip_prefix('#').filter(|id| !id.is_empty())?;
+            let (_, resource_type) = contained_ids.iter().find(|(c, _)| c.as_ref() == id)?;
+            resource_type
+                .as_deref()
+                .filter(|t| is_resource_type(registry, t))
+        }),
+    };
     // references.html 2.1.3.0.1: type and the reference SHALL be consistent.
     let declared = string_field(item, "type");
     if let (Some(declared), Some(url_type)) = (declared, target_type)
@@ -221,20 +223,6 @@ pub(crate) fn check(
         diagnostics
             .push(Diagnostic::warning("REFERENCE_004", message, ref_path).with_location(item.span));
     }
-}
-
-/// The resource type of the `bundle` entries whose fullUrl is the absolute `reference`, when
-/// there is at least one and they agree. Relative references are not resolved here.
-fn bundle_type<'a>(
-    reference: &str,
-    bundle: &'a BundleTargets,
-    registry: &Registry,
-) -> Option<&'a str> {
-    if !has_scheme(reference) {
-        return None;
-    }
-    let resource_type = bundle.get(reference)?.as_deref()?;
-    is_resource_type(registry, resource_type).then_some(resource_type)
 }
 
 /// A relative reference to a known type that fails the R5 literal reference regex.
