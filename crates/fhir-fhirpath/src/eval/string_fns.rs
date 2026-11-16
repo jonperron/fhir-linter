@@ -7,8 +7,8 @@ use crate::value::{Collection, Value};
 use super::Evaluator;
 use super::base64::{base64_decode, base64_decode_url, base64_encode, base64_encode_url};
 use super::helpers::{
-    check_arity, check_arity_range, check_string_len, eval_string_arg, json_unescape,
-    single_integer, string_input,
+    check_arity, check_arity_range, check_collection_len, check_string_len, eval_string_arg,
+    json_unescape, single_integer, string_input,
 };
 use super::regex::{regex_matches, regex_matches_full, regex_replace_all};
 
@@ -40,6 +40,16 @@ impl Evaluator<'_> {
                     .map(|s| Value::Integer(s.chars().count() as i64))
                     .into_iter()
                     .collect()
+            }
+            "toChars" => {
+                check_arity(name, args, 0)?;
+                let text = string_input(focus, name)?.unwrap_or_default();
+                check_collection_len(text.chars().count())?;
+                self.charged(
+                    text.chars()
+                        .map(|c| Value::String(Arc::from(c.encode_utf8(&mut [0; 4]))))
+                        .collect(),
+                )?
             }
             "startsWith" => {
                 check_arity(name, args, 1)?;

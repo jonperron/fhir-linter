@@ -1478,8 +1478,6 @@ fn html_checks_on_strings_empty_and_other_types() {
 fn unimplemented_functions_are_undefined() {
     for expr in [
         "conformsTo('http://hl7.org/fhir/StructureDefinition/Patient')",
-        "today()",
-        "now()",
         "timeOfDay()",
         "1.5.precision()",
     ] {

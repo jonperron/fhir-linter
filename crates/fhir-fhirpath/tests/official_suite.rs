@@ -65,8 +65,10 @@ use quick_xml::events::{BytesStart, Event};
 /// by resolve() of contained references (testMultipleResolve), then to 1060
 /// by htmlChecks() (htmlTest01-04), then to 1061 by single-line mode in
 /// matches() (testMatchesSingleLineMode1), then to 1063 by empty results for
-/// unrepresentable sqrt() and power() (testSqrt2, testPower3).
-const MIN_PASSED: u32 = 1063;
+/// unrepresentable sqrt() and power() (testSqrt2, testPower3), then to 1078
+/// by today(), now(), union(), toChars() and Date against Time equality
+/// (15 cases).
+const MIN_PASSED: u32 = 1078;
 
 /// Cases that must pass whatever the total: the boundary functions behind
 /// the FHIR per-1, rng-2 and ratrng-2 invariants. Not listed: 12.500 and

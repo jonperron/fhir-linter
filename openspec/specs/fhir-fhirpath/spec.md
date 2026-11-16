@@ -348,14 +348,14 @@ Le système SHALL implémenter `first()`, `last()`, `tail()`, `skip(n)`, `take(n
 
 ### Requirement: Fonctions de chaînes
 
-Le système SHALL implémenter `toString()`, `length()`, `startsWith(s)`, `endsWith(s)`, `contains(s)`, `upper()`, `lower()`, `trim()`, `substring(start)`, `substring(start, length)`, `replace(pattern, substitution)`, `matches(regex, [flags])`, `matchesFull(regex, [flags])`, `replaceMatches(regex, substitution, [flags])`, `indexOf(s)`, `lastIndexOf(s)`, `split(separator)`, `join(separator)`, `encode(format)`, `decode(format)`, `escape(target)`, `unescape(target)`.
+Le système SHALL implémenter `toString()`, `length()`, `startsWith(s)`, `endsWith(s)`, `contains(s)`, `upper()`, `lower()`, `trim()`, `substring(start)`, `substring(start, length)`, `replace(pattern, substitution)`, `matches(regex, [flags])`, `matchesFull(regex, [flags])`, `replaceMatches(regex, substitution, [flags])`, `indexOf(s)`, `lastIndexOf(s)`, `split(separator)`, `join(separator)`, `encode(format)`, `decode(format)`, `escape(target)`, `unescape(target)`, `toChars()`.
 
 Le paramètre optionnel `flags` accepte `i` (insensible à la casse) et `m` (multiligne).
 `escape`/`unescape` supportent les cibles `'html'` et `'json'`.
 
 Pour `startsWith`, `endsWith`, `contains`, `indexOf`, `lastIndexOf`, `matches`, `matchesFull`, `replace`, `replaceMatches` et `substring`, une entrée vide ou un argument vide (motif, sous-chaîne, substitution, début) SHALL donner une collection vide ; un argument non `String` (ou non `Integer` pour `substring`) SHALL rester une erreur. Pour `substring`, un début hors de `0..length-1` SHALL donner une collection vide, une longueur vide SHALL se comporter comme une longueur absente et une longueur `<= 0` SHALL donner `''`. `join` sur une entrée vide SHALL donner une collection vide.
 
-Les fonctions de chaînes de N1 §5.6 (`indexOf`, `lastIndexOf`, `substring`, `startsWith`, `endsWith`, `contains`, `upper`, `lower`, `replace`, `matches`, `matchesFull`, `replaceMatches`, `length`, `trim`, `split`, `encode`, `decode`, `escape`, `unescape`) SHALL appliquer l'évaluation singleton à leur entrée : plusieurs éléments ou un élément qui n'est pas une `String` (y compris `Date`, `DateTime` et `Time`) SHALL donner `Err(EvalError::Type(...))`, et aucune ne SHALL lire seulement le premier élément. `join` SHALL conserver son entrée en collection. Les arguments `Integer` (`index`, `round`, `substring`) SHALL rejeter plusieurs éléments. `toString()` suit les règles de « Fonctions de conversion ».
+Les fonctions de chaînes de N1 §5.6 (`indexOf`, `lastIndexOf`, `substring`, `startsWith`, `endsWith`, `contains`, `upper`, `lower`, `replace`, `matches`, `matchesFull`, `replaceMatches`, `length`, `trim`, `split`, `encode`, `decode`, `escape`, `unescape`) SHALL appliquer l'évaluation singleton à leur entrée : plusieurs éléments ou un élément qui n'est pas une `String` (y compris `Date`, `DateTime` et `Time`) SHALL donner `Err(EvalError::Type(...))`, et aucune ne SHALL lire seulement le premier élément. `toChars()` SHALL transformer une seule `String` en collection de `String` d'un caractère (caractères, pas octets ; doublons conservés) ; une entrée vide ou `''` donne une collection vide ; plusieurs éléments ou un élément non `String` SHALL donner `Err(EvalError::Type(...))`. Le résultat SHALL respecter `MAX_COLLECTION_LEN` et être débité du budget de chaînes. `join` SHALL conserver son entrée en collection. Les arguments `Integer` (`index`, `round`, `substring`) SHALL rejeter plusieurs éléments. `toString()` suit les règles de « Fonctions de conversion ».
 
 #### Scenario: length sur une chaîne
 
@@ -448,6 +448,11 @@ Les fonctions de chaînes de N1 §5.6 (`indexOf`, `lastIndexOf`, `substring`, `s
 - **THEN** le résultat SHALL être une collection vide
 
 ---
+
+#### Scenario: toChars
+
+- **WHEN** `'héllo'.toChars()`, `''.toChars()` puis `('a' | 'b').toChars()` sont évalués
+- **THEN** les résultats SHALL être `['h','é','l','l','o']` (un caractère par `String`, doublons conservés), une collection vide, puis `Err(EvalError::Type(...))`
 
 ### Requirement: Fonctions mathématiques
 
@@ -622,10 +627,11 @@ Pour `=`, `!=`, `~`, `!~`, `<`, `<=`, `>`, `>=`, un objet FHIR Quantity (enfants
 
 ### Requirement: Fonctions de collections
 
-Le système SHALL implémenter `distinct()`, `isDistinct()`, `subsetOf(other)`, `supersetOf(other)`, `intersect(other)`, `exclude(other)`, `combine(other, [preserveOrder])`, `coalesce(values...)`, ainsi que l'opérateur `|` (union).
+Le système SHALL implémenter `distinct()`, `isDistinct()`, `subsetOf(other)`, `supersetOf(other)`, `intersect(other)`, `exclude(other)`, `combine(other, [preserveOrder])`, `coalesce(values...)`, `union(other)`, ainsi que l'opérateur `|` (union).
 
 `combine()` diffère de `|` : il conserve les doublons.
 `coalesce()` retourne le premier résultat non vide parmi ses arguments.
+`union(other)` SHALL être équivalente à l'opérateur `|` (valeurs distinctes selon l'égalité FHIRPath).
 L'union `|` et `intersect()` SHALL éliminer les doublons des deux opérandes, y compris ceux présents dans un seul opérande.
 
 #### Scenario: distinct élimine les doublons
@@ -652,6 +658,11 @@ L'union `|` et `intersect()` SHALL éliminer les doublons des deux opérandes, y
 
 - **WHEN** `1 | 2.combine(2)` puis `(1 | 2).intersect(1.combine(1))` sont évalués
 - **THEN** les résultats SHALL être `[1, 2]` puis `[1]`, chaque valeur n'apparaissant qu'une fois
+
+#### Scenario: union() équivaut à |
+
+- **WHEN** `(1 | 2).union(2 | 3)` est évalué
+- **THEN** le résultat SHALL être `[1, 2, 3]`, identique à `(1 | 2) | (2 | 3)`
 
 ### Requirement: Fonctions d'agrégation
 
@@ -721,11 +732,33 @@ Le système SHALL implémenter `children()` et `descendants()`. Les deux SHALL e
 
 ### Requirement: Fonctions diverses
 
-Le système SHALL implémenter `not()`, `iif(condition, trueResult, otherwiseResult)`, `trace(name)`, `hasValue()`, `getValue()`, `type()`. Les autres fonctions diverses de FHIRPath ne sont pas implémentées (voir « Limitations connues »).
+Le système SHALL implémenter `not()`, `iif(condition, trueResult, otherwiseResult)`, `trace(name)`, `hasValue()`, `getValue()`, `type()`, `today()`, `now()`. Les autres fonctions diverses de FHIRPath ne sont pas implémentées (voir « Limitations connues »).
 
 La condition de `iif` SHALL être un booléen seul ou une collection vide, sinon `Err(EvalError::Type(...))` ; `iif` appelé sur une collection de plusieurs éléments SHALL retourner `Err(EvalError::Type(...))`. `not()` SHALL appliquer l'évaluation singleton dans un contexte booléen.
 
 `hasValue()` SHALL retourner `[Bool(true)]` pour une seule primitive portant une valeur, une collection vide pour une seule valeur complexe, et `[Bool(false)]` pour une primitive sans valeur, plusieurs éléments ou aucun élément. Cela s'écarte du texte R5 (« otherwise empty ») parce que les contraintes R5 `exp-2`/`per-1` et la suite officielle attendent `false`.
+
+Le système SHALL implémenter `today()` (Date, date UTC courante) et `now()` (DateTime avec millisecondes et fuseau `+00:00`, UTC). Elles SHALL ne prendre aucun argument (sinon `Err(EvalError::Arity(...))`) et SHALL donner une seule valeur par évaluation : tous les appels d'une même évaluation s'accordent. Une horloge système hors des années 1970-9999 SHALL donner `Err(EvalError::Type(...))`. `timeOfDay()` reste non implémentée. L'utilisation du fuseau UTC au lieu du fuseau local est une limitation connue. `now()` comparée à une `Date` reste vide (règle du fuseau d'un seul côté).
+
+#### Scenario: today et now
+
+- **WHEN** `today()` et `now()` sont évalués
+- **THEN** les résultats SHALL être une `Date` `YYYY-MM-DD` et une `DateTime` `YYYY-MM-DDThh:mm:ss.fff+00:00` (UTC)
+
+#### Scenario: Cohérence et arité de today/now
+
+- **WHEN** `now() = now()` puis `today(1)` sont évalués
+- **THEN** le premier résultat SHALL être `[Bool(true)]` (une valeur par évaluation) et le second `Err(EvalError::Arity(...))`
+
+#### Scenario: now comparée à une Date
+
+- **WHEN** `now() = today()` est évalué
+- **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: Horloge hors plage
+
+- **WHEN** l'horloge système est hors des années 1970-9999
+- **THEN** `today()` et `now()` SHALL retourner `Err(EvalError::Type(...))`
 
 #### Scenario: not inverse un booléen
 
@@ -857,7 +890,7 @@ Le système SHALL définir la constante `MAX_STRING_LEN` = 1 048 576 caractères
 
 ### Requirement: Budget de caractères de chaînes par évaluation
 
-Le système SHALL définir la constante `MAX_EVAL_STRING_CHARS` = 16 777 216 (`crates/fhir-fhirpath/src/eval/helpers.rs`) : le nombre total de caractères de valeurs `String` qu'une évaluation (un appel à `evaluate`/`eval`) peut construire. Le compteur SHALL être partagé par tous les évaluateurs imbriqués (`select`, `where`, `aggregate`, ...). Lorsque le total dépasse la limite, l'évaluation SHALL s'arrêter avec `Err(EvalError::StringBudgetExceeded(limit))`, où `limit` est la limite. Le budget SHALL être débité pour chaque chaîne construite par les fonctions et opérateurs de chaînes (`+` et `&`, `join`, `replace`, `replaceMatches`, `upper`, `lower`, `trim`, `escape`, `unescape`, `encode`, `decode`) ainsi que par `substring`, `split` (toutes les parties), `toString` et `toQuantity` (unité), ces derniers restant exemptés de `MAX_STRING_LEN` ; un texte que ces fonctions retournent sans le recopier (`toString` d'une `String`, `toQuantity` d'une `Quantity`) SHALL NOT être débité. Le budget SHALL NOT être débité pour les chaînes lues dans la ressource (la navigation les partage), les littéraux chaîne et quantité, les noms retournés par `type()` ni les valeurs Date/DateTime/Time (tailles fixes et petites ; les débiter par item ferait sauter de vraies invariants sur de grandes collections). Les chaînes libérées SHALL NOT être remboursées : le compte est une borne supérieure de ce que l'évaluation a alloué.
+Le système SHALL définir la constante `MAX_EVAL_STRING_CHARS` = 16 777 216 (`crates/fhir-fhirpath/src/eval/helpers.rs`) : le nombre total de caractères de valeurs `String` qu'une évaluation (un appel à `evaluate`/`eval`) peut construire. Le compteur SHALL être partagé par tous les évaluateurs imbriqués (`select`, `where`, `aggregate`, ...). Lorsque le total dépasse la limite, l'évaluation SHALL s'arrêter avec `Err(EvalError::StringBudgetExceeded(limit))`, où `limit` est la limite. Le budget SHALL être débité pour chaque chaîne construite par les fonctions et opérateurs de chaînes (`+` et `&`, `join`, `replace`, `replaceMatches`, `upper`, `lower`, `trim`, `escape`, `unescape`, `encode`, `decode`) ainsi que par `substring`, `split` (toutes les parties), `toChars`, `toString` et `toQuantity` (unité), ces derniers restant exemptés de `MAX_STRING_LEN` ; un texte que ces fonctions retournent sans le recopier (`toString` d'une `String`, `toQuantity` d'une `Quantity`) SHALL NOT être débité. Le budget SHALL NOT être débité pour les chaînes lues dans la ressource (la navigation les partage), les littéraux chaîne et quantité, les noms retournés par `type()` ni les valeurs Date/DateTime/Time (tailles fixes et petites ; les débiter par item ferait sauter de vraies invariants sur de grandes collections). Les chaînes libérées SHALL NOT être remboursées : le compte est une borne supérieure de ce que l'évaluation a alloué.
 
 #### Scenario: Budget dépassé malgré les plafonds unitaires
 
@@ -953,7 +986,7 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 #### Scenario: Fonctions non implémentées retournent UndefinedFunction
 
-- **WHEN** `conformsTo()`, `today()`, `now()`, `timeOfDay()`, `precision()` est évalué
+- **WHEN** `conformsTo()`, `timeOfDay()`, `precision()` est évalué
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::UndefinedFunction(name))` où `name` est le nom de la fonction
 - **AND** il SHALL NOT retourner de résultat deviné (collection vide, booléen), afin que le validateur signale la contrainte comme non vérifiée (`INVARIANT_SKIPPED`)
 
@@ -1040,11 +1073,11 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 
-Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5, et avec le crochet `is_subtype` issu du Registry (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 1060 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
+Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5, et avec le crochet `is_subtype` issu du Registry (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 1078 cas réussissent (plancher de régression). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
 
 #### Scenario: Réussites sous le plancher
 
-- **WHEN** moins de 1060 cas de la suite réussissent
+- **WHEN** moins de 1078 cas de la suite réussissent
 - **THEN** le test SHALL échouer
 
 #### Scenario: Dérive du nombre de cas
@@ -1138,7 +1171,7 @@ L'opérateur `=` SHALL comparer deux collections élément par élément dans l'
 
 L'opérateur `~` SHALL ne jamais retourner de collection vide : `{} ~ {}` vaut `true` et un seul côté vide vaut `false`. Il SHALL ignorer l'ordre des collections, comparer les chaînes sans tenir compte de la casse en traitant chaque caractère d'espacement comme une espace, sans fusionner les suites d'espaces, arrondir les décimaux à la précision de l'opérande le moins précis, et ignorer `id` dans les objets.
 
-Les dates, date-heures et heures SHALL être comparées précision par précision (secondes et millisecondes comptent pour une seule précision), les fuseaux étant normalisés en UTC. Une précision différente avec des parties communes égales SHALL donner une collection vide, de même qu'un fuseau présent d'un seul côté, y compris une `Date` comparée à une `DateTime` avec fuseau. `sort()`, `min()` et `max()` SHALL continuer d'ordonner les date-heures par leur texte.
+Les dates, date-heures et heures SHALL être comparées précision par précision (secondes et millisecondes comptent pour une seule précision), les fuseaux étant normalisés en UTC. Une précision différente avec des parties communes égales SHALL donner une collection vide, de même qu'un fuseau présent d'un seul côté, y compris une `Date` comparée à une `DateTime` avec fuseau. Une `Date` ou une `DateTime` comparée à une `Time` SHALL donner `[Bool(false)]` pour `=` et `[Bool(true)]` pour `!=` (N2 §6.1.1), et non une collection vide. `sort()`, `min()` et `max()` SHALL continuer d'ordonner les date-heures par leur texte.
 
 #### Scenario: Collections de longueurs différentes
 
@@ -1184,6 +1217,11 @@ Les dates, date-heures et heures SHALL être comparées précision par précisio
 
 - **WHEN** `@2012-04-15T15:00:00Z != @2012-04-15T10:00:00` ou `@2012-04-16 = @2012-04-15T23:00:00-05:00` est évalué
 - **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: Date ou DateTime comparée à une Time
+
+- **WHEN** `@2012-04-15 = @T10:00:00` puis `@2012-04-15T10:00:00Z != @T10:00:00` sont évalués
+- **THEN** les résultats SHALL être `[Bool(false)]` puis `[Bool(true)]`
 
 #### Scenario: Valeur complexe comparée à une primitive
 
