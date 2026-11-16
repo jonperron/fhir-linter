@@ -1008,7 +1008,7 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 ### Requirement: Fonction htmlChecks (extension FHIR)
 
-`htmlChecks()` SHALL retourner un Boolean pour une entrée à une seule chaîne, et la collection vide pour une entrée vide ou non chaîne. Elle SHALL retourner `true` quand le balisage (un `div` ou un fragment) ne contient que les éléments autorisés (HTML 4.0 chapitres 7 à 11 sauf 9.4, chapitre 15, non dépréciés, plus `a`, `img`, `map`, `area`) sans espace de noms ou dans l'espace de noms XHTML ; uniquement des attributs autorisés hors événements (liste plate, raccourci documenté) ; aucune URL `javascript:`, `vbscript:` ou `data:` non image dans `href`, `src`, `cite`, `longdesc`, `usemap` ; aucun DTD, déclaration ou instruction de traitement ; aucun `<` ou `>` dans les commentaires ou sections CDATA ; et au moins du texte non blanc, une entité ou un `img`. Un balisage mal formé SHALL donner `false`.
+`htmlChecks()` SHALL retourner un Boolean pour une entrée à une seule chaîne, et la collection vide pour une entrée vide ou non chaîne. Elle SHALL retourner `true` quand le balisage (un `div` ou un fragment) ne contient que les éléments autorisés (HTML 4.0 chapitres 7 à 11 sauf 9.4, chapitre 15, non dépréciés, plus `a`, `img`, `map`, `area`) sans espace de noms ou dans l'espace de noms XHTML ; uniquement des attributs autorisés hors événements (liste plate, raccourci documenté) ; aucune URL `javascript:`, `vbscript:` ou `data:` non image dans `href`, `src`, `cite`, `longdesc`, `usemap` ; aucun DTD, déclaration ou instruction de traitement ; aucun `<` ou `>` dans les commentaires ou sections CDATA ; et au moins du texte non blanc (espaces Unicode, y compris en CDATA, non comptés), une entité prédéfinie XML ou un `img`. Une entité nommée autre que les cinq prédéfinies (`&nbsp;`, `&Tab;`), une référence de caractère invalide ou un balisage mal formé SHALL donner `false`.
 
 #### Scenario: Div valide
 
@@ -1018,6 +1018,11 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 #### Scenario: Contenu interdit
 
 - **WHEN** l'entrée contient `<script>`, un attribut `onclick`, un lien `javascript:` ou un balisage mal formé
+- **THEN** le résultat SHALL être `false`
+
+#### Scenario: Entité non définie
+
+- **WHEN** `htmlChecks()` est évalué sur un `div` contenant `&nbsp;`
 - **THEN** le résultat SHALL être `false`
 
 #### Scenario: Entrée vide ou non chaîne
