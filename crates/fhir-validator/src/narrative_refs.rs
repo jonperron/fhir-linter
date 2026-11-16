@@ -12,7 +12,10 @@ use std::sync::Arc;
 use fhir_fhirpath::Value;
 use quick_xml::XmlVersion;
 use quick_xml::events::Event;
-use quick_xml::reader::Reader;
+use quick_xml::name::ResolveResult;
+use quick_xml::reader::NsReader;
+
+const XHTML_NS: &[u8] = b"http://www.w3.org/1999/xhtml";
 
 /// The root with every `contained` entry whose `id` some narrative of the resource names
 /// by `#id` left out; `None` when no entry is left out. dom-3 evaluated on it, with the
@@ -68,25 +71,36 @@ fn collect(value: &Value, referenced: &mut HashSet<String>) {
 }
 
 /// Add the ids named by `a/@href="#id"` and `img/@src="#id"` in `markup` to `referenced`.
-/// Malformed markup stops the scan: txt-1 (`htmlChecks()`) reports it.
+/// Only XHTML elements count (bound to the XHTML namespace, or unprefixed with none, as
+/// in `htmlChecks()`). Malformed markup stops the scan: txt-1 (`htmlChecks()`) reports it.
 fn fragment_references(markup: &str, referenced: &mut HashSet<String>) {
-    let mut reader = Reader::from_str(markup);
+    let mut reader = NsReader::from_str(markup);
     loop {
-        let element = match reader.read_event() {
-            Ok(Event::Start(e) | Event::Empty(e)) => e,
-            Ok(Event::Eof) | Err(_) => return,
+        let (namespace, element) = match reader.read_resolved_event() {
+            Ok((namespace, Event::Start(element) | Event::Empty(element))) => (namespace, element),
+            Ok((_, Event::Eof)) | Err(_) => return,
             Ok(_) => continue,
         };
-        let attribute: &[u8] = match element.local_name().as_ref() {
+        if !matches!(namespace, ResolveResult::Unbound)
+            && !matches!(namespace, ResolveResult::Bound(ns) if ns.as_ref() == XHTML_NS)
+        {
+            continue;
+        }
+        let name: &[u8] = match element.local_name().as_ref() {
             b"a" => b"href",
             b"img" => b"src",
             _ => continue,
         };
-        let target = element
-            .attributes()
-            .flatten()
-            .find(|attr| attr.key.as_ref() == attribute)
-            .and_then(|attr| attr.normalized_value(XmlVersion::Implicit1_0).ok());
+        let mut target = None;
+        for attribute in element.attributes() {
+            let Ok(attribute) = attribute else { return };
+            if attribute.key.as_ref() == name {
+                let Ok(value) = attribute.normalized_value(XmlVersion::Implicit1_0) else {
+                    return;
+                };
+                target = Some(value);
+            }
+        }
         if let Some(id) = target.as_deref().and_then(|url| url.strip_prefix('#')) {
             referenced.insert(id.to_owned());
         }
@@ -110,6 +124,20 @@ mod tests {
             <img alt="#alt" src="pic.png"/><a name="n">n</a></div>"##;
         let expected: HashSet<String> = ["a", "i"].map(String::from).into();
         assert_eq!(references(markup), expected);
+    }
+
+    #[test]
+    fn counts_xhtml_elements_only() {
+        let markup = r##"<div xmlns="http://www.w3.org/1999/xhtml">
+            <h:a xmlns:h="http://www.w3.org/1999/xhtml" href="#h">h</h:a>
+            <x:a xmlns:x="urn:x" href="#x">x</x:a><x:img xmlns:x="urn:x" src="#y"/></div>"##;
+        assert_eq!(references(markup), ["h".to_owned()].into());
+    }
+
+    #[test]
+    fn stops_at_a_malformed_attribute() {
+        let markup = r##"<p><a x href="#a">x</a><img src="#b"/></p>"##;
+        assert_eq!(references(markup), HashSet::new());
     }
 
     #[test]
