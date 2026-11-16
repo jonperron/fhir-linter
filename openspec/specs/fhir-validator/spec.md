@@ -502,6 +502,21 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 - **WHEN** une `Patient` contient une ressource `Basic` que rien ne référence
 - **THEN** un Diagnostic `INVARIANT_dom-3` de severity `Error` SHALL être émis au chemin `Patient`
 
+#### Scenario: dom-3 satisfait par un lien du narratif (JSON)
+
+- **WHEN** une `Patient` JSON contient une `Basic` d'`id` `b` et un `text.div` xhtml avec `<a href="#b">`
+- **THEN** aucun Diagnostic `INVARIANT_dom-3` SHALL être émis
+
+#### Scenario: dom-3 satisfait par une image du narratif (XML)
+
+- **WHEN** une `Patient` XML contient une `Basic` d'`id` `b` et un narratif avec `<img src="#b"/>`
+- **THEN** aucun Diagnostic `INVARIANT_dom-3` SHALL être émis
+
+#### Scenario: dom-3 non satisfait par du texte ou une URL externe
+
+- **WHEN** une `Basic` contenue n'est nommée que dans le texte du narratif, un autre attribut ou une URL externe
+- **THEN** un Diagnostic `INVARIANT_dom-3` de severity `Error` SHALL être émis au chemin `Patient`
+
 #### Scenario: ref-1 résolu contre le conteneur
 
 - **WHEN** une `Observation` contenue référence `#` (le conteneur) et `#b` (une sœur contenue)
@@ -701,7 +716,7 @@ Le système SHALL émettre `REFERENCE_001` (erreur) lorsque `Reference.reference
 
 ### Requirement: Validation des références — ressource contenue absente (REFERENCE_002)
 
-Le système SHALL émettre `REFERENCE_002` (erreur) lorsqu'une référence `#id` ne correspond à aucun `id` dans `contained`, ou lorsque la référence est `#` seule hors d'une ressource contenue (ref-1 n'autorise `#` que si `%rootResource != %resource`). Une ressource contenue SHALL résoudre `#id` contre les `id` contenus de son conteneur, et `#` seul y SHALL être accepté. Une entrée de Bundle ou une ressource de Parameters est sa propre racine : `#id` SHALL être résolu contre son propre `contained` et `#` seul SHALL produire `REFERENCE_002`. `#id` SHALL être résolu quelle que soit la profondeur de la référence. En XML, un `<contained>` unique SHALL être accepté non encapsulé ; l'encapsulation `<contained><X>` étant dépliée au remodelage, aucune lecture XML spécifique des `id` contenus n'existe. ref-1 et dom-3 SHALL être évaluées (voir l'évaluation des invariants avec environnement).
+Le système SHALL émettre `REFERENCE_002` (erreur) lorsqu'une référence `#id` ne correspond à aucun `id` dans `contained`, ou lorsque la référence est `#` seule hors d'une ressource contenue (ref-1 n'autorise `#` que si `%rootResource != %resource`). Une ressource contenue SHALL résoudre `#id` contre les `id` contenus de son conteneur, et `#` seul y SHALL être accepté. Une entrée de Bundle ou une ressource de Parameters est sa propre racine : `#id` SHALL être résolu contre son propre `contained` et `#` seul SHALL produire `REFERENCE_002`. `#id` SHALL être résolu quelle que soit la profondeur de la référence. En XML, un `<contained>` unique SHALL être accepté non encapsulé ; l'encapsulation `<contained><X>` étant dépliée au remodelage, aucune lecture XML spécifique des `id` contenus n'existe. ref-1 et dom-3 SHALL être évaluées (voir l'évaluation des invariants avec environnement). L'invariant racine dom-3 SHALL aussi compter les références du narratif : une ressource contenue dont l'`id` est nommé par `#id` dans un `a/@href` ou `img/@src` d'un narratif xhtml de la ressource (éléments xhtml préfixés inclus, entités décodées) SHALL satisfaire dom-3 ; le texte, les autres attributs et les URL externes ne comptent pas, et un balisage mal formé interrompt l'analyse. Pour dom-3 seulement, le contexte d'évaluation SHALL écarter ces entrées contenues alors que `%resource` reste la ressource entière, de sorte que les références faites par ces entrées comptent encore (miroir du remplacement manuel de dom-3 du validateur Java ; R5 references.html §2.1.3.0.10, narrative.html §2.1.4.0.3).
 
 #### Scenario: Contained introuvable
 
