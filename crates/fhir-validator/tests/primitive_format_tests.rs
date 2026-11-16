@@ -140,6 +140,49 @@ fn canonical_with_whitespace_is_rejected() -> TestResult {
 }
 
 #[test]
+fn canonical_with_an_empty_version_is_rejected() -> TestResult {
+    // references.html: `url|version`, and a version is a string, which cannot be empty.
+    assert_case(
+        "canonical",
+        "http://example.org/StructureDefinition/x|",
+        Some("TYPE_003"),
+    )?;
+    assert_case("canonical", "|", Some("TYPE_003"))?;
+    assert_case("canonical", "#x|", Some("TYPE_003"))?;
+    // The `|version` form belongs to canonical only.
+    assert_case("uri", "http://example.org/x|", None)
+}
+
+#[test]
+fn canonical_with_an_empty_version_is_rejected_in_xml() -> TestResult {
+    let xml = r#"<Patient xmlns="http://hl7.org/fhir"><meta>
+        <profile value="http://example.org/StructureDefinition/x|"/></meta></Patient>"#;
+    let found: Vec<_> = validate(&parse_xml(xml)?, registry()?)
+        .into_iter()
+        .filter(|d| d.code.starts_with("TYPE_"))
+        .map(|d| (d.code.to_string(), d.path))
+        .collect();
+    let path = "Patient.meta.profile".to_owned();
+    assert_eq!(found, [("TYPE_003".to_owned(), path)]);
+    Ok(())
+}
+
+#[test]
+fn official_canonical_ending_in_a_bar_is_an_error() -> TestResult {
+    // Manifest case patient-ig-ig ("check canonical ending in |").
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/validator");
+    let text = std::fs::read_to_string(dir.join("patient-ig-ig.json"))?;
+    let errors: Vec<_> = validate(&parse_json(&text)?, registry()?)
+        .into_iter()
+        .filter(|d| d.severity <= Severity::Error)
+        .map(|d| (d.code.to_string(), d.path))
+        .collect();
+    let path = "ImplementationGuide.dependsOn[0].uri".to_owned();
+    assert_eq!(errors, [("TYPE_003".to_owned(), path)]);
+    Ok(())
+}
+
+#[test]
 fn oid_follows_the_r5_regex() -> TestResult {
     assert_case("oid", "urn:oid:1.2.840.10008", None)?;
     assert_case("oid", "1.2.840", Some("TYPE_003"))?;
