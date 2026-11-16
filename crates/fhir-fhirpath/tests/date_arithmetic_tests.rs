@@ -109,3 +109,23 @@ fn non_calendar_units_and_bad_operands_are_errors() {
     // N2 does not say what a day or more means for a Time.
     fails("@T10:00 + 1 day");
 }
+
+#[test]
+fn sub_step_amounts_truncate_and_invalid_values_are_errors() {
+    time("@T10:00:00 + 0.9999996 seconds", "10:00:00");
+    date_time(
+        "@2015-02-04T10:00:00.000Z + 1.005 seconds",
+        "2015-02-04T10:00:01.005Z",
+    );
+    fails("@2016-12-31T23:59:60Z + 0 seconds");
+    date_time("@2016-12-31T23:59:60Z + 1 year", "2017-12-31T23:59:60Z");
+    date("@2000-02-29 + 1 day", "2000-03-01");
+    date("@1900-02-28 + 1 day", "1900-03-01");
+    fails("@1900-02-29 + 1 day");
+    fails("@2015-13-01 + 1 day");
+    fails("@2015-02-30 + 1 day");
+    fails("@2015-02-04T24:00:00Z + 1 hour");
+    fails("@2015-02-04T10:60:00Z + 1 hour");
+    fails("@0000-01-01 + 1 day");
+    fails("@2014T10:00 + 1 hour");
+}

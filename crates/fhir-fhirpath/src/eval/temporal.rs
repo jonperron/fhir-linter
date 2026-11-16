@@ -197,9 +197,15 @@ pub(super) fn add_duration(value: &Value, amount: f64, unit: &str) -> Result<Val
             "cannot add {unit} to {text}, which has no day"
         )));
     } else {
+        // R5 allows second 60, but civil-time arithmetic would turn
+        // 23:59:60 into the next day, so a shift past the day is an error.
+        // shortcut: leap seconds are refused, not carried; N2 is silent.
+        if fields.fields[5] == 60 {
+            return Err(out_of_range());
+        }
         let step = UNIT_MILLIS[fields.precision - 2];
-        // Rounding to a micro-step first keeps 1.005 s at 1005 ms, not 1004.
-        let steps = ((amount * UNIT_MILLIS[index - 2] as f64 / step as f64) * 1e6).round() / 1e6;
+        // Rounding to a nano-step first keeps 1.005 s at 1005 ms, not 1004.
+        let steps = ((amount * UNIT_MILLIS[index - 2] as f64 / step as f64) * 1e9).round() / 1e9;
         let steps = steps.trunc();
         // 1e18 ms is far past 9999 years yet keeps the sum inside i64.
         if !steps.is_finite() || (steps * step as f64).abs() > 1e18 {
@@ -243,8 +249,16 @@ impl<'a> TemporalFields<'a> {
             .chain(whole.split(':'))
             .filter(|p| !p.is_empty());
         for part in parts {
+            if !part.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
             *fields.get_mut(count)? = part.parse().ok()?;
             count += 1;
+        }
+        // A clock needs a full date (R5 dateTime); `2014T10:00` would shift
+        // its hour into the month.
+        if !is_time && count < 3 && !clock.is_empty() {
+            return None;
         }
         if !fraction.is_empty() {
             // shortcut: the fraction is written back as three digits (`.5` gives
@@ -255,6 +269,20 @@ impl<'a> TemporalFields<'a> {
             count = 7;
         }
         let precision = count.checked_sub(1)?;
+        let [year, month, day, hour, minute, second, _] = fields;
+        let month_length = match month {
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+            4 | 6 | 9 | 11 => 30,
+            2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
+            2 => 28,
+            _ => return None,
+        };
+        if !(1..=9999).contains(&year) || !(1..=month_length).contains(&day) {
+            return None;
+        }
+        if hour > 23 || minute > 59 || second > 60 {
+            return None;
+        }
         let zone = &time[clock.len()..];
         Some(Self {
             fields,
