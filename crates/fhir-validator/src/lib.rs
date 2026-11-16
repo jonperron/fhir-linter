@@ -12,6 +12,7 @@ mod diagnostic;
 mod embedded;
 mod fixed_pattern;
 mod invariants;
+mod narrative_refs;
 mod nested;
 mod profile;
 mod references;
