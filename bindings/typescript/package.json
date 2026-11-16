@@ -33,7 +33,7 @@
   "devDependencies": {
     "@napi-rs/cli": "^3",
     "@types/node": "^26",
-    "typescript": "^5",
+    "typescript": "^7",
     "vitest": "^5"
   }
 }
