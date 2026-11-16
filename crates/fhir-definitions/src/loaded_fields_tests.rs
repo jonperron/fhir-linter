@@ -17,7 +17,7 @@ fn registry() -> crate::Result<Arc<Registry>> {
 
 fn definition<'a>(registry: &'a Registry, sd: &str) -> Result<&'a StructureDefinition, String> {
     registry
-        .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{sd}"))
+        .core(sd)
         .ok_or_else(|| format!("{sd} is not loaded"))
 }
 

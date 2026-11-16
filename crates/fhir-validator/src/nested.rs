@@ -417,7 +417,7 @@ fn check_invariants(
         return;
     }
     let type_constraints = registry
-        .structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{ty}"))
+        .core(ty)
         .and_then(|type_sd| type_sd.element(ty))
         .map(|root| root.constraints.as_slice())
         .unwrap_or_default();

@@ -179,9 +179,7 @@ fn registry_format_error(
             format!("{fhir_type} at '{path}' must not be empty"),
         ));
     }
-    let sd = registry.structure_definition(&format!(
-        "http://hl7.org/fhir/StructureDefinition/{fhir_type}"
-    ))?;
+    let sd = registry.core(fhir_type)?;
     let max_length = sd
         .element(&format!("{fhir_type}.value"))
         .and_then(|element| element.max_length)

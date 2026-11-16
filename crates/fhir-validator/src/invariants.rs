@@ -112,7 +112,7 @@ pub(crate) fn check(
 mod tests {
     use super::*;
 
-    use fhir_definitions::ElementDefinition;
+    use fhir_definitions::{CORE_PREFIX, ElementDefinition};
     use indexmap::IndexMap;
 
     fn make_constraint(key: &str, severity: &str, expression: &str) -> Constraint {
@@ -129,7 +129,7 @@ mod tests {
         constraints: Vec<Constraint>,
     ) -> StructureDefinition {
         StructureDefinition::new(
-            Arc::from(format!("http://hl7.org/fhir/StructureDefinition/{resource_type}").as_str()),
+            Arc::from(format!("{CORE_PREFIX}{resource_type}").as_str()),
             Arc::from(resource_type),
             Arc::from("resource"),
             false,

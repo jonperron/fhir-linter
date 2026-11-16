@@ -314,8 +314,12 @@ fn check_slices(
     let conforms = |fields: &IndexMap<Arc<str>, Node>, value: &[FhirPathValue], url: &str| {
         let profile = layer.registry.structure_definition(url)?;
         let root = profile.snapshot.first()?;
-        let core_root =
-            core_definition(&root.path, layer.registry).and_then(|sd| sd.element(&root.path));
+        let core_root = root
+            .path
+            .split('.')
+            .next()
+            .and_then(|t| layer.registry.core(t))
+            .and_then(|sd| sd.element(&root.path));
         let run = own_descendants(profile, &root.path);
         let mut found = Vec::new();
         // The sliced element's own constraints are checked on the item already.
@@ -408,7 +412,12 @@ fn check_own_invariants(
         return;
     }
     let registry = layer.registry;
-    let base = core_definition(&elem.path, registry).and_then(|sd| sd.element(&elem.path));
+    let base = elem
+        .path
+        .split('.')
+        .next()
+        .and_then(|t| registry.core(t))
+        .and_then(|sd| sd.element(&elem.path));
     let is_choice_variant = |base: &str, suffix: &str| registry.is_choice_variant(base, suffix);
     for item in items {
         // A contentReference element has no type: it is a backbone element (as in item_value).
@@ -419,7 +428,7 @@ fn check_own_invariants(
         if item.choice_type.is_some() && !elem.types.iter().any(|t| &**t == ty) {
             continue;
         }
-        let type_root = core_definition(ty, registry).and_then(|sd| sd.element(ty));
+        let type_root = registry.core(ty).and_then(|sd| sd.element(ty));
         let own: Vec<_> = elem
             .constraints
             .iter()
@@ -447,12 +456,6 @@ fn check_own_invariants(
     }
 }
 
-/// The core StructureDefinition of the type that starts definition path `path`.
-fn core_definition<'a>(path: &str, registry: &'a Registry) -> Option<&'a StructureDefinition> {
-    let root = path.split('.').next()?;
-    registry.structure_definition(&format!("http://hl7.org/fhir/StructureDefinition/{root}"))
-}
-
 /// Whether `elem` exists and has `constraint` (same key and expression): a profile that
 /// redefines an inherited key with another expression still has its own checked.
 fn has_constraint(elem: Option<&ElementDefinition>, constraint: &Constraint) -> bool {
@@ -466,7 +469,10 @@ fn same_constraint(a: &Constraint, b: &Constraint) -> bool {
 /// The types the base definition allows for the choice element `elem` (a profile may keep
 /// fewer); the profile's own types when the base is not found.
 fn choice_types<'a>(elem: &'a ElementDefinition, registry: &'a Registry) -> &'a [Arc<str>] {
-    core_definition(&elem.path, registry)
+    elem.path
+        .split('.')
+        .next()
+        .and_then(|t| registry.core(t))
         .and_then(|base| base.element(&elem.path))
         .map_or(&elem.types, |base| &base.types)
 }
