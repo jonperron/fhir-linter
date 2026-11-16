@@ -33,10 +33,17 @@ pub fn validate(
         return;
     };
 
+    let dom3_context = crate::narrative_refs::without_narrative_referenced(root);
     for constraint in &root_elem.constraints {
+        // dom-3 also counts narrative references, as the Java validator's manual
+        // replacement does; `%resource` stays the whole resource.
+        let context = match &dom3_context {
+            Some(context) if &*constraint.key == "dom-3" => context,
+            _ => root,
+        };
         check(
             constraint,
-            std::slice::from_ref(root),
+            std::slice::from_ref(context),
             is_choice_variant,
             &environment,
             path,
