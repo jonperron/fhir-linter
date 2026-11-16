@@ -56,7 +56,9 @@ shell. Work with them, not around them:
   file. Give a reviewer subagent the same workaround.
 - `gh pr checks --watch` under `rtk` prints only a summary and exits
   early. Poll CI with a script you write with the Write tool and run in
-  the background (see Waiting).
+  the background, as for Waiting, but loop until every check on the
+  pushed head has finished (`gh pr view <N> --json statusCheckRollup`),
+  not until the bot posts.
 - Scratchpad: it is shared by every agent. Use your own subfolder named
   after your branch or worktree, never fixed file names (`wait.sh`,
   `pr.md`, a harness `Cargo.toml`): other agents overwrite them.
@@ -134,7 +136,9 @@ Say so in the report if a toolchain is missing; do not claim it passed.
 | parsers, input handling, dependencies | `security` |
 
 Every task that changes a routed file also runs, after the reviewers,
-the `build`, `linter` and `test` agents (`CLAUDE.md`, Subagents).
+the `build`, `linter` and `test` agents (`CLAUDE.md`, Subagents). If
+one of them edits code or tests, run the routed reviewers on that edit
+before you push.
 
 Severity scale used by the loop: CRITICAL and MAJOR block; MINOR and NIT do
 not.

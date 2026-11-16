@@ -58,9 +58,11 @@ login and API paths.
    once, on all your fixes (test-only and bot fixes included), the full
    agent set the profile's reviewer routing names (the routed reviewers
    and the agents it adds for every task), plus the spec-sync subagent
-   when a spec must change. Never hand-edit specs. Apply what they find
-   (a CRITICAL goes to "Needs a decision"), and run the gate again. Then
-   commit and push the batch. Your report gives each agent's verdict.
+   whenever behaviour or an API changed (it decides whether specs need
+   edits). Never hand-edit specs. Apply what they find (a CRITICAL goes
+   to "Needs a decision"), and run the gate again. Then commit and push
+   the batch. Your report gives each agent's verdict. With **May push:
+   no**, skip this step and list the fixes as pending.
 5. Reply to EVERY bot comment in its thread, in one or two plain lines:
    "Fixed in <sha>: …" (the pushed SHA), "Valid, fix pending: …",
    "Pending maintainer decision: …", or "Not changing: <reason>." No
