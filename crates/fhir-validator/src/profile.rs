@@ -8,8 +8,9 @@ use crate::cardinality::{check_run_cardinality, own_descendants, subtree, withou
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::fixed_pattern::{self, occurrences};
 use crate::invariants;
-use crate::resolve::{capitalise, complex_type};
+use crate::resolve::complex_type;
 use crate::slicing::{self, Assigned, Item};
+use fhir_definitions::capitalise;
 
 /// Validate the profiles declared in `meta.profile`.
 ///

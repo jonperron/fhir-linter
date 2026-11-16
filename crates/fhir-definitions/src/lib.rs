@@ -10,6 +10,7 @@ mod loader;
 mod model;
 mod registry;
 mod shared;
+mod type_code;
 
 pub use model::{
     AdditionalBinding, Binding, ChoiceValue, CodeSystem, Constraint, Discriminator,
@@ -17,6 +18,7 @@ pub use model::{
 };
 pub use registry::Registry;
 pub use shared::DEFINITIONS_DIR_ENV;
+pub use type_code::{capitalise, is_primitive_type};
 
 use thiserror::Error;
 
