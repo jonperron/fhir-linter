@@ -9,7 +9,9 @@ repository.workspace  = true
 rust-version.workspace = true
 
 [dependencies]
+base64           = { workspace = true }
 indexmap         = { workspace = true }
+sha1_smol        = { workspace = true }
 fhir-definitions = { workspace = true }
 fhir-parser      = { workspace = true }
 fhir-fhirpath    = { workspace = true }

@@ -13,7 +13,7 @@ use crate::embedded::{
 use crate::profile::check_type_profiles;
 use crate::resolve::{complex_type, resolve};
 use crate::type_check::{check_type, is_valid_id};
-use crate::{invariants, references, terminology};
+use crate::{attachment, invariants, references, terminology};
 use fhir_definitions::is_primitive_type;
 
 /// What every level of the walk shares.
@@ -196,6 +196,9 @@ fn descend(
                     registry,
                     diagnostics,
                 );
+            }
+            if ty == "Attachment" {
+                attachment::check(fields, path, node.span, diagnostics);
             }
             let typed = typed_fields(value);
             match type_sd.filter(|_| !backbone) {

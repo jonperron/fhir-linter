@@ -7,6 +7,7 @@
 //! (contained, Bundle entries) go through the same layers at their own path.
 //! Emits `Diagnostic` values for every detected issue.
 
+mod attachment;
 mod cardinality;
 mod diagnostic;
 mod embedded;

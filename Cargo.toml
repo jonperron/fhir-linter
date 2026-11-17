@@ -41,6 +41,10 @@ indexmap    = { version = "2", features = ["serde"] }
 # Diagnostics
 thiserror   = "2"
 
+# Attachment.data checks (base64 decoding, SHA-1 hash)
+base64      = "0.23"
+sha1_smol   = "1"
+
 # CLI
 clap        = { version = "4", features = ["derive", "env"] }
 
