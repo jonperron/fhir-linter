@@ -21,7 +21,8 @@ use serde_json::Value;
 // 0.71 -> 0.70 (79/111 -> 78/111): fhirpath-good.json is a real R5 violation that Java
 // accepts: CareTeam.participant.onBehalfOf is Reference(Organization) but holds
 // "Practitioner/2", so REFERENCE_005 is a correct error.
-const MIN_JSON_PASS_RATE: f64 = 0.70;
+// 0.70 -> 0.79 (main 78/111 -> 88/111): validator fixes of PRs #123-#145.
+const MIN_JSON_PASS_RATE: f64 = 0.79;
 // 0.58 -> 0.56: primitive-good.xml and primitive-bad-empty.xml only passed through a false
 // TYPE_004 on the valid code "asd asd"; their real errors (decimal regex) are not caught yet.
 // 0.56 -> 0.68 (main 64/108 -> 74/108): the XML conformance checks (namespaces, mixed text,
@@ -29,7 +30,8 @@ const MIN_JSON_PASS_RATE: f64 = 0.70;
 // 0.68 -> 0.71 (main 78/108 -> 77/108): primitive-bad-empty.xml now passes (its empty
 // string is TYPE_003); narrative-binary.xml and narrative-binary-bad.xml now fail because their
 // base64Binary placeholder `MEKH....SD/Z` is invalid under the R5 regex (user decision).
-const MIN_XML_PASS_RATE: f64 = 0.71;
+// 0.71 -> 0.83 (main 77/108 -> 90/108): validator fixes of PRs #123-#145.
+const MIN_XML_PASS_RATE: f64 = 0.83;
 
 fn fixtures_dir() -> PathBuf {
     std::env::var_os("FHIR_FIXTURES_DIR").map_or_else(
