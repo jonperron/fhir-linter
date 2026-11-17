@@ -20,6 +20,10 @@ pub(crate) fn check(
     span: Span,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    // Nothing to compare against: skip the decode.
+    if !fields.contains_key("size") && !fields.contains_key("hash") {
+        return;
+    }
     let Some(data) = string(fields, "data").and_then(decode) else {
         return;
     };
