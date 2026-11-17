@@ -7,7 +7,9 @@ use std::sync::Arc;
 
 use crate::cardinality::check_children_cardinality;
 use crate::diagnostic::Diagnostic;
-use crate::embedded::{self, ContainedIds, Embedded, child_element, holds_resource, typed_element};
+use crate::embedded::{
+    self, BundleEntries, ContainedIds, Embedded, child_element, holds_resource, typed_element,
+};
 use crate::profile::check_type_profiles;
 use crate::resolve::{complex_type, resolve};
 use crate::type_check::{check_type, is_valid_id};
@@ -27,6 +29,8 @@ struct Walk<'a, 'e> {
     contained_ids: ContainedIds,
     /// Inside a contained resource, where `#` alone names the container.
     in_contained: bool,
+    /// Where absolute references resolve (see [`Embedded::bundle`]).
+    bundle: BundleEntries,
     /// The resource `id`, which is lifted out of `fields`; it pairs with a root `_id`.
     root_id: Option<Value>,
     /// The instance path of the resource being walked.
@@ -61,6 +65,7 @@ pub(crate) fn validate<'a>(
     json: bool,
     path: &str,
     container_ids: Option<ContainedIds>,
+    bundle: BundleEntries,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<Embedded<'a>> {
     // The parser lifts `id` out of `fields` (already rejecting non-strings), without a span.
@@ -86,6 +91,11 @@ pub(crate) fn validate<'a>(
         references::check_duplicate_contained_ids(resource, path, diagnostics);
         references::contained_ids(resource).into()
     });
+    // A Bundle is the innermost Bundle of everything it holds.
+    let bundle = match resource.resource_type.as_ref() {
+        "Bundle" => references::bundle_entries(resource, path, registry, diagnostics).into(),
+        _ => bundle,
+    };
     let context = Walk {
         registry,
         environment,
@@ -93,6 +103,7 @@ pub(crate) fn validate<'a>(
         json,
         contained_ids,
         in_contained,
+        bundle,
         root_id: resource
             .id
             .as_ref()
@@ -181,6 +192,7 @@ fn descend(
                     path,
                     &context.contained_ids,
                     context.in_contained,
+                    &context.bundle,
                     registry,
                     diagnostics,
                 );
@@ -311,6 +323,7 @@ fn walk(
                 node,
                 typed,
                 container,
+                &context.bundle,
                 context.registry,
                 &child_path,
                 queue,

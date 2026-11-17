@@ -26,6 +26,7 @@ pub use diagnostic::{Diagnostic, Severity};
 
 use fhir_definitions::{Registry, StructureDefinition};
 use fhir_parser::Resource;
+use std::sync::Arc;
 
 /// Validate a parsed FHIR resource against the definitions in the registry.
 ///
@@ -74,6 +75,7 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
         json,
         resource_type,
         None,
+        Arc::default(),
         &mut diagnostics,
     );
     // Embedded resources (contained, Bundle entries) in document order, each after its
@@ -89,6 +91,7 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
             json,
             &embedded.path,
             embedded.container_ids,
+            embedded.bundle,
             &mut diagnostics,
         );
         inner.reverse();
@@ -110,6 +113,7 @@ fn validate_one<'a>(
     json: bool,
     path: &str,
     container_ids: Option<embedded::ContainedIds>,
+    bundle: embedded::BundleEntries,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<embedded::Embedded<'a>> {
     let is_subtype =
@@ -133,6 +137,7 @@ fn validate_one<'a>(
         json,
         path,
         container_ids,
+        bundle,
         diagnostics,
     );
     invariants::validate(
