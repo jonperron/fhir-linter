@@ -83,6 +83,7 @@ impl Evaluator<'_> {
             "extension" => {
                 check_arity(name, args, 1)?;
                 let url = eval_string_arg(&self.eval(&args[0], ctx)?, "extension url")?;
+                super::helpers::check_known_content(focus)?;
                 let mut out = Vec::new();
                 for item in focus {
                     if let Some(fields) = item.fields() {
@@ -114,7 +115,14 @@ impl Evaluator<'_> {
                 // several items or a primitive without a value give false, as the
                 // R5 constraints (exp-2, per-1) and the official suite expect.
                 match focus {
-                    [item] if matches!(item.primitive_value(), Value::Object(_)) => vec![],
+                    [item]
+                        if matches!(
+                            item.primitive_value(),
+                            Value::Object(_) | Value::UnresolvedResource { .. }
+                        ) =>
+                    {
+                        vec![]
+                    }
                     [item] => vec![Value::Bool(!matches!(item.primitive_value(), Value::Null))],
                     _ => vec![Value::Bool(false)],
                 }
@@ -124,7 +132,12 @@ impl Evaluator<'_> {
                 focus
                     .iter()
                     .map(Value::primitive_value)
-                    .filter(|v| !matches!(v, Value::Null | Value::Object(_)))
+                    .filter(|v| {
+                        !matches!(
+                            v,
+                            Value::Null | Value::Object(_) | Value::UnresolvedResource { .. }
+                        )
+                    })
                     .cloned()
                     .collect()
             }

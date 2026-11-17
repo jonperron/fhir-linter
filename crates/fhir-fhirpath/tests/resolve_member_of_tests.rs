@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use fhir_definitions::Registry;
 use fhir_fhirpath::{
-    Collection, Environment, EvalError, MemberOf, Value, evaluate,
+    Collection, Environment, EvalError, IsSubtype, MemberOf, Value, evaluate,
     evaluate_parsed_with_environment, parse, resource_to_typed_value, resource_to_value,
 };
 use fhir_parser::parse_json;
@@ -99,6 +99,137 @@ fn resolve_without_a_root_resource_is_an_error() -> TestResult {
         evaluate("resolve()", &subject),
         Err(EvalError::Type(_))
     ));
+    Ok(())
+}
+
+/// Evaluate on `json` with FHIR type inheritance from the R5 definitions.
+fn eval_typed(expression: &str, json: &str) -> Result<Collection, Box<dyn Error>> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5");
+    let registry = Registry::from_definitions_dir(dir)?;
+    let is_subtype =
+        |child: &str, ancestor: &str| registry.type_ancestors(child).any(|code| code == ancestor);
+    let root = resource(json)?;
+    let environment = Environment {
+        root_resource: Some(&root),
+        is_subtype: Some(&is_subtype as &IsSubtype<'_>),
+        ..Environment::default()
+    };
+    Ok(eval_env(
+        expression,
+        std::slice::from_ref(&root),
+        &environment,
+    )?)
+}
+
+const CARE_TEAM: &str = r#"{"resourceType":"CareTeam","participant":[
+    {"member":{"reference":"Practitioner/1"}},
+    {"member":{"reference":"https://example.org/fhir/Patient/p-2/_history/3"}},
+    {"member":{"reference":"Organization/2"}}]}"#;
+
+#[test]
+fn resolve_types_a_type_id_reference_by_its_type() -> TestResult {
+    // references.html: `[Type]/[id]`, relative or absolute, names a resource of that type.
+    for (expression, expected) in [
+        ("participant[0].member.resolve() is Practitioner", true),
+        ("participant[0].member.resolve() is Patient", false),
+        ("participant[0].member.resolve() is DomainResource", true),
+        ("participant[1].member.resolve() is Patient", true),
+        (
+            "participant.member.resolve().ofType(Organization).count() = 1",
+            true,
+        ),
+        ("participant.member.resolve().count() = 3", true),
+        (
+            "(participant[0].member.resolve() as Practitioner).exists()",
+            true,
+        ),
+        ("(participant[0].member.resolve() as Patient).empty()", true),
+        ("participant[0].member.reference.resolve().exists()", true),
+        // A resource is complex: no primitive value (R5 hasValue(), getValue()).
+        ("participant[0].member.resolve().hasValue().empty()", true),
+        ("participant[0].member.resolve().getValue().empty()", true),
+    ] {
+        assert_eq!(
+            bools(&eval_typed(expression, CARE_TEAM)?),
+            [expected],
+            "{expression}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn resolve_of_a_type_id_reference_knows_only_the_type() -> TestResult {
+    // The target's content is unknown: reading it or comparing it is an error, never empty.
+    for expression in [
+        "participant[0].member.resolve().id",
+        "participant[0].member.resolve().active.empty()",
+        "participant[0].member.resolve() = participant[0].member.resolve()",
+        "participant[0].member.resolve() != participant[2].member.resolve()",
+        "participant[0].member.resolve() ~ participant[2].member.resolve()",
+        "participant[0].member.resolve().children().empty()",
+        "participant[0].member.resolve().descendants().empty()",
+        "participant[0].member.resolve().extension('http://example.org/x').empty()",
+        // Set equality is FHIRPath equality, unknown for unknown content.
+        "participant[0].member.resolve() in participant.member.resolve()",
+        "participant.member.resolve() contains participant[0].member.resolve()",
+        "(participant[0].member.resolve() | participant[1].member.resolve()).count() = 2",
+        "participant.member.resolve().distinct().count() = 3",
+        "participant.member.resolve().isDistinct()",
+        "participant.member.resolve().subsetOf(participant.member.resolve())",
+        "participant.member.resolve().supersetOf(participant.member.resolve())",
+        "participant.member.resolve().intersect(participant.member.resolve()).empty()",
+        "participant.member.resolve().exclude(participant.member.resolve()).empty()",
+        "participant.member.resolve().union(participant.member.resolve()).empty()",
+        "participant.member.resolve().repeat($this).empty()",
+    ] {
+        assert!(
+            matches!(eval_typed(expression, CARE_TEAM), Err(e) if e.is::<EvalError>()),
+            "{expression}",
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn resolve_errors_on_references_that_do_not_name_a_resource_type() -> TestResult {
+    for reference in [
+        "Unknown/1",
+        "Patient",
+        "Patient/",
+        "Patient/bad id",
+        "Patient/1/_history",
+        "urn:uuid:3fdc72f4-a11d-4a9d-9260-a9f745779e1d",
+        "ftp://example.org/Patient/1",
+        "HumanName/1",
+    ] {
+        let json = format!(
+            r#"{{"resourceType":"CareTeam","participant":[
+            {{"member":{{"reference":"{reference}"}}}}]}}"#
+        );
+        let result = eval_typed("participant.member.resolve()", &json);
+        assert!(
+            matches!(result, Err(e) if e.is::<EvalError>()),
+            "{reference}",
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn resolve_of_an_abstract_type_cannot_answer_for_a_subtype() -> TestResult {
+    // `Resource/1` may be any resource: whether it is a Patient is unknown.
+    let json =
+        r#"{"resourceType":"CareTeam","participant":[{"member":{"reference":"Resource/1"}}]}"#;
+    assert_eq!(
+        bools(&eval_typed(
+            "participant.member.resolve() is Resource",
+            json
+        )?),
+        [true]
+    );
+    assert!(eval_typed("participant.member.resolve() is Patient", json).is_err());
+    assert!(eval_typed("participant.member.resolve().ofType(Patient)", json).is_err());
     Ok(())
 }
 

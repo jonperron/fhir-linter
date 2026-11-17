@@ -62,12 +62,29 @@ fn enc2_passes_for_a_typed_practitioner_or_an_untyped_patient() -> TestResult {
 }
 
 #[test]
+fn enc2_decides_on_the_type_of_a_type_id_reference() -> TestResult {
+    // references.html: `Patient/x` names a Patient, fetched or not.
+    assert_eq!(
+        about(&encounter("Patient/elsewhere", true), "enc-2")?,
+        vec![(
+            Severity::Error,
+            "INVARIANT_enc-2".to_owned(),
+            "Encounter.participant[0]".to_owned(),
+        )],
+    );
+    assert_eq!(
+        about(
+            &encounter("https://example.org/fhir/Practitioner/1", true),
+            "enc-2"
+        )?,
+        vec![],
+    );
+    Ok(())
+}
+
+#[test]
 fn enc2_gives_no_error_for_a_reference_it_cannot_resolve() -> TestResult {
-    for actor in [
-        "Patient/elsewhere",
-        "#missing",
-        "urn:uuid:5b3f6d36-1d4e-4f5c-9b0e-8f7a1c1e0e7d",
-    ] {
+    for actor in ["#missing", "urn:uuid:5b3f6d36-1d4e-4f5c-9b0e-8f7a1c1e0e7d"] {
         let findings = about(&encounter(actor, true), "enc-2")?;
         assert_eq!(
             findings,
@@ -105,9 +122,22 @@ fn obs9_checks_the_members_of_a_contained_group() -> TestResult {
             "Observation.specimen".to_owned(),
         )],
     );
+    // A `Type/id` member is checked by its type.
+    assert_eq!(about(&observation("Specimen/elsewhere"), "obs-9")?, vec![]);
+    assert_eq!(
+        about(&observation("Patient/elsewhere"), "obs-9")?,
+        vec![(
+            Severity::Error,
+            "INVARIANT_obs-9".to_owned(),
+            "Observation.specimen".to_owned(),
+        )],
+    );
     // A member the validator cannot resolve skips the constraint, never fails it.
     assert_eq!(
-        about(&observation("Specimen/elsewhere"), "obs-9")?,
+        about(
+            &observation("urn:uuid:5b3f6d36-1d4e-4f5c-9b0e-8f7a1c1e0e7d"),
+            "obs-9"
+        )?,
         vec![(
             Severity::Information,
             "INVARIANT_SKIPPED".to_owned(),

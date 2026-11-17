@@ -1,7 +1,9 @@
 //! FHIR additions to FHIRPath (R5 fhirpath.html §2.1.9.1): `resolve()`,
 //! `memberOf()` and `htmlChecks()`. None guesses: a reference `resolve()` cannot find is an
 //! error, and `memberOf()` is empty when membership cannot be decided.
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+
+use regex_lite::Regex;
 
 use crate::ast::Expr;
 use crate::error::EvalError;
@@ -9,6 +11,18 @@ use crate::value::{Collection, Value};
 
 use super::Evaluator;
 use super::helpers::{check_arity, singleton};
+
+/// The literal reference regex of references.html, with the resource type
+/// list left to the Registry: an optional http(s) base, `Type/id` and an
+/// optional `/_history/vid`. `None` (never, the pattern is fixed) resolves nothing.
+static TYPED_REFERENCE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(concat!(
+        r"^(?:https?://(?:[A-Za-z0-9\-\\.:%$]*/)+)?",
+        r"([A-Za-z]+)/[A-Za-z0-9\-.]{1,64}",
+        r"(?:/_history/[A-Za-z0-9\-.]{1,64})?$",
+    ))
+    .ok()
+});
 
 impl Evaluator<'_> {
     /// Handle `resolve()`, `memberOf()` and `htmlChecks()`.
@@ -35,10 +49,14 @@ impl Evaluator<'_> {
     /// that then sees empty would fail on a reference this evaluator merely
     /// cannot follow, so such an item is an error and the invariant is skipped.
     ///
-    /// shortcut: only `#id` (a resource in `%rootResource.contained`) and `#`
-    /// (`%rootResource`) resolve (references.html, ref-1); Bundle-local and
-    /// server references are errors. Upgrade when the environment carries the
-    /// enclosing Bundle and the entry's fullUrl.
+    /// `#id` (a resource in `%rootResource.contained`) and `#` (`%rootResource`)
+    /// resolve (references.html, ref-1). A `[Type]/[id]` reference, relative or
+    /// absolute, gives a [`Value::UnresolvedResource`] of that type, so type
+    /// tests on it work; this needs [`super::Environment::is_subtype`] to know
+    /// the resource types.
+    ///
+    /// shortcut: other references (`urn:uuid:`, Bundle-local by fullUrl) are
+    /// errors. Upgrade when the environment carries the enclosing Bundle.
     fn resolve(&self, focus: &[Value]) -> Result<Collection, EvalError> {
         // `%rootResource` falls back to `%resource`; with neither, nothing resolves.
         let root = self
@@ -52,23 +70,39 @@ impl Evaluator<'_> {
             .iter()
             .map(|item| {
                 let reference = reference(item);
-                let found = match reference.as_deref().and_then(|r| r.strip_prefix('#')) {
-                    Some("") => root.cloned(),
-                    Some(id) => contained
+                let found = match reference.as_deref().map(|r| (r, r.strip_prefix('#'))) {
+                    Some((_, Some(""))) => root.cloned(),
+                    Some((_, Some(id))) => contained
                         .iter()
                         .find(|resource| field_string(resource, "id").as_deref() == Some(id))
                         .cloned(),
+                    Some((typed, None)) => self.typed_reference(typed),
                     None => None,
                 };
                 found.ok_or_else(|| {
                     EvalError::Type(format!(
                         "resolve() cannot follow '{}': only #id references to contained \
-                         resources are resolved",
+                         resources and [Type]/[id] references are resolved",
                         reference.as_deref().unwrap_or("<no reference>"),
                     ))
                 })
             })
             .collect()
+    }
+
+    /// The resource a literal `[Type]/[id]` reference names, known by its type
+    /// only; `None` unless `Type` is a resource type.
+    fn typed_reference(&self, reference: &str) -> Option<Value> {
+        let is_subtype = self.environment.is_subtype?;
+        let resource_type = TYPED_REFERENCE
+            .as_ref()?
+            .captures(reference)?
+            .get(1)?
+            .as_str();
+        is_subtype(resource_type, "Resource").then(|| Value::UnresolvedResource {
+            resource_type: Arc::from(resource_type),
+            reference: Arc::from(reference),
+        })
     }
 
     /// `memberOf(valueset)`: whether the single code, Coding or
