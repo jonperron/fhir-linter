@@ -1,0 +1,28 @@
+name: Audit
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+  schedule:
+    # Weekly, so advisories published after the last PR still surface.
+    - cron: "0 6 * * 1"
+
+jobs:
+  cargo-audit:
+    name: Cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@c114f6e1756596f56b6d3c93a9c0bbd6b5ec1154 # cargo-llvm-cov tag; tool: overrides its default
+        with:
+          tool: cargo-audit@0.22.2
+          fallback: none
+
+      - run: cargo audit
