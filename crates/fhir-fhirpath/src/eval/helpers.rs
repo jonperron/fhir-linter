@@ -567,6 +567,23 @@ pub(super) fn value_is_type(
     {
         return Ok(is_subtype(fhir_type, type_name));
     }
+    if let (
+        Value::UnresolvedResource {
+            resource_type,
+            reference,
+        },
+        Some(is_subtype),
+    ) = (v, is_subtype)
+        && is_subtype(type_name, type_name)
+    {
+        // `Resource/1` may be any resource: whether it is a Patient is unknown.
+        if type_name != &**resource_type && is_subtype(type_name, resource_type) {
+            return Err(EvalError::Type(format!(
+                "cannot tell whether '{reference}' is a {type_name}",
+            )));
+        }
+        return Ok(is_subtype(resource_type, type_name));
+    }
     let v = v.primitive_value();
     if matches!(v, Value::String(_)) && FHIR_STRING_SUBTYPES.contains(&type_name) {
         return Err(EvalError::Type(format!(
@@ -736,6 +753,20 @@ pub(super) fn eval_type_name(expr: &Expr) -> Result<String, EvalError> {
 }
 
 // ── Tree traversal ────────────────────────────────────────────────────────────
+
+/// An error when an item is a [`Value::UnresolvedResource`]: its elements are
+/// unknown, so reading or comparing them must not look like empty.
+pub(super) fn check_known_content(items: &[Value]) -> Result<(), EvalError> {
+    match items.iter().find_map(|item| match item {
+        Value::UnresolvedResource { reference, .. } => Some(reference),
+        _ => None,
+    }) {
+        Some(reference) => Err(EvalError::Type(format!(
+            "the content of '{reference}' is unknown: resolve() only knows its type",
+        ))),
+        None => Ok(()),
+    }
+}
 
 pub(super) fn collect_descendants(v: &Value, out: &mut Collection) {
     // Iterative depth-first pre-order, so hostile deep input cannot overflow the stack.

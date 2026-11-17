@@ -39,6 +39,14 @@ pub enum Value {
         Arc<IndexMap<Arc<str>, Collection>>,
         Option<Arc<str>>,
     ),
+    /// What `resolve()` knows of a resource it cannot fetch from a
+    /// `[Type]/[id]` reference (references.html): its type and nothing else.
+    /// `is`, `as` and `ofType` answer by that type; reading its elements or
+    /// comparing it is an error, as its content is unknown.
+    UnresolvedResource {
+        resource_type: Arc<str>,
+        reference: Arc<str>,
+    },
 }
 
 /// A FHIRPath collection (ordered list of values, may be empty).
@@ -91,6 +99,7 @@ impl Value {
             Value::Quantity(_, _) => "Quantity",
             Value::Object(_) => "Object",
             Value::Primitive(value, _, _) => value.type_name(),
+            Value::UnresolvedResource { .. } => "Object",
         }
     }
 
@@ -134,6 +143,7 @@ impl fmt::Display for Value {
             Value::Quantity(n, u) => write!(f, "{n} '{u}'"),
             Value::Object(_) => write!(f, "{{…}}"),
             Value::Primitive(value, _, _) => write!(f, "{value}"),
+            Value::UnresolvedResource { reference, .. } => write!(f, "{reference}"),
         }
     }
 }
