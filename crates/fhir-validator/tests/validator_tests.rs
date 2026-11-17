@@ -655,7 +655,7 @@ fn unevaluable_invariants_are_reported_as_information() {
     let resource = parse_json(
         r#"{"resourceType":"Encounter","status":"completed",
         "participant":[{"type":[{"text":"attender"}],
-            "actor":{"reference":"Patient/elsewhere"}}]}"#,
+            "actor":{"reference":"urn:uuid:5b3f6d36-1d4e-4f5c-9b0e-8f7a1c1e0e7d"}}]}"#,
     )
     .unwrap();
     let skipped: Vec<_> = validate(&resource, &load_registry())
@@ -768,10 +768,18 @@ fn docref1_decided_by_left_side_is_checked_not_skipped() {
     let facility_type = r#""facilityType":{"text":"x"},"#;
     // With no facilityType the left side decides `or`.
     assert!(docref1_with("", "#enc").is_empty());
-    // An Encounter the validator cannot see is skipped, never a violation.
+    // A reference the validator cannot follow is skipped, never a violation.
+    assert_eq!(
+        docref1_with(
+            facility_type,
+            "urn:uuid:5b3f6d36-1d4e-4f5c-9b0e-8f7a1c1e0e7d"
+        ),
+        ["Information INVARIANT_SKIPPED DocumentReference"],
+    );
+    // `Encounter/e1` names an Encounter (references.html): checked by its type.
     assert_eq!(
         docref1_with(facility_type, "Encounter/e1"),
-        ["Information INVARIANT_SKIPPED DocumentReference"],
+        ["Warning INVARIANT_docRef-1 DocumentReference"],
     );
     // A contained Encounter resolves: the constraint is loaded and run.
     assert_eq!(

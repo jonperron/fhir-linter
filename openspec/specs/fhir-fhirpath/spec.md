@@ -995,10 +995,17 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 - **WHEN** `resolve()` est évalué sur une Reference `#id` et que `%rootResource.contained` contient une ressource de cet `id`, ou sur `#` seul
 - **THEN** le résultat SHALL être cette ressource contenue (pour `#` : `%rootResource`, qui retombe sur `%resource`) ; une entrée vide donne une collection vide
 
+#### Scenario: resolve() d'une référence littérale typée
+
+- **WHEN** `resolve()` est évalué sur une Reference littérale `[Type]/[id]` (relative, ou absolue avec base http(s), `/_history/[vid]` optionnel ; regex de références littérales de references.html, liste des types tirée du Registry via `Environment.is_subtype(T, "Resource")`)
+- **THEN** le résultat SHALL être un substitut typé `Value::UnresolvedResource { resource_type, reference }` (variante ajoutée à l'enum public `Value`) ; sans `Environment.is_subtype`, cela reste une `EvalError`
+- **AND** le substitut SHALL répondre à `is`, `as` et `ofType` selon son type par héritage FHIR ; interroger un substitut de type abstrait (ex. `Resource/1`) sur un sous-type strict SHALL être une `EvalError`
+- **AND** le lire (navigation, `children()`, `descendants()`, `extension()`) ou le comparer (`=`, `!=`, `~`, `!~`, `in`, `contains`, `|`, `union`, `distinct`, `isDistinct`, `subsetOf`, `supersetOf`, `intersect`, `exclude`, `repeat`) SHALL être une `EvalError`, de sorte que l'invariant soit `INVARIANT_SKIPPED` et jamais en échec sur un contenu inconnu ; `hasValue()` SHALL donner vide et `getValue()` rien (type complexe)
+
 #### Scenario: resolve() d'une référence non suivable
 
-- **WHEN** `resolve()` est évalué sur une référence Bundle-locale ou serveur, un `#id` absent, une Reference sans `reference`, ou sans ressource racine
-- **THEN** l'évaluateur SHALL retourner une `EvalError` (et non une collection vide, écart volontaire avec fhirpath.html qui dit « ignoré »), de sorte que le validateur émette `INVARIANT_SKIPPED` au lieu d'une fausse violation ; la résolution Bundle-locale est une limitation connue
+- **WHEN** `resolve()` est évalué sur une référence `urn:uuid:`, un `fullUrl` Bundle, un `#id` absent, une Reference sans `reference`, ou sans ressource racine
+- **THEN** l'évaluateur SHALL retourner une `EvalError` (et non une collection vide, écart volontaire avec fhirpath.html qui dit « ignoré »), de sorte que le validateur émette `INVARIANT_SKIPPED` au lieu d'une fausse violation ; la résolution Bundle-locale exige le contexte Bundle du validateur et reste une limitation connue
 
 #### Scenario: memberOf() par type d'élément
 

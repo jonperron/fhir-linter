@@ -4,9 +4,9 @@ use crate::value::{Collection, Value};
 
 use super::Evaluator;
 use super::helpers::{
-    as_type, check_arity, check_arity_range, check_collection_len, check_type_name,
-    collect_descendants, compare_values, contains_value, criteria_bool, distinct, eval_type_name,
-    is_type, optional_integer, primitive_values, value_is_type,
+    as_type, check_arity, check_arity_range, check_collection_len, check_known_content,
+    check_type_name, collect_descendants, compare_values, contains_value, criteria_bool, distinct,
+    eval_type_name, is_type, optional_integer, primitive_values, value_is_type,
 };
 
 impl Evaluator<'_> {
@@ -127,7 +127,9 @@ impl Evaluator<'_> {
                     // shortcut: N1 does not say what $index is in repeat(); each
                     // round indexes its own items. Revisit if a later release defines it.
                     for (index, item) in frontier.iter().enumerate() {
-                        for v in self.eval_item(&args[0], item, index)? {
+                        let projected = self.eval_item(&args[0], item, index)?;
+                        check_known_content(&projected)?;
+                        for v in projected {
                             if !contains_value(&seen, &v) {
                                 seen.push(v.clone());
                                 next.push(v);
@@ -219,10 +221,12 @@ impl Evaluator<'_> {
             // ── Set operations ────────────────────────────────────────────
             "distinct" => {
                 check_arity(name, args, 0)?;
+                check_known_content(focus)?;
                 distinct(focus.iter().cloned())
             }
             "isDistinct" => {
                 check_arity(name, args, 0)?;
+                check_known_content(focus)?;
                 let mut seen: Collection = Vec::new();
                 let mut distinct = true;
                 for v in focus {
@@ -237,21 +241,29 @@ impl Evaluator<'_> {
             "subsetOf" => {
                 check_arity(name, args, 1)?;
                 let other = self.eval(&args[0], ctx)?;
+                check_known_content(focus)?;
+                check_known_content(&other)?;
                 vec![Value::Bool(focus.iter().all(|v| contains_value(&other, v)))]
             }
             "supersetOf" => {
                 check_arity(name, args, 1)?;
                 let other = self.eval(&args[0], ctx)?;
+                check_known_content(focus)?;
+                check_known_content(&other)?;
                 vec![Value::Bool(other.iter().all(|v| contains_value(focus, v)))]
             }
             "intersect" => {
                 check_arity(name, args, 1)?;
                 let other = self.eval(&args[0], ctx)?;
+                check_known_content(focus)?;
+                check_known_content(&other)?;
                 distinct(focus.iter().filter(|v| contains_value(&other, v)).cloned())
             }
             "exclude" => {
                 check_arity(name, args, 1)?;
                 let other = self.eval(&args[0], ctx)?;
+                check_known_content(focus)?;
+                check_known_content(&other)?;
                 focus
                     .iter()
                     .filter(|v| !contains_value(&other, v))
@@ -262,6 +274,8 @@ impl Evaluator<'_> {
             "union" => {
                 check_arity(name, args, 1)?;
                 let other = self.eval(&args[0], ctx)?;
+                check_known_content(focus)?;
+                check_known_content(&other)?;
                 distinct(focus.iter().cloned().chain(other))
             }
             "combine" => {
@@ -416,6 +430,7 @@ impl Evaluator<'_> {
             // past the cap before the result is checked.
             "children" => {
                 check_arity(name, args, 0)?;
+                check_known_content(focus)?;
                 let mut out = Vec::new();
                 for item in focus {
                     out.extend(item.child_elements().cloned());
@@ -425,6 +440,7 @@ impl Evaluator<'_> {
             }
             "descendants" => {
                 check_arity(name, args, 0)?;
+                check_known_content(focus)?;
                 let mut out = Vec::new();
                 for item in focus {
                     collect_descendants(item, &mut out);

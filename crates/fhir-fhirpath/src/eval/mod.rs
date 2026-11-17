@@ -324,11 +324,15 @@ impl Evaluator<'_> {
             Expr::Union(l, r) => {
                 let ls = self.eval(l, ctx)?;
                 let rs = self.eval(r, ctx)?;
+                helpers::check_known_content(&ls)?;
+                helpers::check_known_content(&rs)?;
                 Ok(helpers::distinct(ls.into_iter().chain(rs)))
             }
             Expr::In(lhs, rhs) => {
                 let lc = self.eval(lhs, ctx)?;
                 let rc = self.eval(rhs, ctx)?;
+                helpers::check_known_content(&lc)?;
+                helpers::check_known_content(&rc)?;
                 Ok(singleton(&lc, "in")?
                     .map(|v| Value::Bool(contains_value(&rc, v)))
                     .into_iter()
@@ -337,6 +341,8 @@ impl Evaluator<'_> {
             Expr::Contains(lhs, rhs) => {
                 let lc = self.eval(lhs, ctx)?;
                 let rc = self.eval(rhs, ctx)?;
+                helpers::check_known_content(&lc)?;
+                helpers::check_known_content(&rc)?;
                 Ok(singleton(&rc, "contains")?
                     .map(|v| Value::Bool(contains_value(&lc, v)))
                     .into_iter()
@@ -353,6 +359,7 @@ impl Evaluator<'_> {
         ctx: &[Value],
         allow_type_name: bool,
     ) -> Result<Collection, EvalError> {
+        helpers::check_known_content(ctx)?;
         let mut result = Vec::new();
         for item in ctx {
             if let Some(fields) = item.fields() {
@@ -576,6 +583,8 @@ impl Evaluator<'_> {
         };
         let lc = without_lone_null(self.eval(l, ctx)?);
         let rc = without_lone_null(self.eval(r, ctx)?);
+        helpers::check_known_content(&lc)?;
+        helpers::check_known_content(&rc)?;
         let either_empty = lc.is_empty() || rc.is_empty();
         let result = match op {
             // N1 §6.1.3: `~` is never empty, even on empty operands.
