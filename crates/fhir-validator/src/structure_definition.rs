@@ -75,9 +75,10 @@ fn extension_contexts(
         else {
             continue;
         };
-        // shortcut: `url#id` contexts are not checked (the Registry indexes elements by path,
-        // not id); resolve them once ElementDefinition keeps its id.
-        if expression.contains('#') {
+        // shortcut: `url#id` contexts and slice ids (`Observation.category:VSCat`, from a core
+        // profile) are not checked (the Registry indexes elements by path, not id); resolve
+        // them once ElementDefinition keeps its id.
+        if expression.contains(['#', ':']) {
             continue;
         }
         // Base specification element ids are their paths.

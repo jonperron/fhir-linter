@@ -558,6 +558,8 @@ fn extension_contexts_naming_base_elements_pass_json() {
         ("element", "Observation.value[x]"),
         ("element", "ElementDefinition.type.targetProfile"),
         ("element", "Patient.contact.name"),
+        // A slice id from a core profile (vitalsigns), not resolvable by path.
+        ("element", "Observation.category:VSCat"),
         ("fhirpath", "Patient.notAnElement"),
         ("extension", "http://example.org/StructureDefinition/other"),
     ];

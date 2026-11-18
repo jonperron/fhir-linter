@@ -35,14 +35,17 @@ pub(crate) fn check_element_ids(
     for (name, node) in &resource.fields {
         let child_path = format!("{path}.{name}");
         if &**name != "contained" {
-            walk.fields([(name, node)], Some(&resource.resource_type), path);
+            walk.fields([(name, node)], &resource.resource_type, path);
             continue;
         }
         for (item, item_path) in items(node, &child_path) {
             let Value::Object(fields) = &item.value else {
                 continue;
             };
-            let definition = string(fields, "resourceType");
+            // Without a resource type nothing below is a known element (reported elsewhere).
+            let Some(definition) = string(fields, "resourceType") else {
+                continue;
+            };
             // The contained resource's own `id` is its resource id.
             let fields = fields.iter().filter(|(name, _)| &***name != "id");
             walk.fields(fields, definition, &item_path);
@@ -57,12 +60,12 @@ struct IdWalk<'a, 'd> {
 }
 
 impl IdWalk<'_, '_> {
-    /// The ids in `fields`, the children of an object at definition path `definition` (`None`
-    /// below an element the Registry does not know: its subtree is still searched).
+    /// The ids in `fields`, the children of an object at definition path `definition`. Below
+    /// an element the Registry does not know (STRUCTURE_001) nothing is an Element, so no id.
     fn fields<'n>(
         &mut self,
         fields: impl IntoIterator<Item = (&'n Arc<str>, &'n Node)>,
-        definition: Option<&str>,
+        definition: &str,
         path: &str,
     ) {
         for (name, node) in fields {
@@ -83,20 +86,19 @@ impl IdWalk<'_, '_> {
                 Value::Object(_) | Value::Array(_) => {
                     // `_name` holds the id and extensions of primitive `name`.
                     let bare = name.strip_prefix('_').unwrap_or(name);
-                    let child =
-                        definition.and_then(|parent| child_element(self.registry, parent, bare));
-                    if child
-                        .as_ref()
-                        .is_some_and(|(_, ty)| &**ty == "ElementDefinition")
-                    {
+                    let Some((child_definition, ty)) =
+                        child_element(self.registry, definition, bare)
+                    else {
+                        continue;
+                    };
+                    if &*ty == "ElementDefinition" {
                         continue;
                     }
-                    let child_definition = child.as_ref().map(|(definition, _)| &**definition);
                     for (item, item_path) in items(node, &child_path) {
                         match &item.value {
                             // An embedded resource (Bundle entry, Parameters) is its own scope.
                             Value::Object(fields) if !fields.contains_key("resourceType") => {
-                                self.fields(fields, child_definition, &item_path);
+                                self.fields(fields, &child_definition, &item_path);
                             }
                             _ => {}
                         }

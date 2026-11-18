@@ -87,6 +87,16 @@ fn element_definition_ids_repeat_across_snapshot_and_differential_json() {
     assert!(findings(&resource, "STRUCTURE_006").is_empty());
 }
 
+/// Below an unknown element (STRUCTURE_001) nothing is an Element, so no Element.id.
+#[test]
+fn ids_below_unknown_elements_are_not_element_ids_json() {
+    let resource = parse_json(
+        r#"{"resourceType":"Patient","name":[{"id":"a","family":"x"}],"foo":{"id":"a"}}"#,
+    )
+    .expect("parses");
+    assert!(findings(&resource, "STRUCTURE_006").is_empty());
+}
+
 #[test]
 fn bundle_entries_are_their_own_id_scope_json() {
     let entry = r#"{"resource":{"resourceType":"Basic","code":{"id":"c","text":"x"}}}"#;
