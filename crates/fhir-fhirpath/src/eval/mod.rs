@@ -19,6 +19,7 @@ mod helpers;
 mod html_checks;
 mod math;
 mod misc;
+mod quantity;
 mod regex;
 mod string_fns;
 mod temporal;
@@ -268,6 +269,7 @@ impl Evaluator<'_> {
                         .map(|r| vec![Value::Long(r)])
                         .ok_or_else(|| EvalError::Type("integer overflow in negation".into())),
                     Value::Decimal(d) => Ok(vec![Value::Decimal(-d)]),
+                    Value::Quantity(d, unit) => Ok(vec![Value::Quantity(-d, Arc::clone(unit))]),
                     v => Err(EvalError::Type(format!("cannot negate {}", v.type_name()))),
                 }
             }

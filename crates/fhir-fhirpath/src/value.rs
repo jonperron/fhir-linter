@@ -211,15 +211,21 @@ pub(crate) fn quantity_unit_factor(from: &str, to: &str, equivalent: bool) -> Op
     if from == to {
         return Ratio::new(1, 1);
     }
-    let ucum_unit = |unit| match CALENDAR_DURATIONS
+    crate::ucum::convert(ucum_unit(from, equivalent)?, ucum_unit(to, equivalent)?)
+}
+
+/// The UCUM unit a Quantity unit stands for: itself, or the definite unit
+/// of a calendar duration keyword. A year or a month has one only under `~`
+/// (`equivalent`); see [`quantity_unit_factor`].
+pub(crate) fn ucum_unit(unit: &str, equivalent: bool) -> Option<&str> {
+    match CALENDAR_DURATIONS
         .iter()
         .find(|(calendar, _)| *calendar == unit)
     {
         Some(("year" | "month", _)) if !equivalent => None,
-        Some((_, ucum)) => Some(*ucum),
+        Some((_, ucum)) => Some(ucum),
         None => Some(unit),
-    };
-    crate::ucum::convert(ucum_unit(from)?, ucum_unit(to)?)
+    }
 }
 
 /// FHIR type knowledge for building values: for the child `name` of the

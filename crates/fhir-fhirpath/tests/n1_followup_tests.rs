@@ -174,16 +174,16 @@ fn to_quantity_converts_numbers_booleans_and_quantity_strings() {
     assert!(evaluate("(1 | 2).toQuantity()", &[]).is_err());
 }
 
-// N1 §5.5.7: without UCUM conversion, a different unit argument gives empty
+// N1 §5.5.7: a unit argument the quantity cannot convert to gives empty
 // (toQuantity) or false (convertsToQuantity).
 #[test]
-fn to_quantity_with_a_unit_keeps_only_the_same_unit() {
+fn to_quantity_with_a_unit_needs_a_convertible_unit() {
     assert_eq!(eval("4 'mg'.toQuantity('mg')"), quantity(4.0, "mg"));
     assert_eq!(eval("'4 days'.toQuantity('day')"), quantity(4.0, "day"));
     assert_eq!(eval("'4 days'.toQuantity('days')"), quantity(4.0, "day"));
-    assert_eq!(eval("4 'mg'.toQuantity('g')"), vec![]);
+    assert_eq!(eval("4 'mg'.toQuantity('m')"), vec![]);
     assert_eq!(eval("4 'mg'.convertsToQuantity('mg')"), boolean(true));
-    assert_eq!(eval("4 'mg'.convertsToQuantity('g')"), boolean(false));
+    assert_eq!(eval("4 'mg'.convertsToQuantity('m')"), boolean(false));
 }
 
 #[test]
