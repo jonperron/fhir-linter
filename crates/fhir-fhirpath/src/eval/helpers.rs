@@ -177,6 +177,14 @@ fn integer_op(lv: &Value, rv: &Value, op: &ArithOp) -> Result<Option<Value>, Eva
 
 // ── Equality / comparison ─────────────────────────────────────────────────────
 
+/// A FHIR Quantity Object as a `System.Quantity` value; `None` without a unit.
+pub(super) fn object_quantity(v: &Value) -> Option<Value> {
+    match as_quantity(v)? {
+        (value, Some(unit)) => Some(Value::Quantity(value, Arc::from(unit))),
+        _ => None,
+    }
+}
+
 /// The value and unit of a Quantity literal, or of a FHIR Quantity whose
 /// children are typed (R5 fhirpath.html §2.1.9.1: FHIR Quantity maps to
 /// System.Quantity). The unit is the UCUM `code`, else the `unit` text, else

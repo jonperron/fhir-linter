@@ -96,7 +96,31 @@ fn fhir_quantity_multiplies_by_its_ucum_code() {
 #[test]
 fn negation_and_abs_keep_the_unit() {
     assert_eq!(quantity("-(5.5 'mg')"), (-5.5, "mg".into()));
-    assert!(is_true("(-5.5 'mg').abs() = 5.5 'mg'"));
+    assert_eq!(quantity("(-5.5 'mg').abs()"), (5.5, "mg".into()));
+}
+
+#[test]
+fn negation_abs_and_to_quantity_accept_a_fhir_quantity() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5");
+    let registry = Registry::from_definitions_dir(dir).expect("R5 definitions");
+    let resource = parse_json(
+        r#"{"resourceType":"Observation","status":"final","code":{"text":"w"},
+        "valueQuantity":{"value":-3,"system":"http://unitsofmeasure.org","code":"kg"}}"#,
+    )
+    .unwrap();
+    let context = [resource_to_typed_value(&resource, &|parent, name| {
+        registry.child_element(parent, name)
+    })];
+    let one = |expr: &str| match evaluate(expr, &context).unwrap().as_slice() {
+        [Value::Quantity(v, u)] => (*v, u.to_string()),
+        other => panic!("{expr}: {other:?}"),
+    };
+    assert_eq!(one("-Observation.valueQuantity"), (3.0, "kg".into()));
+    assert_eq!(one("Observation.valueQuantity.abs()"), (3.0, "kg".into()));
+    assert_eq!(
+        one("Observation.valueQuantity.toQuantity('g')"),
+        (-3000.0, "g".into())
+    );
 }
 
 #[test]

@@ -270,7 +270,10 @@ impl Evaluator<'_> {
                         .ok_or_else(|| EvalError::Type("integer overflow in negation".into())),
                     Value::Decimal(d) => Ok(vec![Value::Decimal(-d)]),
                     Value::Quantity(d, unit) => Ok(vec![Value::Quantity(-d, Arc::clone(unit))]),
-                    v => Err(EvalError::Type(format!("cannot negate {}", v.type_name()))),
+                    v => match helpers::object_quantity(v) {
+                        Some(Value::Quantity(d, unit)) => Ok(vec![Value::Quantity(-d, unit)]),
+                        _ => Err(EvalError::Type(format!("cannot negate {}", v.type_name()))),
+                    },
                 }
             }
             Expr::Concat(l, r) => {

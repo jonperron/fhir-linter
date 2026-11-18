@@ -46,12 +46,15 @@ impl Evaluator<'_> {
                     Some(Value::Quantity(d, unit)) => {
                         vec![Value::Quantity(d.abs(), Arc::clone(unit))]
                     }
-                    Some(v) => {
-                        return Err(EvalError::Type(format!(
-                            "abs() requires number, got {}",
-                            v.type_name()
-                        )));
-                    }
+                    Some(v) => match super::helpers::object_quantity(v) {
+                        Some(Value::Quantity(d, unit)) => vec![Value::Quantity(d.abs(), unit)],
+                        _ => {
+                            return Err(EvalError::Type(format!(
+                                "abs() requires number, got {}",
+                                v.type_name()
+                            )));
+                        }
+                    },
                     None => vec![],
                 }
             }

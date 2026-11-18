@@ -167,7 +167,7 @@ fn to_quantity(item: &Value) -> Option<Value> {
             };
             (finite(captures.get(1)?.as_str())?, unit)
         }
-        _ => return None,
+        _ => return super::helpers::object_quantity(item),
     };
     Some(Value::Quantity(value, Arc::from(unit)))
 }

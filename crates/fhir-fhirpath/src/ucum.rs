@@ -93,7 +93,7 @@ fn simple_terms(unit: &str) -> Option<Vec<(&str, i32)>> {
     let mut sign = 1;
     let mut start = 0;
     let mut depth = 0u32;
-    for (index, byte) in unit.bytes().chain([b'.']).enumerate() {
+    for (index, byte) in unit.bytes().chain(*b".").enumerate() {
         match byte {
             b'[' => depth += 1,
             b']' => depth = depth.checked_sub(1)?,
