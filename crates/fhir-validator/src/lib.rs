@@ -3,8 +3,9 @@
 //!
 //! Applies validation layers in order: structural, cardinality, type,
 //! terminology, reference and element invariant checks (one recursive walk),
-//! then the root's invariants and profile checks. Resources embedded in it
-//! (contained, Bundle entries) go through the same layers at their own path.
+//! then the root's invariants, profile checks and the rules on StructureDefinition
+//! instances. Resources embedded in it (contained, Bundle entries) go through the
+//! same layers at their own path.
 //! Emits `Diagnostic` values for every detected issue.
 
 mod attachment;
@@ -19,6 +20,7 @@ mod profile;
 mod references;
 mod resolve;
 mod slicing;
+mod structure_definition;
 mod terminology;
 mod type_check;
 mod xml_shape;
@@ -151,5 +153,6 @@ fn validate_one<'a>(
         diagnostics,
     );
     profile::validate(resource, sd, registry, &environment, path, diagnostics);
+    structure_definition::validate(resource, registry, path, diagnostics);
     embedded
 }
