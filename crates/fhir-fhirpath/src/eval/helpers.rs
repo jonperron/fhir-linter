@@ -604,6 +604,30 @@ pub(super) fn value_is_type(
     type_name: &str,
     is_subtype: Option<&super::IsSubtype<'_>>,
 ) -> Result<bool, EvalError> {
+    // FHIR data (typed primitives, objects, resolve() results) is never a
+    // System value, and a System value (a literal, a function result) never
+    // a FHIR one.
+    let is_fhir_data = matches!(
+        v,
+        Value::Primitive(..) | Value::Object(_) | Value::UnresolvedResource { .. }
+    );
+    match type_name.split_once('.') {
+        // Every type, FHIR ones included, derives from System.Any.
+        Some(("System", "Any")) => return Ok(true),
+        Some(("System", name)) => {
+            // System type names are capitalised (`System.Boolean`, not `boolean`).
+            return Ok(!is_fhir_data
+                && name.starts_with(|c: char| c.is_ascii_uppercase())
+                && system_is_type(v, name) == Some(true));
+        }
+        Some(("FHIR", name)) => {
+            if is_subtype.is_some_and(|is_subtype| !is_subtype(name, name)) {
+                return Err(EvalError::Type(format!("unknown type FHIR.{name}")));
+            }
+            return Ok(is_fhir_data && value_is_type(v, name, is_subtype)?);
+        }
+        _ => {}
+    }
     if let (Value::Primitive(_, _, Some(fhir_type)), Some(is_subtype)) = (v, is_subtype)
         && is_subtype(type_name, type_name)
     {
@@ -632,7 +656,31 @@ pub(super) fn value_is_type(
             "the FHIR type of a String is unknown, cannot test it for {type_name}"
         )));
     }
-    let system = match type_name {
+    if let Some(system) = system_is_type(v, type_name) {
+        return Ok(system);
+    }
+    // An unqualified name that is neither a System nor a FHIR type is an
+    // error; names in another namespace keep the old answer.
+    if is_subtype.is_some_and(|is_subtype| {
+        !type_name.contains('.') && type_name != "Any" && !is_subtype(type_name, type_name)
+    }) {
+        return Err(EvalError::Type(format!("unknown type {type_name}")));
+    }
+    // A resource is its resourceType and, with the type hook, each of its
+    // ancestors (`DomainResource`, `Resource`).
+    // shortcut: complex datatype objects carry no type and match nothing,
+    // upgrade when objects carry their FHIR type like primitives do.
+    Ok(matches!(v, Value::Object(fields) if matches!(
+        fields.get("resourceType").map(Vec::as_slice),
+        Some([Value::String(rt)])
+            if **rt == *type_name || is_subtype.is_some_and(|is_subtype| is_subtype(rt, type_name))
+    )))
+}
+
+/// Whether the plain value `v` has the System type `type_name` (or its FHIR
+/// primitive spelling), `None` when `type_name` names no System type.
+fn system_is_type(v: &Value, type_name: &str) -> Option<bool> {
+    Some(match type_name {
         "Boolean" | "boolean" | "bool" => matches!(v, Value::Bool(_)),
         "Integer" | "integer" => matches!(v, Value::Integer(_)),
         "Long" | "long" => matches!(v, Value::Long(_)),
@@ -642,24 +690,8 @@ pub(super) fn value_is_type(
         "DateTime" | "dateTime" => matches!(v, Value::DateTime(_)),
         "Time" | "time" => matches!(v, Value::Time(_)),
         "Quantity" | "quantity" => matches!(v, Value::Quantity(_, _)),
-        _ => {
-            // An unqualified name that is neither a System nor a FHIR type is an
-            // error; qualified names (`System.X`, `FHIR.X`) keep the old answer.
-            if is_subtype.is_some_and(|is_subtype| {
-                !type_name.contains('.') && type_name != "Any" && !is_subtype(type_name, type_name)
-            }) {
-                return Err(EvalError::Type(format!("unknown type {type_name}")));
-            }
-            // shortcut: resources match on their exact resourceType only (no
-            // Resource/DomainResource inheritance, no complex datatypes), upgrade
-            // when the evaluator gets Registry access.
-            matches!(v, Value::Object(fields) if matches!(
-                fields.get("resourceType").map(Vec::as_slice),
-                Some([Value::String(rt)]) if **rt == *type_name
-            ))
-        }
-    };
-    Ok(system)
+        _ => return None,
+    })
 }
 
 /// Fail on an unknown type name before looking at the input, so an empty
@@ -785,9 +817,15 @@ pub(super) fn eval_string_arg(col: &Collection, context: &str) -> Result<Arc<str
 }
 
 pub(super) fn eval_type_name(expr: &Expr) -> Result<String, EvalError> {
-    // For ofType/is/as(TypeName), the argument is an identifier, not evaluated
+    // For ofType/is/as(TypeName), the argument is a type specifier, not evaluated:
+    // an identifier or a qualified name (`System.Integer`, `FHIR.Patient`).
     match expr {
         Expr::Ident(name) => Ok(name.clone()),
+        Expr::Dot(namespace, name) => Ok(format!(
+            "{}.{}",
+            eval_type_name(namespace)?,
+            eval_type_name(name)?
+        )),
         _ => Err(EvalError::Type(
             "type function argument must be a type name identifier".into(),
         )),

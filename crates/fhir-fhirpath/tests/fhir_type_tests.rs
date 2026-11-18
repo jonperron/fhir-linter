@@ -216,3 +216,74 @@ fn an_unknown_type_name_is_an_error() -> TestResult {
     assert!(eval("Questionnaire.status.is(Any)", true).is_ok());
     Ok(())
 }
+
+/// fhirpath.html, type specifiers: `System.X` names a FHIRPath type, `FHIR.X`
+/// a FHIR type; the function form takes the same qualified names as the
+/// operator form, and a FHIR value is not a System value (nor the reverse).
+#[test]
+fn qualified_type_names_check_their_namespace() -> TestResult {
+    for (expression, expected) in [
+        ("Questionnaire.status.is(FHIR.code)", true),
+        ("Questionnaire.status is FHIR.string", true),
+        ("Questionnaire.status.is(FHIR.`code`)", true),
+        ("Questionnaire.status.is(System.String)", false),
+        ("Questionnaire.is(FHIR.Questionnaire)", true),
+        ("Questionnaire is FHIR.Questionnaire", true),
+        ("Questionnaire.is(System.Questionnaire)", false),
+        ("'a'.is(System.String)", true),
+        ("'a' is System.String", true),
+        ("'a'.is(FHIR.string)", false),
+        ("'a'.is(System.string)", false),
+        ("1.is(System.Integer)", true),
+        ("1.is(System.Quantity)", false),
+        ("true is System.Boolean", true),
+        ("Questionnaire.status.is(System.Any)", true),
+        ("1 is System.Any", true),
+        // Known FHIR types that the value does not have.
+        ("Questionnaire.status.is(FHIR.uri)", false),
+        ("Questionnaire.is(FHIR.Patient)", false),
+        // A resource is each of its ancestor types (Registry inheritance).
+        ("Questionnaire.is(FHIR.DomainResource)", true),
+        ("Questionnaire is FHIR.Resource", true),
+        ("Questionnaire.is(DomainResource)", true),
+    ] {
+        assert_eq!(
+            eval(expression, true)?,
+            [Value::Bool(expected)],
+            "{expression}"
+        );
+    }
+    assert_eq!(
+        strings(&eval("Questionnaire.ofType(FHIR.Questionnaire).id", true)?),
+        ["q1"]
+    );
+    assert_eq!(
+        strings(&eval("Questionnaire.status.as(FHIR.code)", true)?),
+        ["draft"]
+    );
+    assert_eq!(eval("Questionnaire.status.as(System.String)", true)?, []);
+    assert_eq!(eval("Questionnaire.status.as(FHIR.uri)", true)?, []);
+    assert_eq!(eval("Questionnaire.ofType(FHIR.Patient)", true)?, []);
+    // JSON booleans and numbers keep their FHIR type too, without extensions.
+    let questionnaire = typed(&parse_json(
+        r#"{"resourceType":"Questionnaire","status":"draft","experimental":true,
+        "item":[{"linkId":"1","type":"string","maxLength":5}]}"#,
+    )?);
+    for (expression, expected) in [
+        ("Questionnaire.experimental.is(FHIR.boolean)", true),
+        ("Questionnaire.experimental.is(System.Boolean)", false),
+        ("Questionnaire.item.maxLength.is(FHIR.integer)", true),
+        ("Questionnaire.item.maxLength.is(System.Integer)", false),
+    ] {
+        assert_eq!(
+            eval_on(questionnaire.clone(), expression, true)?,
+            [Value::Bool(expected)],
+            "{expression}"
+        );
+    }
+    // An unknown FHIR type is an error, like an unknown unqualified name.
+    let error = eval("Questionnaire.is(FHIR.NoSuchType)", true).err();
+    let error = error.as_deref().and_then(|e| e.downcast_ref::<EvalError>());
+    assert!(matches!(error, Some(EvalError::Type(_))), "{error:?}");
+    Ok(())
+}
