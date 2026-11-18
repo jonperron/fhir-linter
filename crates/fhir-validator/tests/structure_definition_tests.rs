@@ -39,13 +39,13 @@ fn json(source: &str) -> Vec<Diagnostic> {
     definition_findings(&parse_json(source).expect("parses"))
 }
 
-fn assert_meaning_when_missing(found: &[Diagnostic], path: &str) {
+fn assert_meaning_when_missing(found: &[Diagnostic], path: &str, element: &str) {
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(&*found[0].code, "DEFINITION_001");
     assert_eq!(found[0].severity, Severity::Error);
     assert_eq!(found[0].path, path);
     assert!(
-        found[0].message.contains("meaningWhenMissing"),
+        found[0].message.contains("meaningWhenMissing") && found[0].message.contains(element),
         "{}",
         found[0].message
     );
@@ -56,6 +56,7 @@ fn profile_on_a_resource_may_not_set_meaning_when_missing_xml() {
     assert_meaning_when_missing(
         &xml("profile-illegal-elements.xml"),
         "StructureDefinition.differential.element[0].meaningWhenMissing",
+        "Patient.identifier",
     );
 }
 
@@ -64,6 +65,7 @@ fn profile_on_a_data_type_may_not_set_meaning_when_missing_xml() {
     assert_meaning_when_missing(
         &xml("sd-root-profile.xml"),
         "StructureDefinition.differential.element[0].meaningWhenMissing",
+        "CodeableConcept",
     );
 }
 
@@ -88,7 +90,11 @@ fn structure_definition(derivation: &str, type_name: &str, base: &str) -> String
             "differential": {{
                 "element": [
                     {{"id": "{type_name}", "path": "{type_name}"}},
-                    {{"id": "{type_name}.id", "path": "{type_name}.id", "meaningWhenMissing": "none"}}
+                    {{
+                        "id": "{type_name}.id",
+                        "path": "{type_name}.id",
+                        "meaningWhenMissing": "none"
+                    }}
                 ]
             }}
         }}"#
@@ -105,6 +111,7 @@ fn profile_may_not_set_meaning_when_missing_json() {
     assert_meaning_when_missing(
         &json(&source),
         "StructureDefinition.differential.element[1].meaningWhenMissing",
+        "Identifier.id",
     );
 }
 
@@ -127,6 +134,7 @@ fn profile_on_an_extension_definition_may_not_set_meaning_when_missing_json() {
     assert_meaning_when_missing(
         &json(&source),
         "StructureDefinition.differential.element[1].meaningWhenMissing",
+        "Extension.id",
     );
 }
 
@@ -184,6 +192,7 @@ fn profile_without_base_definition_may_not_set_meaning_when_missing_json() {
     assert_meaning_when_missing(
         &found,
         "StructureDefinition.differential.element[1].meaningWhenMissing",
+        "Identifier.id",
     );
 }
 
@@ -202,5 +211,6 @@ fn profile_in_a_bundle_entry_may_not_set_meaning_when_missing_json() {
     assert_meaning_when_missing(
         &json(&source),
         "Bundle.entry[0].resource.differential.element[1].meaningWhenMissing",
+        "Identifier.id",
     );
 }
