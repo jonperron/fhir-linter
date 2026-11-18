@@ -146,6 +146,20 @@ pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collecti
         ArithOp::Mod => a % b,
         ArithOp::DivInt => return Err(EvalError::Type("div is not a numeric_op".into())),
     };
+    // shortcut: N1 Decimal is exact; rounding the f64 to the operands' scale
+    // hides binary error (`1.8 - 1.2`) until Decimal carries its own scale.
+    let result = if matches!(op, ArithOp::Add | ArithOp::Sub | ArithOp::Mod) {
+        let factor = 10f64.powi(decimal_scale(a).max(decimal_scale(b)));
+        let scaled = result * factor;
+        // Past 2^53 the f64 has no fraction left to round; `+ 0.0` drops a -0.0.
+        if scaled.abs() < 9.0e15 {
+            scaled.round() / factor + 0.0
+        } else {
+            result
+        }
+    } else {
+        result
+    };
     Ok(vec![Value::Decimal(result)])
 }
 
@@ -431,6 +445,43 @@ fn decimal_scale(d: f64) -> i32 {
 pub(super) fn contains_value(col: &[Value], v: &Value) -> bool {
     col.iter()
         .any(|x| values_equal(x, v).unwrap_or_else(|| x == v))
+}
+
+/// `distinct()`: the last occurrence of each value, under FHIRPath equality.
+///
+/// N1 leaves the order of `distinct()` open; the official suite keeps the last
+/// occurrence. Returns `None` when two date/times cannot be compared (different
+/// precision, N1 §6.1.1), so the caller yields empty.
+pub(super) fn distinct_last(focus: &[Value]) -> Option<Collection> {
+    let mut kept = Vec::new();
+    for (index, value) in focus.iter().enumerate() {
+        let mut repeated = false;
+        for later in &focus[index + 1..] {
+            // Same fallback as `contains_value`: complex values compare structurally.
+            repeated = match values_equal(value, later) {
+                Some(equal) => equal,
+                None if is_temporal_pair(value, later) => return None,
+                None => value == later,
+            };
+            if repeated {
+                break;
+            }
+        }
+        if !repeated {
+            kept.push(value.clone());
+        }
+    }
+    Some(kept)
+}
+
+fn is_temporal_pair(a: &Value, b: &Value) -> bool {
+    matches!(
+        (a.primitive_value(), b.primitive_value()),
+        (
+            Value::Date(_) | Value::DateTime(_),
+            Value::Date(_) | Value::DateTime(_),
+        ) | (Value::Time(_), Value::Time(_))
+    )
 }
 
 /// First occurrence of each value, in order, under FHIRPath equality.
@@ -835,6 +886,26 @@ pub(super) fn json_unescape(s: &str) -> String {
             Some('n') => result.push('\n'),
             Some('r') => result.push('\r'),
             Some('t') => result.push('\t'),
+            // shortcut: a surrogate pair stays as written; decode pairs if a case needs it.
+            Some('u') => {
+                let mut hex = String::with_capacity(4);
+                while hex.len() < 4
+                    && let Some(digit) = chars.next_if(char::is_ascii_hexdigit)
+                {
+                    hex.push(digit);
+                }
+                let decoded = (hex.len() == 4)
+                    .then(|| u32::from_str_radix(&hex, 16).ok())
+                    .flatten()
+                    .and_then(char::from_u32);
+                match decoded {
+                    Some(c) => result.push(c),
+                    None => {
+                        result.push_str("\\u");
+                        result.push_str(&hex);
+                    }
+                }
+            }
             Some(other) => {
                 result.push('\\');
                 result.push(other);

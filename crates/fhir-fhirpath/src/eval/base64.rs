@@ -36,7 +36,8 @@ pub(super) fn base64_encode(input: &[u8]) -> String {
 }
 
 pub(super) fn base64_encode_url(input: &[u8]) -> String {
-    base64_encode_with(input, BASE64URL_CHARS).replace('=', "")
+    // FHIRPath 3.0 `encode`: urlbase64 output is padded with `=`, like base64.
+    base64_encode_with(input, BASE64URL_CHARS)
 }
 
 fn base64_decode_with(input: &[u8], alphabet: &[u8]) -> Option<Vec<u8>> {
@@ -86,4 +87,26 @@ pub(super) fn base64_decode(input: &[u8]) -> Option<Vec<u8>> {
 
 pub(super) fn base64_decode_url(input: &[u8]) -> Option<Vec<u8>> {
     base64_decode_with(input, BASE64URL_CHARS)
+}
+
+/// FHIRPath 3.0 `encode('hex')`: base 16 in lowercase.
+pub(super) fn hex_encode(input: &[u8]) -> String {
+    input.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// `decode('hex')`: pairs of hex digits, either case; anything else is `None`.
+pub(super) fn hex_decode(input: &[u8]) -> Option<Vec<u8>> {
+    if input.len() % 2 != 0 {
+        return None;
+    }
+    input
+        .chunks(2)
+        .map(|pair| {
+            // from_str_radix accepts a leading `+`, which is not a hex digit.
+            if !pair.iter().all(u8::is_ascii_hexdigit) {
+                return None;
+            }
+            u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()
+        })
+        .collect()
 }

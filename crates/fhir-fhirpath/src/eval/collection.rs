@@ -6,7 +6,7 @@ use super::Evaluator;
 use super::helpers::{
     as_type, check_arity, check_arity_range, check_collection_len, check_known_content,
     check_type_name, collect_descendants, compare_values, contains_value, criteria_bool, distinct,
-    eval_type_name, is_type, optional_integer, primitive_values, value_is_type,
+    distinct_last, eval_type_name, is_type, optional_integer, primitive_values, value_is_type,
 };
 
 impl Evaluator<'_> {
@@ -222,21 +222,16 @@ impl Evaluator<'_> {
             "distinct" => {
                 check_arity(name, args, 0)?;
                 check_known_content(focus)?;
-                distinct(focus.iter().cloned())
+                // None: uncomparable date/times, so the result is empty (N1 `=`).
+                distinct_last(focus).unwrap_or_default()
             }
             "isDistinct" => {
                 check_arity(name, args, 0)?;
                 check_known_content(focus)?;
-                let mut seen: Collection = Vec::new();
-                let mut distinct = true;
-                for v in focus {
-                    if contains_value(&seen, v) {
-                        distinct = false;
-                        break;
-                    }
-                    seen.push(v.clone());
+                match distinct_last(focus) {
+                    Some(kept) => vec![Value::Bool(kept.len() == focus.len())],
+                    None => vec![],
                 }
-                vec![Value::Bool(distinct)]
             }
             "subsetOf" => {
                 check_arity(name, args, 1)?;

@@ -5,7 +5,9 @@ use crate::error::EvalError;
 use crate::value::{Collection, Value};
 
 use super::Evaluator;
-use super::base64::{base64_decode, base64_decode_url, base64_encode, base64_encode_url};
+use super::base64::{
+    base64_decode, base64_decode_url, base64_encode, base64_encode_url, hex_decode, hex_encode,
+};
 use super::helpers::{
     check_arity, check_arity_range, check_collection_len, check_string_len, eval_string_arg,
     json_unescape, single_integer, string_input,
@@ -318,6 +320,7 @@ impl Evaluator<'_> {
                         let result = match format.as_ref() {
                             "base64" => base64_encode(s.as_bytes()),
                             "urlbase64" => base64_encode_url(s.as_bytes()),
+                            "hex" => hex_encode(s.as_bytes()),
                             other => {
                                 return Err(EvalError::Type(format!(
                                     "unknown encode format: {other}"
@@ -337,6 +340,7 @@ impl Evaluator<'_> {
                         let bytes = match format.as_ref() {
                             "base64" => base64_decode(s.as_bytes()),
                             "urlbase64" => base64_decode_url(s.as_bytes()),
+                            "hex" => hex_decode(s.as_bytes()),
                             other => {
                                 return Err(EvalError::Type(format!(
                                     "unknown decode format: {other}"
@@ -344,7 +348,7 @@ impl Evaluator<'_> {
                             }
                         };
                         let decoded = bytes
-                            .ok_or_else(|| EvalError::Type("decode: invalid base64".into()))
+                            .ok_or_else(|| EvalError::Type(format!("decode: invalid {format}")))
                             .and_then(|b| {
                                 String::from_utf8(b)
                                     .map_err(|_| EvalError::Type("decode: invalid UTF-8".into()))
