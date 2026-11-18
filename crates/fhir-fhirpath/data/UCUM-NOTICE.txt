@@ -1,0 +1,24 @@
+ucum-essence.xml
+================
+
+Purpose: ucum-essence.xml is an unmodified, byte-identical copy of the
+UCUM essence file (version 2.0.1), as distributed in the FHIR test cases
+repository (tests/fixtures/ucum/ucum-essence.xml). The fhir-fhirpath
+crate embeds it and reads its prefix and unit definitions at runtime to
+convert FHIRPath Quantity values between units. The file is not
+modified; no table derived from it is distributed.
+
+Copyright 1999-2024 Regenstrief Institute, Inc. All rights reserved.
+
+Licensed under the UCUM License, Version 1.1 (the "License"); you may
+not use this file except in compliance with the License. You may obtain
+a copy of the License at https://unitsofmeasure.org/license
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+This notice describes the origin of the file only. Its inclusion does
+not imply any endorsement of this software by the copyright holder.
