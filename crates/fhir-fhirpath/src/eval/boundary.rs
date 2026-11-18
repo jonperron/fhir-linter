@@ -67,6 +67,7 @@ impl Evaluator<'_> {
             "lowBoundary" => Bound::Low,
             "highBoundary" => Bound::High,
             "comparable" => return Some(self.comparable(args, focus, ctx)),
+            "precision" => return Some(precision(name, args, focus)),
             _ => return None,
         };
         Some(self.boundary(name, bound, args, focus, ctx))
@@ -137,6 +138,36 @@ fn boundary(item: &Value, bound: Bound, precision: Option<i64>) -> Option<Value>
             Some(Value::Quantity(boundary, Arc::from(unit.unwrap_or("1"))))
         }
     }
+}
+
+/// FHIRPath 3.0 `precision()`: the digits of a Date, DateTime or Time
+/// (`@2014` is 4, `@T10:30:00.000` is 9), or the decimal places of a Decimal.
+fn precision(name: &str, args: &[Expr], focus: &[Value]) -> Result<Collection, EvalError> {
+    check_arity(name, args, 0)?;
+    let Some(item) = singleton(focus, name)? else {
+        return Ok(vec![]);
+    };
+    let digits = match item.primitive_value() {
+        Value::Date(text) | Value::DateTime(text) | Value::Time(text) => {
+            // The zone (`Z`, `+hh:mm`, `-hh:mm`) only follows the time part.
+            let (date, time) = match text.split_once('T') {
+                Some((date, time)) => (date, time.split(['Z', '+', '-']).next().unwrap_or(time)),
+                None => (text.as_ref(), ""),
+            };
+            date.bytes()
+                .chain(time.bytes())
+                .filter(u8::is_ascii_digit)
+                .count()
+        }
+        // shortcut: the f64 drops trailing zeros (`1.50` gives 1); exact once
+        // Decimal keeps its scale.
+        Value::Decimal(d) if d.is_finite() => d
+            .to_string()
+            .split_once('.')
+            .map_or(0, |(_, fraction)| fraction.len()),
+        _ => return Ok(vec![]),
+    };
+    Ok(vec![Value::Integer(digits as i64)])
 }
 
 /// The boundary of a decimal text, half a unit of its last digit away,

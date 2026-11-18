@@ -356,7 +356,7 @@ Le système SHALL implémenter `first()`, `last()`, `tail()`, `skip(n)`, `take(n
 Le système SHALL implémenter `toString()`, `length()`, `startsWith(s)`, `endsWith(s)`, `contains(s)`, `upper()`, `lower()`, `trim()`, `substring(start)`, `substring(start, length)`, `replace(pattern, substitution)`, `matches(regex, [flags])`, `matchesFull(regex, [flags])`, `replaceMatches(regex, substitution, [flags])`, `indexOf(s)`, `lastIndexOf(s)`, `split(separator)`, `join(separator)`, `encode(format)`, `decode(format)`, `escape(target)`, `unescape(target)`, `toChars()`.
 
 Le paramètre optionnel `flags` accepte `i` (insensible à la casse) et `m` (multiligne).
-`escape`/`unescape` supportent les cibles `'html'` et `'json'`.
+`escape`/`unescape` supportent les cibles `'html'` et `'json'`. `unescape('json')` SHALL décoder `\uXXXX` (exactement 4 chiffres hexadécimaux) ; une séquence mal formée SHALL être conservée telle qu'écrite ; un substitut haut suivi d'un substitut bas (`\uD83D\uDE00`) SHALL être décodé en un seul caractère, un substitut isolé ou non apparié SHALL être conservé tel qu'écrit. `encode`/`decode` supportent `'hex'` (sortie `encode` en minuscules ; `decode` accepte les deux casses ; longueur impaire ou chiffre non hexadécimal SHALL donner `Err(EvalError::Type(...))`), `'base64'` et `'urlbase64'` ; la sortie `encode('urlbase64')` SHALL être complétée par `=` comme `base64`.
 
 Pour `startsWith`, `endsWith`, `contains`, `indexOf`, `lastIndexOf`, `matches`, `matchesFull`, `replace`, `replaceMatches` et `substring`, une entrée vide ou un argument vide (motif, sous-chaîne, substitution, début) SHALL donner une collection vide ; un argument non `String` (ou non `Integer` pour `substring`) SHALL rester une erreur. Pour `substring`, un début hors de `0..length-1` SHALL donner une collection vide, une longueur vide SHALL se comporter comme une longueur absente et une longueur `<= 0` SHALL donner `''`. `join` sur une entrée vide SHALL donner une collection vide.
 
@@ -391,6 +391,16 @@ Les fonctions de chaînes de N1 §5.6 (`indexOf`, `lastIndexOf`, `substring`, `s
 
 - **WHEN** `'a\nb'.matchesFull('a', 'm')` est évalué
 - **THEN** le résultat SHALL être `[Bool(false)]` (ancrage sur tout le texte, pas par ligne)
+
+#### Scenario: encode et decode hex
+
+- **WHEN** `'Hi'.encode('hex')` puis `'4869'.decode('hex')` ou `'48 69'.decode('hex')` est évalué
+- **THEN** le premier résultat SHALL être `'4869'`, le deuxième `'Hi'` (casse indifférente) et le troisième (caractère non hexadécimal, ici une espace), comme une longueur impaire, SHALL être une erreur de type
+
+#### Scenario: unescape json décode \u
+
+- **WHEN** `'\\u0041'.unescape('json')` est évalué
+- **THEN** le résultat SHALL être `'A'` ; `\\uZZ` ou un substitut isolé SHALL rester tel quel
 
 #### Scenario: decode rejette les entrées invalides
 
@@ -477,6 +487,16 @@ Le système SHALL implémenter `abs()`, `ceiling()`, `floor()`, `round()`, `roun
 
 - **WHEN** `+`, `-`, `*` ou `mod` est appliqué à deux `Integer`/`Long` (Integer/Long mixte donne `Long`)
 - **THEN** le calcul SHALL être fait en `i64` (exact au-delà de 2^53), et un dépassement SHALL retourner `Err(EvalError::Type(...))`; `f64` n'est utilisé que si un `Decimal` est impliqué
+
+#### Scenario: Négation d'un Decimal nul
+
+- **WHEN** la négation unaire est appliquée à un Decimal zéro (`-0.0`)
+- **THEN** le résultat SHALL être `0.0`, jamais `-0.0`
+
+#### Scenario: Arrondi des Decimal à l'échelle
+
+- **WHEN** `+`, `-` ou `mod` est appliqué à des Decimal (`1.2 mod 0.1`, `1.8 - 1.2`)
+- **THEN** le calcul SHALL porter sur les opérandes mis à l'échelle en entiers par 10^(la plus grande échelle des opérandes) lorsque les deux valeurs mises à l'échelle sont inférieures à 4,5e15, de sorte que le résultat soit exact (`0.0` et `0.6`) ; sinon il SHALL être calculé en `f64` simple (shortcut tant que Decimal ne conserve pas son échelle)
 
 #### Scenario: sqrt sur entier positif
 
@@ -647,12 +667,29 @@ Le système SHALL implémenter `distinct()`, `isDistinct()`, `subsetOf(other)`, 
 `combine()` diffère de `|` : il conserve les doublons.
 `coalesce()` retourne le premier résultat non vide parmi ses arguments.
 `union(other)` SHALL être équivalente à l'opérateur `|` (valeurs distinctes selon l'égalité FHIRPath).
-L'union `|` et `intersect()` SHALL éliminer les doublons des deux opérandes, y compris ceux présents dans un seul opérande.
+L'union `|` et `intersect()` SHALL éliminer les doublons des deux opérandes, y compris ceux présents dans un seul opérande, et conserver l'ordre de première occurrence. `distinct()` SHALL conserver la dernière occurrence de chaque valeur (N1 laisse l'ordre ouvert ; la suite officielle conserve la dernière). `distinct()` SHALL retourner une collection vide quand deux valeurs Date/DateTime (ou deux Time) ne sont pas comparables (précisions différentes, égalité N1). `isDistinct()` SHALL retourner `false` dès qu'une valeur se répète (même si des Date/DateTime non comparables sont aussi présents), une collection vide seulement si aucune valeur ne se répète et que deux Date/DateTime (ou deux Time) ne sont pas comparables, et `true` sinon.
+
+`precision()` (FHIRPath 3.0) SHALL donner pour Date/DateTime/Time le nombre de chiffres sans le fuseau (`@2014` donne 4, `@2014-01-05T10:30:00.000` donne 17, `@T10:30` donne 4) et, pour un Decimal, le nombre de décimales du plus court texte `f64` (shortcut : `1.50` donne 1). Une entrée vide ou d'un autre type SHALL donner une collection vide ; plusieurs éléments SHALL donner `Err(EvalError::Type(...))`.
 
 #### Scenario: distinct élimine les doublons
 
 - **WHEN** `distinct()` est évalué sur une collection avec doublons
-- **THEN** le résultat SHALL contenir chaque valeur unique une seule fois, dans l'ordre d'apparition
+- **THEN** le résultat SHALL contenir chaque valeur unique une seule fois (dernière occurrence conservée)
+
+#### Scenario: distinct sur temporels non comparables
+
+- **WHEN** `@2014.combine(@2014-01).distinct()` ou `isDistinct()` est évalué
+- **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: isDistinct avec valeur répétée et temporels non comparables
+
+- **WHEN** `1.combine(1).combine(@2014).combine(@2014-01).isDistinct()` est évalué
+- **THEN** le résultat SHALL être `false`
+
+#### Scenario: precision
+
+- **WHEN** `@2014.precision()`, `@T10:30.precision()` ou `1.587.precision()` est évalué
+- **THEN** le résultat SHALL être `4`, `4` et `3` (shortcut : les zéros finaux d’un Decimal sont perdus, `1.50.precision()` donne `1` au lieu de `2`)
 
 #### Scenario: intersect retourne les éléments communs
 
@@ -868,7 +905,7 @@ Le système SHALL définir la constante `MAX_COLLECTION_LEN` = 100 000 (`crates/
 
 ### Requirement: Plafond de longueur des chaînes
 
-Le système SHALL définir la constante `MAX_STRING_LEN` = 1 048 576 caractères (maximum d'une chaîne en R5 ; `crates/fhir-fhirpath/src/eval/helpers.rs`). Lorsqu'une chaîne construite par l'évaluateur dépasse cette limite, l'évaluation SHALL s'arrêter avec `Err(EvalError::StringTooLong(limit))`, où `limit` est la limite et non la longueur réelle. La longueur SHALL être comptée en caractères et non en octets ; une chaîne d'exactement 1 048 576 caractères SHALL être acceptée. Le plafond SHALL être vérifié pour la concaténation `+` et `&`, `join` et `replace` (taille calculée avant construction), `replaceMatches` (vérifié après chaque référence de groupe développée), `upper`, `lower`, `trim`, `escape`, `unescape`, `encode` et `decode`. Il SHALL NOT s'appliquer à `substring` et `split` (parties de l'entrée), à `toString` ni aux chaînes lues dans la ressource.
+Le système SHALL définir la constante `MAX_STRING_LEN` = 1 048 576 caractères (maximum d'une chaîne en R5 ; `crates/fhir-fhirpath/src/eval/helpers.rs`). Lorsqu'une chaîne construite par l'évaluateur dépasse cette limite, l'évaluation SHALL s'arrêter avec `Err(EvalError::StringTooLong(limit))`, où `limit` est la limite et non la longueur réelle. La longueur SHALL être comptée en caractères et non en octets ; une chaîne d'exactement 1 048 576 caractères SHALL être acceptée. Le plafond SHALL être vérifié pour la concaténation `+` et `&`, `join` et `replace` (taille calculée avant construction), `replaceMatches` (vérifié après chaque référence de groupe développée), `upper`, `lower`, `trim`, `escape`, `unescape`, `encode` et `decode` (`encode('hex')` vérifie la limite avant de construire le résultat). Il SHALL NOT s'appliquer à `substring` et `split` (parties de l'entrée), à `toString` ni aux chaînes lues dans la ressource.
 
 #### Scenario: Doublement d'une chaîne
 
@@ -1003,7 +1040,7 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 #### Scenario: Fonctions non implémentées retournent UndefinedFunction
 
-- **WHEN** `conformsTo()`, `timeOfDay()`, `precision()` est évalué
+- **WHEN** `conformsTo()` ou `timeOfDay()` est évalué
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::UndefinedFunction(name))` où `name` est le nom de la fonction
 - **AND** il SHALL NOT retourner de résultat deviné (collection vide, booléen), afin que le validateur signale la contrainte comme non vérifiée (`INVARIANT_SKIPPED`)
 

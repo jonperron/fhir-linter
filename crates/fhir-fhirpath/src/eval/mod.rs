@@ -268,7 +268,8 @@ impl Evaluator<'_> {
                         .checked_neg()
                         .map(|r| vec![Value::Long(r)])
                         .ok_or_else(|| EvalError::Type("integer overflow in negation".into())),
-                    Value::Decimal(d) => Ok(vec![Value::Decimal(-d)]),
+                    // `+ 0.0` turns -0.0 into 0.0: a Decimal has no negative zero.
+                    Value::Decimal(d) => Ok(vec![Value::Decimal(-d + 0.0)]),
                     Value::Quantity(d, unit) => Ok(vec![Value::Quantity(-d, Arc::clone(unit))]),
                     v => match helpers::object_quantity(v) {
                         Some(Value::Quantity(d, unit)) => Ok(vec![Value::Quantity(-d, unit)]),

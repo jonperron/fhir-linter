@@ -1050,10 +1050,10 @@ fn decode_base64_decodes_string() {
 }
 
 #[test]
-fn encode_urlbase64_encodes_without_padding() {
-    // "hello" in url-safe base64 (no padding) is "aGVsbG8"
+fn encode_urlbase64_encodes_with_padding() {
+    // FHIRPath 3.0: urlbase64 output is padded with `=`.
     let result = evaluate("'hello'.encode('urlbase64')", &[]).unwrap();
-    assert_eq!(result, vec![Value::String(Arc::from("aGVsbG8"))]);
+    assert_eq!(result, vec![Value::String(Arc::from("aGVsbG8="))]);
 }
 
 #[test]
@@ -1064,13 +1064,13 @@ fn decode_urlbase64_decodes_string() {
 
 #[test]
 fn encode_unknown_format_returns_type_error() {
-    let result = evaluate("'hello'.encode('hex')", &[]);
+    let result = evaluate("'hello'.encode('base32')", &[]);
     assert!(matches!(result, Err(fhir_fhirpath::EvalError::Type(_))));
 }
 
 #[test]
 fn decode_unknown_format_returns_type_error() {
-    let result = evaluate("'68656c6c6f'.decode('hex')", &[]);
+    let result = evaluate("'68656c6c6f'.decode('base32')", &[]);
     assert!(matches!(result, Err(fhir_fhirpath::EvalError::Type(_))));
 }
 
@@ -1479,7 +1479,6 @@ fn unimplemented_functions_are_undefined() {
     for expr in [
         "conformsTo('http://hl7.org/fhir/StructureDefinition/Patient')",
         "timeOfDay()",
-        "1.5.precision()",
     ] {
         assert!(
             matches!(
@@ -2085,8 +2084,8 @@ fn substring_without_length_to_end_of_string() {
 #[test]
 fn encode_base64url() {
     let result = evaluate("'hello'.encode('urlbase64')", &[]).unwrap();
-    // base64url of "hello" = "aGVsbG8"
-    assert!(matches!(&result[0], Value::String(s) if s.as_ref() == "aGVsbG8"));
+    // base64url of "hello" = "aGVsbG8=" (padded, FHIRPath 3.0)
+    assert!(matches!(&result[0], Value::String(s) if s.as_ref() == "aGVsbG8="));
 }
 
 #[test]
@@ -2097,7 +2096,7 @@ fn decode_base64url() {
 
 #[test]
 fn decode_unknown_format_returns_error() {
-    let err = evaluate("'x'.decode('hex')", &[]).unwrap_err();
+    let err = evaluate("'x'.decode('base32')", &[]).unwrap_err();
     assert!(matches!(err, fhir_fhirpath::EvalError::Type(_)));
 }
 
