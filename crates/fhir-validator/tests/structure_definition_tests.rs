@@ -214,3 +214,188 @@ fn profile_in_a_bundle_entry_may_not_set_meaning_when_missing_json() {
         "Identifier.id",
     );
 }
+
+// Slice cardinality (profiling.html, Slice Cardinality): "The maximum cardinality on each
+// slice cannot exceed n" and "The sum of the minimum cardinalities must be less or equal to
+// n", where n is the sliced element's maximum. eld-2: "Min <= Max".
+
+/// A profile on Observation whose differential is `elements`.
+fn observation_profile(elements: serde_json::Value) -> Vec<Diagnostic> {
+    let profile = serde_json::json!({
+        "resourceType": "StructureDefinition",
+        "url": "http://example.org/StructureDefinition/obs",
+        "name": "Obs",
+        "status": "draft",
+        "kind": "resource",
+        "abstract": false,
+        "type": "Observation",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Observation",
+        "derivation": "constraint",
+        "differential": { "element": elements },
+    });
+    json(&profile.to_string())
+}
+
+fn assert_single(found: &[Diagnostic], code: &str, path: &str, words: &[&str]) {
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(&*found[0].code, code);
+    assert_eq!(found[0].severity, Severity::Error);
+    assert_eq!(found[0].path, path);
+    for word in words {
+        assert!(found[0].message.contains(word), "{}", found[0].message);
+    }
+}
+
+#[test]
+fn slice_minimums_may_not_exceed_the_slicer_maximum_json() {
+    assert_single(
+        &json(&fixture("sd-card-slice.json")),
+        "DEFINITION_002",
+        "StructureDefinition.differential.element[0]",
+        &["Observation.component", "at least 2", "at most 1"],
+    );
+}
+
+#[test]
+fn slice_child_minimum_may_not_exceed_the_slicer_child_maximum_json() {
+    assert_single(
+        &json(&fixture("sd-card-child.json")),
+        "DEFINITION_003",
+        "StructureDefinition.differential.element[4].min",
+        &[
+            "Observation.component:a.value[x]",
+            "minimum 1 is",
+            "maximum 0",
+        ],
+    );
+}
+
+#[test]
+fn slice_maximum_may_not_exceed_the_slicer_maximum_json() {
+    let found = observation_profile(serde_json::json!([
+        { "id": "Observation.component", "path": "Observation.component",
+          "slicing": { "rules": "open" }, "max": "2" },
+        { "id": "Observation.component:a", "path": "Observation.component",
+          "sliceName": "a", "max": "*" },
+    ]));
+    assert_single(
+        &found,
+        "DEFINITION_002",
+        "StructureDefinition.differential.element[1].max",
+        &["Observation.component:a", "*", "2"],
+    );
+}
+
+#[test]
+fn slices_within_the_slicer_maximum_have_no_findings_json() {
+    let found = observation_profile(serde_json::json!([
+        { "id": "Observation.component", "path": "Observation.component",
+          "slicing": { "rules": "open" }, "max": "2" },
+        { "id": "Observation.component.value[x]", "path": "Observation.component.value[x]",
+          "max": "1" },
+        { "id": "Observation.component:a", "path": "Observation.component",
+          "sliceName": "a", "min": 1, "max": "2" },
+        { "id": "Observation.component:b", "path": "Observation.component",
+          "sliceName": "b", "min": 1, "max": "1" },
+        { "id": "Observation.component:b.value[x]", "path": "Observation.component.value[x]",
+          "min": 1 },
+    ]));
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn slicer_maximum_comes_from_the_base_definition_when_unstated_json() {
+    // Observation.value[x] is 0..1 in the base Observation.
+    let found = observation_profile(serde_json::json!([
+        { "id": "Observation.value[x]", "path": "Observation.value[x]",
+          "slicing": { "discriminator": [{ "type": "type", "path": "$this" }],
+                       "rules": "open" } },
+        { "id": "Observation.value[x]:valueQuantity", "path": "Observation.value[x]",
+          "sliceName": "valueQuantity", "min": 1 },
+        { "id": "Observation.value[x]:valueString", "path": "Observation.value[x]",
+          "sliceName": "valueString", "min": 1 },
+    ]));
+    assert_single(
+        &found,
+        "DEFINITION_002",
+        "StructureDefinition.differential.element[0]",
+        &["Observation.value[x]", "at least 2", "at most 1"],
+    );
+}
+
+#[test]
+fn unbounded_base_slicer_allows_any_slice_minimums_json() {
+    let found = observation_profile(serde_json::json!([
+        { "id": "Observation.component", "path": "Observation.component",
+          "slicing": { "rules": "open" } },
+        { "id": "Observation.component:a", "path": "Observation.component",
+          "sliceName": "a", "min": 5 },
+    ]));
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn slice_maximum_over_a_nested_slicer_maximum_xml() {
+    // Parameters.parameter:address.part is 3..5; its slice recipientHealthcareService is 1..10.
+    assert_single(
+        &xml("profile-parameters-complex.profile.xml"),
+        "DEFINITION_002",
+        "StructureDefinition.differential.element[18].max",
+        &[
+            "Parameters.parameter:address.part:recipientHealthcareService",
+            "10",
+            "5",
+        ],
+    );
+}
+
+#[test]
+fn huge_slice_minimums_do_not_overflow_json() {
+    let huge = i64::MAX;
+    let found = observation_profile(serde_json::json!([
+        { "id": "Observation.component", "path": "Observation.component",
+          "slicing": { "rules": "open" }, "max": "1" },
+        { "id": "Observation.component:a", "path": "Observation.component",
+          "sliceName": "a", "min": huge },
+        { "id": "Observation.component:b", "path": "Observation.component",
+          "sliceName": "b", "min": huge },
+        { "id": "Observation.component:c", "path": "Observation.component",
+          "sliceName": "c", "min": huge },
+    ]));
+    assert_single(
+        &found,
+        "DEFINITION_002",
+        "StructureDefinition.differential.element[0]",
+        &["Observation.component", "at most 1"],
+    );
+}
+
+#[test]
+fn slice_minimums_overflowing_a_u64_maximum_are_reported_json() {
+    let huge = i64::MAX;
+    let found = observation_profile(serde_json::json!([
+        { "id": "Observation.component", "path": "Observation.component",
+          "slicing": { "rules": "open" }, "max": u64::MAX.to_string() },
+        { "id": "Observation.component:a", "path": "Observation.component",
+          "sliceName": "a", "min": huge },
+        { "id": "Observation.component:b", "path": "Observation.component",
+          "sliceName": "b", "min": huge },
+        { "id": "Observation.component:c", "path": "Observation.component",
+          "sliceName": "c", "min": huge },
+    ]));
+    assert_single(
+        &found,
+        "DEFINITION_002",
+        "StructureDefinition.differential.element[0]",
+        &["Observation.component"],
+    );
+}
+
+#[test]
+fn differential_without_ids_has_no_slice_findings_json() {
+    let found = observation_profile(serde_json::json!([
+        { "path": "Observation.component", "slicing": { "rules": "open" }, "max": "1" },
+        { "path": "Observation.component", "sliceName": "a", "min": 2 },
+    ]));
+    assert!(found.is_empty(), "{found:?}");
+}
