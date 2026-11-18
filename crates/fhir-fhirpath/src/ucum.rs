@@ -42,9 +42,9 @@ pub(crate) fn convert(from: &str, to: &str) -> Option<Ratio> {
     from.factor.div(to.factor)
 }
 
-/// Whether amounts in `a` and `b` can be converted into each other.
-pub(crate) fn comparable(a: &str, b: &str) -> bool {
-    convert(a, b).is_some()
+/// Whether amounts in `unit_a` and `unit_b` can be converted into each other.
+pub(crate) fn comparable(unit_a: &str, unit_b: &str) -> bool {
+    convert(unit_a, unit_b).is_some()
 }
 
 fn resolve(unit: &str) -> Option<Unit> {

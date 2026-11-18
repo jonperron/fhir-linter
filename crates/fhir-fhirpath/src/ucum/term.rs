@@ -57,9 +57,16 @@ pub(crate) fn parse_unit(
     prefixes: &HashMap<String, Ratio>,
     lookup: &mut dyn FnMut(&str) -> AtomLookup,
 ) -> Option<Unit> {
-    // Unit codes are printable ASCII without spaces.
-    if !text.bytes().all(|byte| (33..=126).contains(&byte)) {
-        return None;
+    // Unit codes are printable ASCII; a space is only allowed inside an annotation.
+    let mut in_annotation = false;
+    for byte in text.bytes() {
+        match byte {
+            b'{' => in_annotation = true,
+            b'}' => in_annotation = false,
+            b' ' if in_annotation => {}
+            33..=126 => {}
+            _ => return None,
+        }
     }
     let mut parser = Parser {
         text: text.as_bytes(),

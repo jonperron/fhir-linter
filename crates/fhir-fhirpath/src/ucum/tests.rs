@@ -89,6 +89,12 @@ fn unsupported_units() {
 }
 
 #[test]
+fn annotations_may_contain_spaces() {
+    assert_eq!(convert("mg{protein concentration}", "g"), ratio(1, 1000));
+    assert_eq!(convert("m{a b}.s", "m.s"), ratio(1, 1));
+}
+
+#[test]
 fn malformed_units() {
     for unit in [
         "",
