@@ -249,7 +249,8 @@ fn convert_amount(x: f64, y: f64, factor: f64) -> f64 {
         return y;
     }
     let converted = y * factor;
-    let close = (converted - x).abs() <= 1e-12 * x.abs().max(converted.abs());
+    let close =
+        converted.is_finite() && (converted - x).abs() <= 1e-12 * x.abs().max(converted.abs());
     if close { x } else { converted }
 }
 
@@ -261,7 +262,12 @@ pub(super) fn quantity_values(
     equivalent: bool,
 ) -> Option<Option<(f64, f64)>> {
     let operands = quantity_operands(a, b, equivalent)?;
-    Some(operands.map(|(x, y, factor)| (x, convert_amount(x, y, factor))))
+    // An overflowing conversion has no comparable value: empty, not equal.
+    Some(operands.and_then(|(x, y, factor)| {
+        Some(convert_amount(x, y, factor))
+            .filter(|c| c.is_finite())
+            .map(|c| (x, c))
+    }))
 }
 
 /// N1 §6.3.1 `~` on two comparable Quantities: equal once both are rounded

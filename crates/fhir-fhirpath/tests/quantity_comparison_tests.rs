@@ -306,7 +306,14 @@ fn ucum_units_of_one_dimension_convert_for_comparison() {
     assert_eq!(check("2.54 'cm' = 1 '[in_i]'"), Some(true));
     assert_eq!(check("1 'a' = 12 'mo'"), Some(true));
     assert_eq!(check("1 'cm'.comparable(1 '[in_i]')"), Some(true));
-    assert_eq!(check("(1 'kg' | 500 'g').min() = 500 'g'"), Some(true));
+    assert_eq!(
+        check("(500 'g' | 1 'kg' | 2 'kg').min() = 500 'g'"),
+        Some(true)
+    );
+    assert_eq!(
+        check("(500 'g' | 2 'kg' | 1 'kg').max() = 2 'kg'"),
+        Some(true)
+    );
     assert_eq!(
         check("(2 'kg' | 500 'g' | 1 'kg').sort().first() = 500 'g'"),
         Some(true)
@@ -316,6 +323,15 @@ fn ucum_units_of_one_dimension_convert_for_comparison() {
     assert_eq!(check("500 'g' < 1 'kg'"), Some(true));
     assert_eq!(check("4040 'mg' ~ 4 'g'"), Some(true));
     assert_eq!(check("5000 'mg' ~ 4 'g'"), Some(false));
+}
+
+#[test]
+fn an_overflowing_conversion_is_not_comparable() {
+    // The right operand is converted into the left unit: 1e300 'Gg' in 'mg' overflows f64.
+    let check = |expr: &str| boolean(expr, &[]);
+    let big = "9".repeat(300);
+    assert_eq!(check(&format!("{big} 'mg' = {big} 'Gg'")), None);
+    assert_eq!(check(&format!("{big} 'Gg' = {big} 'mg'")), Some(false));
 }
 
 #[test]
