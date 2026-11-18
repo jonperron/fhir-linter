@@ -43,6 +43,7 @@ pub(crate) fn convert(from: &str, to: &str) -> Option<Ratio> {
 }
 
 /// Whether amounts in `unit_a` and `unit_b` can be converted into each other.
+#[cfg(test)]
 pub(crate) fn comparable(unit_a: &str, unit_b: &str) -> bool {
     convert(unit_a, unit_b).is_some()
 }

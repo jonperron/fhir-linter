@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::{ArithOp, Evaluator};
 use crate::ast::Expr;
 use crate::error::EvalError;
-use crate::value::{Collection, Value, same_quantity_unit};
+use crate::value::{Collection, Value, quantity_unit_factor};
 
 /// Largest collection an evaluation may build. N1 sets no limit; this one
 /// stops exponential growth (a `select($this.combine($this))` chain, or
@@ -226,22 +226,53 @@ pub(super) fn as_quantity(v: &Value) -> Option<(f64, Option<&str>)> {
     }
 }
 
-/// N1 §6.1, §6.2 on two Quantities: `Some(Some((x, y)))` when their units
-/// match, `Some(None)` when they cannot be compared (different units, with no
-/// UCUM conversion, or a unit on one side only), `None` when either is not a
-/// Quantity.
+/// N1 §6.1, §6.2 on two Quantities: `Some(Some((x, y, factor)))` when `b`'s
+/// unit converts into `a`'s (`y * factor` is `b` in `a`'s unit), `Some(None)`
+/// when they cannot be compared (no conversion, or a unit on one side only),
+/// `None` when either is not a Quantity.
+fn quantity_operands(a: &Value, b: &Value, equivalent: bool) -> Option<Option<(f64, f64, f64)>> {
+    let ((x, x_unit), (y, y_unit)) = (as_quantity(a)?, as_quantity(b)?);
+    let factor = match (x_unit, y_unit) {
+        (None, None) => Some(1.0),
+        (Some(x_unit), Some(y_unit)) => quantity_unit_factor(y_unit, x_unit, equivalent)
+            .map(|ratio| ratio.numer() as f64 / ratio.denom() as f64),
+        _ => None,
+    };
+    Some(factor.map(|factor| (x, y, factor)))
+}
+
+/// `y * factor`, snapped to `x` when they differ only by float noise.
+/// shortcut: f64 conversion with a 1e-12 relative tolerance; replace with an
+/// exact decimal comparison once Quantity values are decimals.
+fn convert_amount(x: f64, y: f64, factor: f64) -> f64 {
+    if factor == 1.0 {
+        return y;
+    }
+    let converted = y * factor;
+    let close = (converted - x).abs() <= 1e-12 * x.abs().max(converted.abs());
+    if close { x } else { converted }
+}
+
+/// [`quantity_operands`] with `b` converted into `a`'s unit: `Some(Some((x, y)))`
+/// when comparable, `Some(None)` when not, `None` when either is not a Quantity.
 pub(super) fn quantity_values(
     a: &Value,
     b: &Value,
     equivalent: bool,
 ) -> Option<Option<(f64, f64)>> {
-    let ((x, x_unit), (y, y_unit)) = (as_quantity(a)?, as_quantity(b)?);
-    let comparable = match (x_unit, y_unit) {
-        (None, None) => true,
-        (Some(x_unit), Some(y_unit)) => same_quantity_unit(x_unit, y_unit, equivalent),
-        _ => false,
-    };
-    Some(comparable.then_some((x, y)))
+    let operands = quantity_operands(a, b, equivalent)?;
+    Some(operands.map(|(x, y, factor)| (x, convert_amount(x, y, factor))))
+}
+
+/// N1 §6.3.1 `~` on two comparable Quantities: equal once both are rounded
+/// to the precision of the least precise one, measured in `x`'s unit so the
+/// result does not depend on the operand order (`4 'g' ~ 4040 'mg'`).
+/// shortcut: f64 rounding, so float noise can flip a value lying on a .5
+/// boundary; upgrade with the decimal type.
+fn quantities_equivalent(x: f64, y: f64, factor: f64) -> bool {
+    let step = |value: f64| 10f64.powi(-decimal_scale(value));
+    let step = step(x).max(step(y) * factor.abs());
+    (x / step).round() == (convert_amount(x, y, factor) / step).round()
 }
 
 pub(super) fn values_equal(a: &Value, b: &Value) -> Option<bool> {
@@ -404,8 +435,8 @@ pub(super) fn values_equivalent(a: &Value, b: &Value) -> bool {
             .collect::<String>()
             .to_lowercase()
     };
-    if let Some(values) = quantity_values(a, b, true) {
-        return values.is_some_and(|(x, y)| x == y);
+    if let Some(operands) = quantity_operands(a, b, true) {
+        return operands.is_some_and(|(x, y, factor)| quantities_equivalent(x, y, factor));
     }
     match (a, b) {
         (Value::Null, Value::Null) => true,
@@ -452,13 +483,13 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
         (Value::Date(x), Value::Date(y))
         | (Value::DateTime(x), Value::DateTime(y))
         | (Value::Time(x), Value::Time(y)) => Ok(x.cmp(y)),
-        (Value::Quantity(xv, xu), Value::Quantity(yv, yu)) => {
-            if !same_quantity_unit(xu, yu, false) {
-                return Err(EvalError::Type(format!(
+        (lhs @ Value::Quantity(_, xu), rhs @ Value::Quantity(_, yu)) => {
+            match quantity_values(lhs, rhs, false) {
+                Some(Some((x, y))) => Ok(x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal)),
+                _ => Err(EvalError::Type(format!(
                     "cannot compare quantities with different units: '{xu}' vs '{yu}'"
-                )));
+                ))),
             }
-            Ok(xv.partial_cmp(yv).unwrap_or(std::cmp::Ordering::Equal))
         }
         (a, b) => Err(EvalError::Type(format!(
             "cannot compare {} and {}",

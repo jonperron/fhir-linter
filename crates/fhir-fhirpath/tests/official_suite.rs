@@ -68,8 +68,11 @@ use quick_xml::events::{BytesStart, Event};
 /// unrepresentable sqrt() and power() (testSqrt2, testPower3), then to 1078
 /// by today(), now(), union(), toChars() and Date against Time equality
 /// (15 cases), then to 1106 by Date, DateTime and Time plus or minus a
-/// calendar duration (testPlusDate*, testPlusTime*, testMinus5/7/8/9).
-const MIN_PASSED: u32 = 1106;
+/// calendar duration (testPlusDate*, testPlusTime*, testMinus5/7/8/9), then
+/// to 1120 by UCUM conversion in =, ~, <, >, <=, >= and comparable()
+/// (testQuantity1-8, testLessThan31, testLessOrEqual29, testNEquality24,
+/// Comparable1, testStringQuantityDay/WeekLiteralToQuantity).
+const MIN_PASSED: u32 = 1120;
 
 /// Cases that must pass whatever the total: the boundary functions behind
 /// the FHIR per-1, rng-2 and ratrng-2 invariants. Not listed: 12.500 and
