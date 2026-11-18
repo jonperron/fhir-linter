@@ -59,9 +59,13 @@ login and API paths.
    agent set the profile's reviewer routing names (the routed reviewers
    and the agents it adds for every task), plus the spec-sync subagent
    whenever behaviour or an API changed (it decides whether specs need
-   edits). Never hand-edit specs. Apply what they find (a CRITICAL goes
-   to "Needs a decision"), and run the gate again. Then commit and push
-   the batch. Your report gives each agent's verdict. With **May push:
+   edits). Never hand-edit specs. Apply what they find (a confirmed
+   CRITICAL goes to "Needs a decision"), and run the gate again. If
+   your fixes changed code, re-measure the profile's secondary metric
+   and report it. Then commit and push
+   the batch. Your report lists every agent of that set with its
+   verdict, `verdict missing`, or `not run: <reason>` (`loop.md`,
+   Reports); "the gate covered it" is not a verdict. With **May push:
    no**, skip this step and list the fixes as pending.
 5. Reply to EVERY bot comment in its thread, in one or two plain lines:
    "Fixed in <sha>: …" (the pushed SHA), "Valid, fix pending: …",
@@ -77,6 +81,8 @@ login and API paths.
 ## Judgement guide
 
 - A bot's "critical" label is only a claim. Reproduce before you act.
+  Decline a CRITICAL only with code evidence (file:line or a passing
+  test) in the reply; a confirmed one goes to "Needs a decision".
 - Something already broken on the base and fixed by another open PR: point
   to that PR and decline.
 - A suggestion to add a dependency for test style (for example
