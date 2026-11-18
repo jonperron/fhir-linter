@@ -142,11 +142,62 @@ fn a_primitive_without_a_value_keeps_its_fhir_type() -> TestResult {
 
 #[test]
 fn system_type_names_keep_the_system_rules_on_typed_values() -> TestResult {
+    // N1 §10.1: `String` is no FHIR type, so it names System.String, which
+    // FHIR data never is.
     assert_eq!(
         eval("Questionnaire.status.is(String)", true)?,
+        [Value::Bool(false)]
+    );
+    assert_eq!(eval("'draft'.is(String)", true)?, [Value::Bool(true)]);
+    // Every value, FHIR data included, is a System.Any.
+    assert_eq!(
+        eval("Questionnaire.status.is(Any)", true)?,
         [Value::Bool(true)]
     );
+    assert_eq!(eval("'draft'.is(Any)", true)?, [Value::Bool(true)]);
     assert_eq!(eval("Questionnaire.status.ofType(integer)", true)?, []);
+    // A capitalised name that is neither FHIR nor System stays an error.
+    assert!(eval("Questionnaire.status.is(Foo)", true).is_err());
+    Ok(())
+}
+
+#[test]
+fn type_reflects_fhir_data_in_the_fhir_namespace() -> TestResult {
+    for (expression, expected) in [
+        ("Questionnaire.status.type().namespace", "FHIR"),
+        ("Questionnaire.status.type().name", "code"),
+        ("Questionnaire.type().namespace", "FHIR"),
+        ("Questionnaire.type().name", "Questionnaire"),
+        ("'Patient/1'.resolve().type().namespace", "FHIR"),
+        ("'Patient/1'.resolve().type().name", "Patient"),
+        ("'draft'.type().namespace", "System"),
+        ("'draft'.type().name", "String"),
+    ] {
+        assert_eq!(
+            strings(&eval(expression, true)?),
+            [expected],
+            "{expression}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn type_of_a_complex_datatype_is_an_error() {
+    // The Extension object does not carry its type.
+    assert!(eval("Questionnaire.version.extension.type()", true).is_err());
+}
+
+#[test]
+fn type_of_an_untyped_primitive_is_an_error() -> TestResult {
+    // Without the model, `_version` is a primitive whose FHIR type is unknown.
+    let untyped = fhir_fhirpath::resource_to_value(&parse_json(
+        r#"{"resourceType":"Questionnaire",
+        "_version":{"extension":[{"url":"http://example.org/x","valueBoolean":true}]}}"#,
+    )?);
+    let exists = eval_on(untyped.clone(), "Questionnaire.version.exists()", false)?;
+    assert_eq!(exists, [Value::Bool(true)]);
+    assert!(eval_on(untyped, "Questionnaire.version.type()", false).is_err());
     Ok(())
 }
 
