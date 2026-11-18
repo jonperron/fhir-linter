@@ -148,10 +148,11 @@ phase, including fix pushes and rebases.
    fixes.
 5. Watch CI on the final push (step 1) before you report.
 6. Merge only when your caller asks, and never chained after a wait
-   script (`wait && merge`). Merge in a separate command, and only when
-   the branch contains `origin/<base>`, no review thread is unanswered,
-   and every conclusion in `statusCheckRollup` is SUCCESS, SKIPPED or
-   NEUTRAL.
+   script (`wait && merge`). Merge in a separate command. Just before
+   it, fetch again and check that the branch contains `origin/<base>`,
+   no review thread is unanswered, and `statusCheckRollup` is not
+   empty, every check in it has finished, and every conclusion is
+   SUCCESS, SKIPPED or NEUTRAL.
 
 ## Reports
 

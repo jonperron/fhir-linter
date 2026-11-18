@@ -114,11 +114,15 @@ run `git checkout definitions/r5/README.md`.
 All must pass:
 
 ```bash
+cargo metadata --locked --format-version 1 > /dev/null   # first: Cargo.lock parses and is current
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo metadata --locked --format-version 1 > /dev/null   # Cargo.lock parses and is current
 ```
+
+If `cargo metadata --locked` fails only because `Cargo.lock` on `main`
+lags a release version bump (see Before every commit), say so in the
+report and go on; any other failure blocks.
 
 When bindings are touched, also:
 
