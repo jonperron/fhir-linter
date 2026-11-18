@@ -30,6 +30,7 @@ pub(crate) fn validate(
     if &*resource.resource_type != "StructureDefinition" {
         return;
     }
+    extension_contexts(resource, registry, path, diagnostics);
     // Only the differential: a profile's snapshot legitimately repeats the base's meanings.
     let Some(Value::Object(differential)) = resource.fields.get("differential").map(|n| &n.value)
     else {
@@ -54,6 +55,53 @@ pub(crate) fn validate(
 }
 
 type Fields = IndexMap<Arc<str>, Node>;
+
+/// `element` contexts that name no element of the base specification (DEFINITION_005).
+/// ExtensionContextType `element`: "any element that has an ElementDefinition.id that
+/// matches that found in the expression [...] If there is no #, the Element id is one
+/// defined in the base specification."
+fn extension_contexts(
+    resource: &Resource,
+    registry: &Registry,
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for (index, context) in elements(resource.fields.get("context")).enumerate() {
+        let Value::Object(fields) = &context.value else {
+            continue;
+        };
+        let (Some("element"), Some(expression)) =
+            (string(fields, "type"), string(fields, "expression"))
+        else {
+            continue;
+        };
+        // shortcut: `url#id` contexts are not checked (the Registry indexes elements by path,
+        // not id); resolve them once ElementDefinition keeps its id.
+        if expression.contains('#') {
+            continue;
+        }
+        // Base specification element ids are their paths.
+        let type_name = expression.split('.').next().unwrap_or(expression);
+        if registry
+            .core(type_name)
+            .is_some_and(|sd| sd.element(expression).is_some())
+        {
+            continue;
+        }
+        let node = fields.get("expression").unwrap_or(context);
+        diagnostics.push(
+            Diagnostic::error(
+                "DEFINITION_005",
+                format!(
+                    "The extension context '{expression}' of type element names no element \
+                     of the base specification"
+                ),
+                format!("{path}.context[{index}].expression"),
+            )
+            .with_location(node.span),
+        );
+    }
+}
 
 fn meaning_when_missing(
     differential: &[(usize, &Fields)],
