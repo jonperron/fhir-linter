@@ -20,6 +20,7 @@ use fhir_fhirpath::{Expr, ParseError};
 ///     value_regex: None,
 ///     version: None,
 ///     base_definition: None,
+///     implements: Vec::new(),
 ///     path_index: Default::default(),
 /// };
 /// ```
@@ -40,6 +41,9 @@ pub struct StructureDefinition {
     /// constrains (see [`crate::Registry::type_ancestors`]). `None` for `Base`, the R5 root,
     /// and from [`StructureDefinition::new`].
     pub base_definition: Option<Arc<str>>,
+    /// The interfaces named by its `structuredefinition-implements` extensions (R5 core:
+    /// `CanonicalResource`, `MetadataResource`). Empty from [`StructureDefinition::new`].
+    pub implements: Vec<Arc<str>>,
     /// Position in `snapshot` of the first element with each path.
     path_index: HashMap<Arc<str>, usize>,
 }
@@ -66,6 +70,7 @@ impl StructureDefinition {
             value_regex: None,
             version: None,
             base_definition: None,
+            implements: Vec::new(),
             path_index,
         }
     }
@@ -89,6 +94,11 @@ impl StructureDefinition {
             base_definition,
             ..self
         }
+    }
+
+    /// The same definition with `implements` set.
+    pub(crate) fn with_implements(self, implements: Vec<Arc<str>>) -> Self {
+        Self { implements, ..self }
     }
 
     /// The (first) snapshot element whose path is exactly `path`.

@@ -443,3 +443,12 @@ Le crate SHALL exporter la constante `CORE_PREFIX` (`http://hl7.org/fhir/Structu
 
 - **WHEN** `core("NotAType")` ou `core("")` est appelé
 - **THEN** le résultat SHALL être `None`
+
+### Requirement: Interfaces implémentées par une StructureDefinition
+
+Le chargeur SHALL conserver dans `StructureDefinition.implements: Vec<Arc<str>>` (public, vide pour `StructureDefinition::new`) la `valueUri`, sans suffixe de version, de chaque extension `structuredefinition-implements`.
+
+#### Scenario: Extension implements chargée
+
+- **WHEN** une StructureDefinition porte l'extension `structuredefinition-implements` de `valueUri` `http://hl7.org/fhir/StructureDefinition/CanonicalResource|5.0.0`
+- **THEN** `implements` SHALL contenir `http://hl7.org/fhir/StructureDefinition/CanonicalResource`

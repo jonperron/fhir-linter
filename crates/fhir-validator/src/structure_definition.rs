@@ -9,9 +9,13 @@
 //! maximum cardinality on each slice cannot exceed n" and "The sum of the minimum
 //! cardinalities must be less or equal to n". ElementDefinition eld-2: "Min <= Max", which
 //! also binds a slice's child against the unsliced child it narrows.
-use fhir_definitions::Registry;
+//!
+//! references.html, Canonical URLs: only the resources that have canonical URLs "are allowed
+//! to be the target of references to a canonical URLs".
+use fhir_definitions::{Registry, StructureDefinition};
 use fhir_parser::{Node, Resource, Value};
 use indexmap::IndexMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
@@ -42,6 +46,11 @@ pub(crate) fn validate(
         meaning_when_missing(&differential, path, diagnostics);
     }
     slice_cardinality(resource, registry, &differential, path, diagnostics);
+    // Constraints only: the R5 core specialization NutritionIntake itself lists the
+    // non-canonical ClinicalUseDefinition as an instantiatesCanonical target.
+    if string(&resource.fields, "derivation") == Some("constraint") {
+        canonical_targets(registry, &differential, path, diagnostics);
+    }
 }
 
 type Fields = IndexMap<Arc<str>, Node>;
@@ -214,6 +223,85 @@ fn slices_within(
             .with_location(slicing.span),
         );
     }
+}
+
+/// Canonical types whose `targetProfile` names a resource without a canonical URL
+/// (DEFINITION_004). Targets the Registry does not hold stay silent.
+fn canonical_targets(
+    registry: &Registry,
+    differential: &[(usize, &Fields)],
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for &(index, fields) in differential {
+        for (type_index, type_node) in elements(fields.get("type")).enumerate() {
+            let Value::Object(type_fields) = &type_node.value else {
+                continue;
+            };
+            if string(type_fields, "code") != Some("canonical") {
+                continue;
+            }
+            let targets = elements(type_fields.get("targetProfile")).enumerate();
+            for (target_index, target) in targets {
+                let Value::Str(url) = &target.value else {
+                    continue;
+                };
+                if !names_non_canonical_resource(registry, url) {
+                    continue;
+                }
+                let element_path = string(fields, "path").unwrap_or("(no path)");
+                diagnostics.push(
+                    Diagnostic::error(
+                        "DEFINITION_004",
+                        format!(
+                            "The canonical type of {element_path} targets {url}, a resource \
+                             without a canonical URL: only canonical resources can be the \
+                             target of a canonical"
+                        ),
+                        format!(
+                            "{path}.differential.element[{index}].type[{type_index}]\
+                             .targetProfile[{target_index}]"
+                        ),
+                    )
+                    .with_location(target.span),
+                );
+            }
+        }
+    }
+}
+
+/// True when `url` names a concrete resource definition (or a profile on one) that is not a
+/// canonical resource. Abstract definitions such as `Resource` (canonical(Any)) pass.
+fn names_non_canonical_resource(registry: &Registry, url: &str) -> bool {
+    let url = url.split_once('|').map_or(url, |(url, _)| url);
+    registry
+        .structure_definition(url)
+        .is_some_and(|sd| &*sd.kind == "resource" && !sd.is_abstract && !is_canonical(registry, sd))
+}
+
+/// True when the definition, through its `implements` interfaces or its base chain, reaches
+/// `CanonicalResource`, or leaves the Registry (undecided, so no finding).
+fn is_canonical(registry: &Registry, definition: &StructureDefinition) -> bool {
+    let Some(canonical) = registry.core("CanonicalResource") else {
+        return true;
+    };
+    let mut pending = vec![&*definition.url];
+    let mut seen = HashSet::new();
+    while let Some(url) = pending.pop() {
+        if url == &*canonical.url {
+            return true;
+        }
+        if !seen.insert(url) {
+            continue;
+        }
+        // A definition the Registry does not hold leaves the answer undecided: stay silent.
+        let Some(sd) = registry.structure_definition(url) else {
+            return true;
+        };
+        pending.extend(sd.implements.iter().map(|url| &**url));
+        pending.extend(sd.base_definition.as_deref());
+    }
+    false
 }
 
 /// A stated `min`: an integer in JSON, a string in XML.
