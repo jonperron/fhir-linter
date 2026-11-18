@@ -11,8 +11,6 @@ mod ast;
 mod error;
 mod eval;
 mod parser;
-// shortcut: not wired into comparison or arithmetic yet; the next PR uses it.
-#[allow(dead_code)]
 mod ucum;
 mod value;
 mod xml_text;

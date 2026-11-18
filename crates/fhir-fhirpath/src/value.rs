@@ -8,6 +8,8 @@ use std::sync::{Arc, LazyLock};
 
 use indexmap::IndexMap;
 
+use crate::ucum::Ratio;
+
 /// A single FHIRPath value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -198,15 +200,26 @@ pub(crate) fn calendar_unit(keyword: &str) -> Option<&'static str> {
         .map(|(unit, _)| *unit)
 }
 
-/// Whether two quantity units match (N1 §6.1.1, §6.1.2): the same unit, or
-/// a calendar duration and its UCUM unit. Under `=` that pairing holds only
-/// for seconds and below; under `~` it always holds.
-pub(crate) fn same_quantity_unit(a: &str, b: &str, equivalent: bool) -> bool {
-    a == b
-        || CALENDAR_DURATIONS.iter().any(|(calendar, ucum)| {
-            (equivalent || matches!(*calendar, "second" | "millisecond"))
-                && ((a, b) == (*calendar, *ucum) || (b, a) == (*calendar, *ucum))
-        })
+/// The factor that converts an amount in unit `from` into unit `to`
+/// (N1 §6.1.1, §6.1.2, §6.3), or `None` when the units cannot be compared.
+/// Units convert through UCUM; calendar durations from weeks down stand for
+/// their definite UCUM unit (testQuantity5, testQuantity6). A year or a
+/// month is not definite: under `=` and the order operators it compares only
+/// with the same keyword (testEquality36, testLessThan29); under `~` it
+/// stands for UCUM `a` or `mo` (testEquivalent25).
+pub(crate) fn quantity_unit_factor(from: &str, to: &str, equivalent: bool) -> Option<Ratio> {
+    if from == to {
+        return Ratio::new(1, 1);
+    }
+    let ucum_unit = |unit| match CALENDAR_DURATIONS
+        .iter()
+        .find(|(calendar, _)| *calendar == unit)
+    {
+        Some(("year" | "month", _)) if !equivalent => None,
+        Some((_, ucum)) => Some(*ucum),
+        None => Some(unit),
+    };
+    crate::ucum::convert(ucum_unit(from)?, ucum_unit(to)?)
 }
 
 /// FHIR type knowledge for building values: for the child `name` of the
