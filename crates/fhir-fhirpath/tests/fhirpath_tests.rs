@@ -1492,8 +1492,10 @@ fn unimplemented_functions_are_undefined() {
 }
 
 #[test]
-fn type_function_returns_type_name_of_integer() {
-    let result = evaluate("42.type()", &[]).unwrap();
+fn type_function_returns_type_info_of_integer() {
+    let result = evaluate("42.type().namespace", &[]).unwrap();
+    assert_eq!(result, vec![Value::String(Arc::from("System"))]);
+    let result = evaluate("42.type().name", &[]).unwrap();
     assert_eq!(result, vec![Value::String(Arc::from("Integer"))]);
 }
 

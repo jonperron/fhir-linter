@@ -7,7 +7,7 @@ use crate::value::{Collection, Value};
 use super::Evaluator;
 use super::helpers::{
     check_arity, check_arity_range, check_collection_len, criteria_bool, eval_string_arg,
-    singleton, singleton_bool,
+    singleton, singleton_bool, type_info,
 };
 
 impl Evaluator<'_> {
@@ -145,10 +145,7 @@ impl Evaluator<'_> {
             // ── Introspection ─────────────────────────────────────────────
             "type" => {
                 check_arity(name, args, 0)?;
-                focus
-                    .iter()
-                    .map(|v| Value::String(Arc::from(v.type_name())))
-                    .collect()
+                focus.iter().map(type_info).collect::<Result<_, _>>()?
             }
 
             // Other functions fall through to the FHIR functions, then to
