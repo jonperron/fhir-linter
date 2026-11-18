@@ -115,6 +115,8 @@ phase, including fix pushes and rebases.
    context budget (see Ground rules). If a check is
    still queued or running, or the merge state still UNKNOWN, after about
    30 minutes, stop waiting and report which checks are stuck.
+   Your poll script must exit non-zero when any check failed or was
+   cancelled, and print each conclusion.
    - Red check caused by your change: fix it through the gate, push, and
      watch again.
    - Red check you cannot link to your diff (flaky test, runner or
@@ -126,7 +128,10 @@ phase, including fix pushes and rebases.
    real ones in one pass (step 4), then reply to every comment.
 3. Ask first. Do not fix; stop and report to your caller when:
    - a finding is CRITICAL, from the bot or from a reviewer subagent,
-     even after you have confirmed it;
+     and you have confirmed it. Verify every CRITICAL in code first: one
+     you disprove with evidence (file:line of the code path, or a
+     passing test, as in the quality loop, Triage) you may decline, and
+     cite that evidence in your reply;
    - the review asks for a human (for example "needs a human reviewer");
    - the fix would go against the user's or the project's rules, widen
      the scope, or break a public API or the release output;
@@ -142,6 +147,11 @@ phase, including fix pushes and rebases.
    5-round quality loop is for the first implementation, not for review
    fixes.
 5. Watch CI on the final push (step 1) before you report.
+6. Merge only when your caller asks, and never chained after a wait
+   script (`wait && merge`). Merge in a separate command, and only when
+   the branch contains `origin/<base>`, no review thread is unanswered,
+   and every conclusion in `statusCheckRollup` is SUCCESS, SKIPPED or
+   NEUTRAL.
 
 ## Reports
 
@@ -151,15 +161,19 @@ End with a report to your caller, within the length limit you were given
 - the outcome first (PR URL, branch, commit SHAs, merge state, and the
   CI result on the final head with every check finished);
 - decisions waiting for the user (After the push, step 3);
-- review rounds and what each found: one line per reviewer subagent
-  with its verdict, or "not run" and why;
+- review rounds and what each found: one line per routed agent
+  (reviewers, the agents the profile adds for every task, spec sync)
+  with its verdict, or `not run: <reason>`. A verdict that never reached
+  you is "verdict missing": rerun the agent or report it so. Never
+  report an agent as passed without its verdict; "the gate covered it"
+  is not a verdict;
 - automated-review comments and what you did with each;
 - behaviour or performance numbers if you measured any;
 - what you did not do or could not check.
 
 No code dumps.
 
-## Where the newer rules come from (2026-11-09 and 2026-11-10)
+## Where the newer rules come from (since 2026-11-09)
 
 | What happened | Rule |
 |---|---|
@@ -172,3 +186,6 @@ No code dumps.
 | Review loops on Opus hit the 5-hour usage limit twice; the bot almost never re-reviews | After the push, step 4: one round |
 | The classifier refused a force push on #37 | Merge the base and push normally |
 | Drivers ended at 167k to 178k tokens, even on S-size items (2026-11-15) | Context budget |
+| #128 was merged on red CI by a `wait && merge` chain whose wait script exited 0 (2026-11-17) | After the push, steps 1 and 6 |
+| A responder declined a Sourcery CRITICAL without evidence; the orchestrator disproved it in code (#127) | After the push, step 3: verify first |
+| Reviewer handbacks were lost (#129) and responders skipped agents, saying the gate covered them (#128, #145) | Reports: a verdict per routed agent |

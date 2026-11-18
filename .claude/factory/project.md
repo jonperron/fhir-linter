@@ -64,6 +64,10 @@ shell. Work with them, not around them:
   `pr.md`, a harness `Cargo.toml`): other agents overwrite them.
 - Run Bash calls one at a time when the auto-mode classifier is active:
   parallel calls can lose its verdict and must be re-run alone.
+- If calls run alone still fail with "no verdict" (Bash, Edit and
+  others: the classifier is unavailable), stop and report where you
+  are; your caller retries later. Do not spend the attempt limit on
+  retries.
 - Waiting: foreground `sleep` is blocked and subagents have no Monitor
   tool. Start one background Bash call (`run_in_background`) that loops
   `sleep 30` and polls `gh api` until the bot has posted or the budget is
@@ -99,6 +103,10 @@ run `git checkout definitions/r5/README.md`.
 - `/usr/bin/git checkout Cargo.lock` if the only change is a version bump
   produced by the build (the lockfile on `main` can lag behind a release).
   Commit `Cargo.lock` only when the task changes dependencies.
+- `Cargo.lock` merges can be wrong without a conflict: two Dependabot
+  PRs each added the same packages, git kept both copies, and `main`
+  went red. Merge PRs that touch `Cargo.lock` (Dependabot's included)
+  one at a time, each on CI that includes current `main`.
 - `git status` must show no symlinked definitions or fixture files staged.
 
 ## Quality gate
@@ -109,6 +117,7 @@ All must pass:
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+cargo metadata --locked --format-version 1 > /dev/null   # Cargo.lock parses and is current
 ```
 
 When bindings are touched, also:
@@ -148,6 +157,16 @@ not.
 Behaviour or API changes must update `openspec/specs/`: run the `openspec`
 subagent. Known unrelated failures to leave alone: `fhir-linter`,
 `fhir-python-bindings`, `fhir-xml-parser`.
+
+Parallel work: a spec file is a serialisation point like a code file.
+Every validator item edits `openspec/specs/fhir-validator/spec.md`, so
+callers run validator items one at a time even when their code files
+are disjoint.
+
+Shared floors: do not edit the suite floors (`manifest_tests.rs`,
+`official_suite.rs` and the rates the validator spec states); still
+measure the rates and report them. One final PR raises them all, unless your
+caller assigns you that PR.
 
 ## Automated PR reviewer
 
