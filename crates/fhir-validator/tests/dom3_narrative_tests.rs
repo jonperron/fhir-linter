@@ -122,6 +122,16 @@ fn unreferenced_contained_resource_in_a_value_set_violates_dom3() -> TestResult 
     Ok(())
 }
 
+#[test]
+fn referenced_contained_resource_in_a_value_set_satisfies_dom3() -> TestResult {
+    let json = format!(
+        r##"{{"resourceType":"ValueSet","status":"draft","contained":[{BASIC_B}],
+            "extension":[{{"url":"http://x.org/e","valueReference":{{"reference":"#b"}}}}]}}"##
+    );
+    assert_eq!(dom3(&parse_json(&json)?)?, Vec::<String>::new());
+    Ok(())
+}
+
 /// The DomainResource invariants apply (dom-6: a narrative is advised), but not Base's ele-1,
 /// an element rule rather than a resource invariant.
 #[test]

@@ -67,6 +67,26 @@ fn element_ids_are_unique_at_every_depth_and_across_contained_json() {
     );
 }
 
+/// sdf-16 / sdf-17 scope ElementDefinition ids to the snapshot and to the differential;
+/// every R5 definition repeats them across both (the core Patient definition here).
+#[test]
+fn element_definition_ids_repeat_across_snapshot_and_differential_json() {
+    let element = r#"{"id":"Patient","path":"Patient"}"#;
+    let resource = parse_json(&format!(
+        r#"{{"resourceType":"StructureDefinition","id":"p",
+            "url":"http://example.org/StructureDefinition/p","name":"P","status":"draft",
+            "kind":"resource","abstract":false,"type":"Patient",
+            "baseDefinition":"http://hl7.org/fhir/StructureDefinition/Patient",
+            "derivation":"constraint",
+            "snapshot":{{"element":[{element}]}},
+            "differential":{{"element":[{element}]}},
+            "extension":[{{"id":"Patient","url":"http://example.org/e","valueString":"x"}}]}}"#
+    ))
+    .expect("parses");
+    // The ElementDefinition ids stay out of the resource-wide set, so `Patient` is unused.
+    assert!(findings(&resource, "STRUCTURE_006").is_empty());
+}
+
 #[test]
 fn bundle_entries_are_their_own_id_scope_json() {
     let entry = r#"{"resource":{"resourceType":"Basic","code":{"id":"c","text":"x"}}}"#;

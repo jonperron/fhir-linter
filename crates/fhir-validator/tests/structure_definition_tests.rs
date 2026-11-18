@@ -592,6 +592,7 @@ fn extension_context_naming_no_element_fails_xml() {
             <status value="draft"/>
             <kind value="complex-type"/>
             <abstract value="false"/>
+            <context><type value="element"/><expression value="Patient.name"/></context>
             <context><type value="element"/><expression value="Patient.nope"/></context>
             <type value="Extension"/>
             <baseDefinition value="http://hl7.org/fhir/StructureDefinition/Extension"/>
@@ -600,7 +601,7 @@ fn extension_context_naming_no_element_fails_xml() {
     );
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(&*found[0].code, "DEFINITION_005");
-    assert_eq!(found[0].path, "StructureDefinition.context[0].expression");
+    assert_eq!(found[0].path, "StructureDefinition.context[1].expression");
 }
 
 fn xml_source(source: &str) -> Vec<Diagnostic> {

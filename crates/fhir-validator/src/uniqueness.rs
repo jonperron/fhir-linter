@@ -8,69 +8,102 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use fhir_definitions::Registry;
 use fhir_parser::{Node, Resource, Value};
 use indexmap::IndexMap;
 
 use crate::diagnostic::Diagnostic;
+use crate::embedded::child_element;
 
 /// Emits `STRUCTURE_006` (error) at each element id an earlier element of `resource`
 /// (instance `path`) or of its contained resources already uses. Resources held elsewhere
 /// (Bundle entries, Parameters) are their own scope; resource ids are not element ids.
+///
+/// ElementDefinition ids are left out: StructureDefinition sdf-16 and sdf-17 make them
+/// unique per snapshot and per differential, and every R5 definition repeats each id in both.
 pub(crate) fn check_element_ids(
     resource: &Resource,
+    registry: &Registry,
     path: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let mut seen = HashSet::new();
+    let mut walk = IdWalk {
+        registry,
+        seen: HashSet::new(),
+        diagnostics,
+    };
     for (name, node) in &resource.fields {
         let child_path = format!("{path}.{name}");
-        if &**name == "contained" {
-            for (item, item_path) in items(node, &child_path) {
-                if let Value::Object(fields) = &item.value {
-                    // The contained resource's own `id` is its resource id.
-                    let fields = fields.iter().filter(|(name, _)| &***name != "id");
-                    element_ids(fields, &item_path, &mut seen, diagnostics);
-                }
-            }
-        } else {
-            element_ids([(name, node)], path, &mut seen, diagnostics);
+        if &**name != "contained" {
+            walk.fields([(name, node)], Some(&resource.resource_type), path);
+            continue;
+        }
+        for (item, item_path) in items(node, &child_path) {
+            let Value::Object(fields) = &item.value else {
+                continue;
+            };
+            let definition = string(fields, "resourceType");
+            // The contained resource's own `id` is its resource id.
+            let fields = fields.iter().filter(|(name, _)| &***name != "id");
+            walk.fields(fields, definition, &item_path);
         }
     }
 }
 
-fn element_ids<'a>(
-    fields: impl IntoIterator<Item = (&'a Arc<str>, &'a Node)>,
-    path: &str,
-    seen: &mut HashSet<Arc<str>>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    for (name, node) in fields {
-        let child_path = format!("{path}.{name}");
-        match &node.value {
-            Value::Str(id) if &**name == "id" => {
-                if !seen.insert(Arc::clone(id)) {
-                    diagnostics.push(
-                        Diagnostic::error(
-                            "STRUCTURE_006",
-                            format!("Duplicate element id '{id}' within the resource"),
-                            child_path,
-                        )
-                        .with_location(node.span),
-                    );
-                }
-            }
-            Value::Object(_) | Value::Array(_) => {
-                for (item, item_path) in items(node, &child_path) {
-                    match &item.value {
-                        // An embedded resource (Bundle entry, Parameters value) is its own scope.
-                        Value::Object(fields) if !fields.contains_key("resourceType") => {
-                            element_ids(fields, &item_path, seen, diagnostics);
-                        }
-                        _ => {}
+struct IdWalk<'a, 'd> {
+    registry: &'a Registry,
+    seen: HashSet<Arc<str>>,
+    diagnostics: &'d mut Vec<Diagnostic>,
+}
+
+impl IdWalk<'_, '_> {
+    /// The ids in `fields`, the children of an object at definition path `definition` (`None`
+    /// below an element the Registry does not know: its subtree is still searched).
+    fn fields<'n>(
+        &mut self,
+        fields: impl IntoIterator<Item = (&'n Arc<str>, &'n Node)>,
+        definition: Option<&str>,
+        path: &str,
+    ) {
+        for (name, node) in fields {
+            let child_path = format!("{path}.{name}");
+            match &node.value {
+                Value::Str(id) if &**name == "id" => {
+                    if !self.seen.insert(Arc::clone(id)) {
+                        self.diagnostics.push(
+                            Diagnostic::error(
+                                "STRUCTURE_006",
+                                format!("Duplicate element id '{id}' within the resource"),
+                                child_path,
+                            )
+                            .with_location(node.span),
+                        );
                     }
                 }
+                Value::Object(_) | Value::Array(_) => {
+                    // `_name` holds the id and extensions of primitive `name`.
+                    let bare = name.strip_prefix('_').unwrap_or(name);
+                    let child =
+                        definition.and_then(|parent| child_element(self.registry, parent, bare));
+                    if child
+                        .as_ref()
+                        .is_some_and(|(_, ty)| &**ty == "ElementDefinition")
+                    {
+                        continue;
+                    }
+                    let child_definition = child.as_ref().map(|(definition, _)| &**definition);
+                    for (item, item_path) in items(node, &child_path) {
+                        match &item.value {
+                            // An embedded resource (Bundle entry, Parameters) is its own scope.
+                            Value::Object(fields) if !fields.contains_key("resourceType") => {
+                                self.fields(fields, child_definition, &item_path);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
             }
-            _ => {}
         }
     }
 }
