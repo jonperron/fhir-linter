@@ -23,6 +23,7 @@ mod slicing;
 mod structure_definition;
 mod terminology;
 mod type_check;
+mod uniqueness;
 mod xml_shape;
 
 pub use diagnostic::{Diagnostic, Severity};
