@@ -289,3 +289,126 @@ fn a_quantity_with_a_non_string_unit_is_not_a_quantity() {
     let ordered = evaluate("Parameters.parameter[0].valueQuantity < 2 '5'", &context);
     assert!(ordered.is_err(), "{ordered:?}");
 }
+
+#[test]
+fn ucum_units_of_one_dimension_convert_for_comparison() {
+    let check = |expr: &str| boolean(expr, &[]);
+    assert_eq!(check("4 'g' = 4000 'mg'"), Some(true));
+    assert_eq!(check("4.0000 'g' = 4000.0 'mg'"), Some(true));
+    assert_eq!(check("4 'g' != 4040 'mg'"), Some(true));
+    assert_eq!(check("4 'g' ~ 4000 'mg'"), Some(true));
+    // `~` rounds to the precision of the least precise value.
+    assert_eq!(check("4 'g' ~ 4040 'mg'"), Some(true));
+    assert_eq!(check("4 'g' ~ 5000 'mg'"), Some(false));
+    assert_eq!(check("1 'kg' < 2000 'g'"), Some(true));
+    assert_eq!(check("1 'kg' <= 999 'g'"), Some(false));
+    assert_eq!(check("1 'kg' >= 1000 'g'"), Some(true));
+    assert_eq!(check("2.54 'cm' = 1 '[in_i]'"), Some(true));
+    assert_eq!(check("1 'a' = 12 'mo'"), Some(true));
+    assert_eq!(check("1 'cm'.comparable(1 '[in_i]')"), Some(true));
+    assert_eq!(
+        check("(1 'kg' | 500 'g' | 2 'kg').min() = 500 'g'"),
+        Some(true)
+    );
+    assert_eq!(
+        check("(500 'g' | 2 'kg' | 1 'kg').max() = 2 'kg'"),
+        Some(true)
+    );
+    assert_eq!(
+        check("(2 'kg' | 500 'g' | 1 'kg').sort().first() = 500 'g'"),
+        Some(true)
+    );
+    // The operand order does not change the result.
+    assert_eq!(check("4000 'mg' = 4 'g'"), Some(true));
+    assert_eq!(check("500 'g' < 1 'kg'"), Some(true));
+    assert_eq!(check("4040 'mg' ~ 4 'g'"), Some(true));
+    assert_eq!(check("5000 'mg' ~ 4 'g'"), Some(false));
+}
+
+#[test]
+fn an_overflowing_conversion_is_not_comparable() {
+    // The right operand is converted into the left unit: 1e300 'Gg' in 'mg' overflows f64.
+    let check = |expr: &str| boolean(expr, &[]);
+    let big = "9".repeat(300);
+    assert_eq!(check(&format!("{big} 'mg' = {big} 'Gg'")), None);
+    assert_eq!(check(&format!("{big} 'Gg' = {big} 'mg'")), Some(false));
+}
+
+#[test]
+fn sorting_quantities_without_a_conversion_is_an_error() {
+    for expr in [
+        "(1 'kg' | 1 'm').min()",
+        "(1 'kg' | 1 'm').sort()",
+        "(1 year | 2 months).max()",
+    ] {
+        assert!(evaluate(expr, &[]).is_err(), "{expr}");
+    }
+}
+
+#[test]
+fn units_without_a_conversion_stay_incomparable() {
+    let check = |expr: &str| boolean(expr, &[]);
+    assert_eq!(check("1 'cm'.comparable(1 'g')"), Some(false));
+    // Special (non-linear) and unknown units are not converted.
+    assert_eq!(check("1 'Cel' = 274.15 'K'"), None);
+    assert_eq!(check("1 'Cel'.comparable(1 'K')"), Some(false));
+    assert_eq!(check("1 'xyz' < 1 'm'"), None);
+    assert_eq!(check("1 'xyz' ~ 1 'm'"), Some(false));
+}
+
+#[test]
+fn calendar_durations_up_to_weeks_are_definite() {
+    let check = |expr: &str| boolean(expr, &[]);
+    assert_eq!(check("7 days = 1 week"), Some(true));
+    assert_eq!(check("7 days = 1 'wk'"), Some(true));
+    assert_eq!(check("6 days < 1 week"), Some(true));
+    assert_eq!(check("8 days > 1 week"), Some(true));
+    assert_eq!(check("1 day = 24 'h'"), Some(true));
+    assert_eq!(check("90 minutes > 1 hour"), Some(true));
+    // Years and months are not definite: only the same keyword compares
+    // under `=` and the order operators; `~` uses UCUM `a` and `mo`.
+    assert_eq!(check("1 year < 2 months"), None);
+    assert_eq!(check("1 year <= 2 days"), None);
+    assert_eq!(check("1 month = 1 'mo'"), None);
+    assert_eq!(check("1 year.comparable(1 'a')"), Some(false));
+    assert_eq!(check("1 month ~ 1 'mo'"), Some(true));
+    assert_eq!(check("1 year ~ 1 day"), Some(false));
+    assert_eq!(check("1 year ~ 1 'kg'"), Some(false));
+}
+
+#[test]
+fn a_fhir_quantity_converts_by_its_ucum_code() {
+    for resource in [
+        parse_json(OBSERVATION_JSON).unwrap(),
+        parse_xml(OBSERVATION_XML).unwrap(),
+    ] {
+        let context = typed(&resource);
+        let check = |expr: &str| boolean(expr, &context);
+        assert_eq!(check("Observation.valueQuantity != 185 'kg'"), Some(true));
+        // 185 [lb_av] is about 83.9 kg.
+        assert_eq!(check("Observation.valueQuantity > 83 'kg'"), Some(true));
+        assert_eq!(check("Observation.valueQuantity < 84 'kg'"), Some(true));
+    }
+}
+
+#[test]
+fn range_invariant_compares_boundaries_across_units() {
+    let json = r#"{"resourceType":"Parameters","parameter":[
+        {"name":"bad","valueRange":{
+            "low":{"value":2,"system":"http://unitsofmeasure.org","code":"kg"},
+            "high":{"value":500,"system":"http://unitsofmeasure.org","code":"g"}}},
+        {"name":"good","valueRange":{
+            "low":{"value":500,"system":"http://unitsofmeasure.org","code":"g"},
+            "high":{"value":1,"system":"http://unitsofmeasure.org","code":"kg"}}}]}"#;
+    let context = typed(&parse_json(json).unwrap());
+    let invariant = |i: usize| {
+        format!(
+            "Parameters.parameter[{i}].valueRange.select(\
+             low.lowBoundary().comparable(high.highBoundary()).not() \
+             or (low.lowBoundary() <= high.highBoundary()))"
+        )
+    };
+    // lowBoundary 1.5 kg is above highBoundary 500.5 g.
+    assert_eq!(boolean(&invariant(0), &context), Some(false));
+    assert_eq!(boolean(&invariant(1), &context), Some(true));
+}
