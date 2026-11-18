@@ -399,3 +399,167 @@ fn differential_without_ids_has_no_slice_findings_json() {
     ]));
     assert!(found.is_empty(), "{found:?}");
 }
+
+// references.html, Canonical URLs: only resources with canonical URLs "are allowed to be the
+// target of references to a canonical URLs".
+#[test]
+fn canonical_may_not_target_a_non_canonical_resource_json() {
+    let found = json(&fixture("sd-canonical-implements-wrong-target.json"));
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(&*found[0].code, "DEFINITION_004");
+    assert_eq!(found[0].severity, Severity::Error);
+    assert_eq!(
+        found[0].path,
+        "StructureDefinition.differential.element[0].type[0].targetProfile[0]"
+    );
+    assert!(found[0].message.contains("Patient"), "{}", found[0].message);
+}
+
+#[test]
+fn canonical_may_not_target_a_non_canonical_resource_xml() {
+    let found = xml_source(
+        r#"<StructureDefinition xmlns="http://hl7.org/fhir">
+  <url value="http://example.org/StructureDefinition/lib"/>
+  <name value="Lib"/>
+  <status value="draft"/>
+  <kind value="resource"/>
+  <abstract value="false"/>
+  <type value="Library"/>
+  <baseDefinition value="http://hl7.org/fhir/StructureDefinition/Library"/>
+  <derivation value="constraint"/>
+  <differential>
+    <element id="Library.relatedArtifact.resource">
+      <path value="Library.relatedArtifact.resource"/>
+      <type>
+        <code value="canonical"/>
+        <targetProfile value="http://hl7.org/fhir/StructureDefinition/Patient"/>
+      </type>
+    </element>
+  </differential>
+</StructureDefinition>"#,
+    );
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(&*found[0].code, "DEFINITION_004");
+    assert_eq!(found[0].severity, Severity::Error);
+    assert_eq!(
+        found[0].path,
+        "StructureDefinition.differential.element[0].type[0].targetProfile[0]"
+    );
+}
+
+#[test]
+fn canonical_may_not_target_a_non_canonical_resource_on_a_direct_child_json() {
+    let found = json(
+        &serde_json::json!({
+            "resourceType": "StructureDefinition",
+            "url": "http://example.org/StructureDefinition/activity",
+            "name": "Activity",
+            "status": "draft",
+            "kind": "resource",
+            "abstract": false,
+            "type": "ActivityDefinition",
+            "baseDefinition": "http://hl7.org/fhir/StructureDefinition/ActivityDefinition",
+            "derivation": "constraint",
+            "differential": { "element": [{
+                "id": "ActivityDefinition.library",
+                "path": "ActivityDefinition.library",
+                "type": [{
+                    "code": "canonical",
+                    "targetProfile": ["http://hl7.org/fhir/StructureDefinition/Patient"],
+                }],
+            }] },
+        })
+        .to_string(),
+    );
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(&*found[0].code, "DEFINITION_004");
+    assert_eq!(found[0].severity, Severity::Error);
+}
+
+#[test]
+fn canonical_may_target_canonical_resources_and_unknown_definitions_json() {
+    // ViewDefinition comes from a package the Registry does not hold: no finding.
+    assert!(json(&fixture("sd-canonical-implements.json")).is_empty());
+    let found = library_resource_targets(&[
+        "http://hl7.org/fhir/StructureDefinition/Library",
+        "http://hl7.org/fhir/StructureDefinition/ValueSet|5.0.0",
+        "http://hl7.org/fhir/StructureDefinition/CanonicalResource",
+        "http://hl7.org/fhir/StructureDefinition/MetadataResource",
+        "http://hl7.org/fhir/StructureDefinition/Resource",
+        "http://hl7.org/fhir/StructureDefinition/shareablevalueset",
+    ]);
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn canonical_may_not_target_a_profile_on_a_non_canonical_resource_json() {
+    let found = library_resource_targets(&[
+        "http://hl7.org/fhir/StructureDefinition/Library",
+        "http://hl7.org/fhir/StructureDefinition/vitalsigns",
+        "http://hl7.org/fhir/StructureDefinition/Patient|5.0.0",
+    ]);
+    assert!(
+        found
+            .iter()
+            .all(|d| &*d.code == "DEFINITION_004" && d.severity == Severity::Error)
+    );
+    let paths: Vec<&str> = found.iter().map(|d| d.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "StructureDefinition.differential.element[0].type[0].targetProfile[1]",
+            "StructureDefinition.differential.element[0].type[0].targetProfile[2]",
+        ]
+    );
+}
+
+// The R5 core specialization NutritionIntake targets the non-canonical ClinicalUseDefinition.
+#[test]
+fn specializations_are_not_checked_for_canonical_targets_json() {
+    let found = library_targets(
+        "specialization",
+        "canonical",
+        &["http://hl7.org/fhir/StructureDefinition/Patient"],
+    );
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn reference_targets_are_not_canonical_targets_json() {
+    let found = library_targets(
+        "constraint",
+        "Reference",
+        &["http://hl7.org/fhir/StructureDefinition/Patient"],
+    );
+    assert!(found.is_empty(), "{found:?}");
+}
+
+fn xml_source(source: &str) -> Vec<Diagnostic> {
+    definition_findings(&parse_xml(source).expect("parses"))
+}
+
+fn library_resource_targets(targets: &[&str]) -> Vec<Diagnostic> {
+    library_targets("constraint", "canonical", targets)
+}
+
+fn library_targets(derivation: &str, code: &str, targets: &[&str]) -> Vec<Diagnostic> {
+    json(
+        &serde_json::json!({
+            "resourceType": "StructureDefinition",
+            "url": "http://example.org/StructureDefinition/lib",
+            "name": "Lib",
+            "status": "draft",
+            "kind": "resource",
+            "abstract": false,
+            "type": "Library",
+            "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Library",
+            "derivation": derivation,
+            "differential": { "element": [{
+                "id": "Library.relatedArtifact.resource",
+                "path": "Library.relatedArtifact.resource",
+                "type": [{ "code": code, "targetProfile": targets }],
+            }] },
+        })
+        .to_string(),
+    )
+}

@@ -1596,3 +1596,22 @@ Pour toute StructureDefinition ayant un `differential`, le système SHALL émett
 - **WHEN** le `min` de l'enfant de tranche ne dépasse pas le `max` de l'homologue
 - **THEN** aucun Diagnostic `DEFINITION_003` SHALL être émis
 
+
+### Requirement: Validation des profils — cible d'un canonical (DEFINITION_004)
+
+Pour toute StructureDefinition dont `derivation` vaut `constraint`, le système SHALL émettre une erreur `DEFINITION_004` à `<ressource>.differential.element[<i>].type[<j>].targetProfile[<k>]` pour chaque `targetProfile` (suffixe de version retiré) d'un type de code `canonical` d'un élément du différentiel qui désigne une définition du Registry de `kind` = `resource`, non abstraite, et qui n'atteint pas `CanonicalResource` par ses extensions `structuredefinition-implements` (`StructureDefinition.implements`) ni par sa chaîne `baseDefinition` (R5 references.html, « Canonical URLs » : seules les ressources canoniques peuvent être la cible d'une référence canonical). Les cibles abstraites (`Resource` = canonical(Any), `CanonicalResource`, `MetadataResource`) SHALL passer. Une définition absente du Registry, sur la cible ou durant la marche, laisse le cas indécis : aucun Diagnostic. Les spécialisations (`derivation` = `specialization`) SHALL NOT être contrôlées, la spécialisation R5 NutritionIntake listant `ClinicalUseDefinition`, non canonique, comme cible d'`instantiatesCanonical`.
+
+#### Scenario: Cible canonical non canonique
+
+- **WHEN** un profil (`derivation` = `constraint`) déclare un type `canonical` dont le `targetProfile` est une ressource non canonique du Registry (ex. `Patient`)
+- **THEN** une erreur `DEFINITION_004` SHALL être émise à `<ressource>.differential.element[<i>].type[<j>].targetProfile[<k>]`
+
+#### Scenario: Cible canonique ou abstraite
+
+- **WHEN** le `targetProfile` désigne une ressource canonique (ex. `ValueSet`) ou une définition abstraite (ex. `Resource`)
+- **THEN** aucun Diagnostic `DEFINITION_004` SHALL être émis
+
+#### Scenario: Cible inconnue ou spécialisation
+
+- **WHEN** le `targetProfile` n'est pas dans le Registry, ou la StructureDefinition est une spécialisation
+- **THEN** aucun Diagnostic `DEFINITION_004` SHALL être émis

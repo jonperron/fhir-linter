@@ -292,3 +292,24 @@ fn type_ancestors_follow_base_definition_up_to_base() -> TestResult {
     assert_eq!(ancestors("no-such-type"), Vec::<&str>::new());
     Ok(())
 }
+
+#[test]
+fn implements_extensions_are_loaded() -> TestResult {
+    let registry = registry()?;
+    let implements = |name| {
+        registry.core(name).map(|sd| {
+            sd.implements
+                .iter()
+                .map(|url| url.to_string())
+                .collect::<Vec<_>>()
+        })
+    };
+    let core = |name| format!("http://hl7.org/fhir/StructureDefinition/{name}");
+    assert_eq!(implements("Library"), Some(vec![core("MetadataResource")]));
+    assert_eq!(
+        implements("MetadataResource"),
+        Some(vec![core("CanonicalResource")])
+    );
+    assert_eq!(implements("Patient"), Some(Vec::new()));
+    Ok(())
+}

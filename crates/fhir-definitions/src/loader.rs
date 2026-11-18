@@ -101,8 +101,22 @@ fn parse_structure_definition(
         StructureDefinition::new(url.into(), name.into(), kind.into(), is_abstract, snapshot)
             .with_value_regex(value_regex)
             .with_version(resource["version"].as_str().map(Arc::from))
-            .with_base_definition(resource["baseDefinition"].as_str().map(strip_version)),
+            .with_base_definition(resource["baseDefinition"].as_str().map(strip_version))
+            .with_implements(implements(resource)),
     ))
+}
+
+/// The `valueUri` of each `structuredefinition-implements` extension, version stripped.
+fn implements(resource: &Value) -> Vec<Arc<str>> {
+    const IMPLEMENTS: &str =
+        "http://hl7.org/fhir/StructureDefinition/structuredefinition-implements";
+    resource["extension"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|extension| extension["url"] == IMPLEMENTS)
+        .filter_map(|extension| extension["valueUri"].as_str().map(strip_version))
+        .collect()
 }
 
 /// The `regex` extension on a primitive definition's `<type>.value` element type, kept raw.
