@@ -168,6 +168,7 @@ fn type_reflects_fhir_data_in_the_fhir_namespace() -> TestResult {
         ("Questionnaire.status.type().name", "code"),
         ("Questionnaire.type().namespace", "FHIR"),
         ("Questionnaire.type().name", "Questionnaire"),
+        ("'Patient/1'.resolve().type().namespace", "FHIR"),
         ("'Patient/1'.resolve().type().name", "Patient"),
         ("'draft'.type().namespace", "System"),
         ("'draft'.type().name", "String"),
