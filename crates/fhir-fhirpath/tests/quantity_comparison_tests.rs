@@ -307,7 +307,7 @@ fn ucum_units_of_one_dimension_convert_for_comparison() {
     assert_eq!(check("1 'a' = 12 'mo'"), Some(true));
     assert_eq!(check("1 'cm'.comparable(1 '[in_i]')"), Some(true));
     assert_eq!(
-        check("(500 'g' | 1 'kg' | 2 'kg').min() = 500 'g'"),
+        check("(1 'kg' | 500 'g' | 2 'kg').min() = 500 'g'"),
         Some(true)
     );
     assert_eq!(
