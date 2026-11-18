@@ -198,7 +198,7 @@ impl<'a> Parser<'a> {
 }
 
 /// Split a trailing signed integer exponent off a symbol: `m2`, `s-1`, `10*3`.
-fn split_exponent(symbol: &str) -> Option<(&str, i32)> {
+pub(super) fn split_exponent(symbol: &str) -> Option<(&str, i32)> {
     let digits_start = symbol.trim_end_matches(|c: char| c.is_ascii_digit()).len();
     if digits_start == symbol.len() {
         return Some((symbol, 1));

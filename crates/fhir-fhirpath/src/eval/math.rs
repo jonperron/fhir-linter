@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::ast::Expr;
 use crate::error::EvalError;
 use crate::value::{Collection, Value};
@@ -40,12 +42,19 @@ impl Evaluator<'_> {
                         })?)]
                     }
                     Some(Value::Decimal(d)) => vec![Value::Decimal(d.abs())],
-                    Some(v) => {
-                        return Err(EvalError::Type(format!(
-                            "abs() requires number, got {}",
-                            v.type_name()
-                        )));
+                    // N1 §5.7.1: the absolute value of a quantity keeps its unit.
+                    Some(Value::Quantity(d, unit)) => {
+                        vec![Value::Quantity(d.abs(), Arc::clone(unit))]
                     }
+                    Some(v) => match super::helpers::object_quantity(v) {
+                        Some(Value::Quantity(d, unit)) => vec![Value::Quantity(d.abs(), unit)],
+                        _ => {
+                            return Err(EvalError::Type(format!(
+                                "abs() requires number, got {}",
+                                v.type_name()
+                            )));
+                        }
+                    },
                     None => vec![],
                 }
             }

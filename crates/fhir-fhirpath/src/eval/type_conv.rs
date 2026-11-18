@@ -4,7 +4,7 @@ use regex_lite::Regex;
 
 use crate::ast::Expr;
 use crate::error::EvalError;
-use crate::value::{Collection, Value, calendar_unit, is_calendar_date};
+use crate::value::{Collection, Value, calendar_unit, is_calendar_date, quantity_unit_factor};
 
 use super::Evaluator;
 use super::helpers::{check_arity, check_arity_range, singleton};
@@ -61,8 +61,8 @@ impl Evaluator<'_> {
             // ── Quantity ──────────────────────────────────────────────────
             "toQuantity" | "convertsToQuantity" => {
                 check_arity_range(name, args, 0, 1)?;
-                // N1 §5.5.7: without UCUM conversion, only the input's own unit
-                // converts; an empty unit argument gives empty (N1 §4.4.1).
+                // N1 §5.5.7: with a unit, the quantity converted to it through
+                // UCUM, else empty; an empty unit argument gives empty (N1 §4.4.1).
                 let unit = match args.first() {
                     Some(arg) => match singleton(&self.eval(arg, ctx)?, name)? {
                         None => return Ok(Some(vec![])),
@@ -79,11 +79,11 @@ impl Evaluator<'_> {
                 let Some(item) = singleton(focus, name)? else {
                     return Ok(Some(vec![]));
                 };
-                let quantity = to_quantity(item).filter(|q| match (&unit, q) {
-                    (Some(unit), Value::Quantity(_, own)) => {
-                        calendar_unit(unit).unwrap_or(unit) == &**own
+                let quantity = to_quantity(item).and_then(|q| match (&unit, q) {
+                    (Some(unit), Value::Quantity(amount, own)) => {
+                        convert_quantity(amount, &own, calendar_unit(unit).unwrap_or(unit))
                     }
-                    _ => true,
+                    (_, q) => Some(q),
                 });
                 if name == "toQuantity" {
                     self.charged(quantity.into_iter().collect())?
@@ -167,9 +167,19 @@ fn to_quantity(item: &Value) -> Option<Value> {
             };
             (finite(captures.get(1)?.as_str())?, unit)
         }
-        _ => return None,
+        _ => return super::helpers::object_quantity(item),
     };
     Some(Value::Quantity(value, Arc::from(unit)))
+}
+
+/// `amount` in unit `from` as a Quantity in unit `to`, by the same unit
+/// rules as `=` ([`quantity_unit_factor`]); `None` when they do not convert.
+fn convert_quantity(amount: f64, from: &str, to: &str) -> Option<Value> {
+    let factor = quantity_unit_factor(from, to, false)?;
+    let converted = amount * (factor.numer() as f64 / factor.denom() as f64);
+    converted
+        .is_finite()
+        .then(|| Value::Quantity(converted, Arc::from(to)))
 }
 
 /// N1 §5.5.8: the String form of a String, Integer, Decimal, Date, Time,
