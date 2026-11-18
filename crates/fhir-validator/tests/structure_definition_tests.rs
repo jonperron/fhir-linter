@@ -439,10 +439,41 @@ fn canonical_may_not_target_a_non_canonical_resource_xml() {
 </StructureDefinition>"#,
     );
     assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(&*found[0].code, "DEFINITION_004");
+    assert_eq!(found[0].severity, Severity::Error);
     assert_eq!(
         found[0].path,
         "StructureDefinition.differential.element[0].type[0].targetProfile[0]"
     );
+}
+
+#[test]
+fn canonical_may_not_target_a_non_canonical_resource_on_a_direct_child_json() {
+    let found = json(
+        &serde_json::json!({
+            "resourceType": "StructureDefinition",
+            "url": "http://example.org/StructureDefinition/activity",
+            "name": "Activity",
+            "status": "draft",
+            "kind": "resource",
+            "abstract": false,
+            "type": "ActivityDefinition",
+            "baseDefinition": "http://hl7.org/fhir/StructureDefinition/ActivityDefinition",
+            "derivation": "constraint",
+            "differential": { "element": [{
+                "id": "ActivityDefinition.library",
+                "path": "ActivityDefinition.library",
+                "type": [{
+                    "code": "canonical",
+                    "targetProfile": ["http://hl7.org/fhir/StructureDefinition/Patient"],
+                }],
+            }] },
+        })
+        .to_string(),
+    );
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(&*found[0].code, "DEFINITION_004");
+    assert_eq!(found[0].severity, Severity::Error);
 }
 
 #[test]
@@ -467,6 +498,11 @@ fn canonical_may_not_target_a_profile_on_a_non_canonical_resource_json() {
         "http://hl7.org/fhir/StructureDefinition/vitalsigns",
         "http://hl7.org/fhir/StructureDefinition/Patient|5.0.0",
     ]);
+    assert!(
+        found
+            .iter()
+            .all(|d| &*d.code == "DEFINITION_004" && d.severity == Severity::Error)
+    );
     let paths: Vec<&str> = found.iter().map(|d| d.path.as_str()).collect();
     assert_eq!(
         paths,
