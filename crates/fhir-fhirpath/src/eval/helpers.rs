@@ -623,6 +623,15 @@ pub(super) fn value_is_type(
         }
         _ => {}
     }
+    // N1 §10.1: the FHIR model is searched first, then System, so with the
+    // type hook an unqualified System name that is no FHIR type is System's.
+    if let Some(is_subtype) = is_subtype
+        && !is_subtype(type_name, type_name)
+        && type_name.starts_with(|c: char| c.is_ascii_uppercase())
+        && (type_name == "Any" || system_is_type(&Value::Null, type_name).is_some())
+    {
+        return value_is_type(v, &format!("System.{type_name}"), None);
+    }
     if let (Value::Primitive(_, _, Some(fhir_type)), Some(is_subtype)) = (v, is_subtype)
         && is_subtype(type_name, type_name)
     {
@@ -687,6 +696,45 @@ fn system_is_type(v: &Value, type_name: &str) -> Option<bool> {
         "Quantity" | "quantity" => matches!(v, Value::Quantity(_, _)),
         _ => return None,
     })
+}
+
+/// `type()` (N1 §10.2): the item's type as an object with `namespace` and
+/// `name`. FHIR data answers in the FHIR namespace, plain values in System.
+/// shortcut: no `baseType` and no ClassInfo `element`, as the type hook only
+/// answers subtype questions; upgrade when the environment exposes the
+/// Registry's type definitions.
+pub(super) fn type_info(v: &Value) -> Result<Value, EvalError> {
+    let (namespace, name): (&str, Arc<str>) = match v {
+        Value::Primitive(_, _, Some(fhir_type)) => ("FHIR", Arc::clone(fhir_type)),
+        Value::UnresolvedResource { resource_type, .. } => ("FHIR", Arc::clone(resource_type)),
+        Value::Object(fields) => match fields.get("resourceType").map(Vec::as_slice) {
+            Some([Value::String(resource_type)]) => ("FHIR", Arc::clone(resource_type)),
+            // shortcut: complex datatype objects carry no type, upgrade
+            // when objects carry their FHIR type like primitives do.
+            _ => {
+                return Err(EvalError::Type(
+                    "the FHIR type of an object is unknown".into(),
+                ));
+            }
+        },
+        Value::Primitive(_, _, None) | Value::Null => {
+            return Err(EvalError::Type(
+                "the FHIR type of a primitive is unknown".into(),
+            ));
+        }
+        plain => ("System", Arc::from(plain.type_name())),
+    };
+    Ok(Value::Object(Arc::new(
+        [
+            (
+                Arc::from("namespace"),
+                vec![Value::String(Arc::from(namespace))],
+            ),
+            (Arc::from("name"), vec![Value::String(name)]),
+        ]
+        .into_iter()
+        .collect(),
+    )))
 }
 
 /// Fail on an unknown type name before looking at the input, so an empty
