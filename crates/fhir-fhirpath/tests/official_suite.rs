@@ -71,8 +71,10 @@ use quick_xml::events::{BytesStart, Event};
 /// calendar duration (testPlusDate*, testPlusTime*, testMinus5/7/8/9), then
 /// to 1120 by UCUM conversion in =, ~, <, >, <=, >= and comparable()
 /// (testQuantity1-8, testLessThan31, testLessOrEqual29, testNEquality24,
-/// Comparable1, testStringQuantityDay/WeekLiteralToQuantity).
-const MIN_PASSED: u32 = 1120;
+/// Comparable1, testStringQuantityDay/WeekLiteralToQuantity), then to 1141 by
+/// qualified type names, Quantity multiplication and division, Quantity
+/// negate/abs/convert and type() reflection (PRs #154-#156).
+const MIN_PASSED: u32 = 1141;
 
 /// Cases that must pass whatever the total: the boundary functions behind
 /// the FHIR per-1, rng-2 and ratrng-2 invariants. Not listed: 12.500 and
