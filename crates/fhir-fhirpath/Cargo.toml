@@ -7,6 +7,9 @@ authors.workspace     = true
 license.workspace     = true
 repository.workspace  = true
 rust-version.workspace = true
+readme      = "README.md"
+# data/ holds the unmodified UCUM essence file and its notice; both must ship.
+include     = ["/src", "/data", "/tests", "/README.md"]
 
 [dependencies]
 pest             = { workspace = true }
