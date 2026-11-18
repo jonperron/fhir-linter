@@ -239,6 +239,13 @@ fn qualified_type_names_check_their_namespace() -> TestResult {
         ("true is System.Boolean", true),
         ("Questionnaire.status.is(System.Any)", true),
         ("1 is System.Any", true),
+        // Known FHIR types that the value does not have.
+        ("Questionnaire.status.is(FHIR.uri)", false),
+        ("Questionnaire.is(FHIR.Patient)", false),
+        // A resource is each of its ancestor types (Registry inheritance).
+        ("Questionnaire.is(FHIR.DomainResource)", true),
+        ("Questionnaire is FHIR.Resource", true),
+        ("Questionnaire.is(DomainResource)", true),
     ] {
         assert_eq!(
             eval(expression, true)?,
@@ -255,6 +262,25 @@ fn qualified_type_names_check_their_namespace() -> TestResult {
         ["draft"]
     );
     assert_eq!(eval("Questionnaire.status.as(System.String)", true)?, []);
+    assert_eq!(eval("Questionnaire.status.as(FHIR.uri)", true)?, []);
+    assert_eq!(eval("Questionnaire.ofType(FHIR.Patient)", true)?, []);
+    // JSON booleans and numbers keep their FHIR type too, without extensions.
+    let questionnaire = typed(&parse_json(
+        r#"{"resourceType":"Questionnaire","status":"draft","experimental":true,
+        "item":[{"linkId":"1","type":"string","maxLength":5}]}"#,
+    )?);
+    for (expression, expected) in [
+        ("Questionnaire.experimental.is(FHIR.boolean)", true),
+        ("Questionnaire.experimental.is(System.Boolean)", false),
+        ("Questionnaire.item.maxLength.is(FHIR.integer)", true),
+        ("Questionnaire.item.maxLength.is(System.Integer)", false),
+    ] {
+        assert_eq!(
+            eval_on(questionnaire.clone(), expression, true)?,
+            [Value::Bool(expected)],
+            "{expression}"
+        );
+    }
     // An unknown FHIR type is an error, like an unknown unqualified name.
     let error = eval("Questionnaire.is(FHIR.NoSuchType)", true).err();
     let error = error.as_deref().and_then(|e| e.downcast_ref::<EvalError>());

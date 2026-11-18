@@ -661,12 +661,14 @@ pub(super) fn value_is_type(
     }) {
         return Err(EvalError::Type(format!("unknown type {type_name}")));
     }
-    // shortcut: resources match on their exact resourceType only (no
-    // Resource/DomainResource inheritance, no complex datatypes), upgrade
-    // when the evaluator gets Registry access.
+    // A resource is its resourceType and, with the type hook, each of its
+    // ancestors (`DomainResource`, `Resource`).
+    // shortcut: complex datatype objects carry no type and match nothing,
+    // upgrade when objects carry their FHIR type like primitives do.
     Ok(matches!(v, Value::Object(fields) if matches!(
         fields.get("resourceType").map(Vec::as_slice),
-        Some([Value::String(rt)]) if **rt == *type_name
+        Some([Value::String(rt)])
+            if **rt == *type_name || is_subtype.is_some_and(|is_subtype| is_subtype(rt, type_name))
     )))
 }
 
