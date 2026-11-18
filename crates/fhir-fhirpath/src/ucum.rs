@@ -42,6 +42,99 @@ pub(crate) fn convert(from: &str, to: &str) -> Option<Ratio> {
     from.factor.div(to.factor)
 }
 
+/// The unit of `left` times `right` (`power` 1) or `left` divided by
+/// `right` (`power` -1), for N1 §6.6 `*` and `/` on Quantities. Powers of
+/// the same atom merge and cancel (`cm` * `cm` is `cm2`, `m` / `m` is `1`);
+/// units with parentheses or annotations are kept whole in parentheses.
+/// `None` if either unit, or the result, is not a supported UCUM unit.
+pub(crate) fn combine(left: &str, right: &str, power: i32) -> Option<String> {
+    resolve(left)?;
+    resolve(right)?;
+    let unit = match (simple_terms(left), simple_terms(right)) {
+        (Some(left_terms), Some(right_terms)) => {
+            let mut terms: Vec<(&str, i32)> = Vec::new();
+            let right_terms = right_terms
+                .into_iter()
+                .map(|(atom, exponent)| (atom, power, exponent));
+            for (atom, sign, exponent) in left_terms
+                .into_iter()
+                .map(|(atom, exponent)| (atom, 1, exponent))
+                .chain(right_terms)
+            {
+                let exponent = exponent.checked_mul(sign)?;
+                match terms.iter_mut().find(|(existing, _)| *existing == atom) {
+                    Some((_, total)) => *total = total.checked_add(exponent)?,
+                    None => terms.push((atom, exponent)),
+                }
+            }
+            render_terms(&terms)
+        }
+        _ => format!("({left}){}({right})", if power < 0 { '/' } else { '.' }),
+    };
+    resolve(&unit).map(|_| unit)
+}
+
+/// A unit made only of `.` and `/` separated atoms with exponents, as
+/// `(atom, exponent)` pairs (`g/m2` is `[("g", 1), ("m", -2)]`); the number
+/// `1` contributes nothing. `None` for any other form. Callers resolve the
+/// unit first, which allows a single leading `/`.
+fn simple_terms(unit: &str) -> Option<Vec<(&str, i32)>> {
+    if unit.contains(['(', ')', '{', '}']) {
+        return None;
+    }
+    // A leading `/` inverts the whole term, unlike an inner one.
+    if let Some(inverted) = unit.strip_prefix('/') {
+        return simple_terms(inverted)?
+            .into_iter()
+            .map(|(atom, exponent)| Some((atom, exponent.checked_neg()?)))
+            .collect();
+    }
+    let mut terms = Vec::new();
+    let mut sign = 1;
+    let mut start = 0;
+    let mut depth = 0u32;
+    for (index, byte) in unit.bytes().chain(*b".").enumerate() {
+        match byte {
+            b'[' => depth += 1,
+            b']' => depth = depth.checked_sub(1)?,
+            b'.' | b'/' if depth == 0 => {
+                let component = &unit[start..index];
+                if component != "1" {
+                    // `10*3` reads as atom `10*` to the power 3, which is what it means.
+                    let (atom, exponent) = term::split_exponent(component)?;
+                    if atom.bytes().all(|byte| byte.is_ascii_digit()) {
+                        return None;
+                    }
+                    terms.push((atom, exponent.checked_mul(sign)?));
+                }
+                sign = if byte == b'/' { -1 } else { 1 };
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    Some(terms)
+}
+
+/// `[("g", 1), ("m", -2)]` as `g/m2`; no atoms left is `1`.
+fn render_terms(terms: &[(&str, i32)]) -> String {
+    let power = |(atom, exponent): &(&str, i32)| match exponent.unsigned_abs() {
+        1 => (*atom).to_owned(),
+        magnitude => format!("{atom}{magnitude}"),
+    };
+    let numerator: Vec<String> = terms.iter().filter(|term| term.1 > 0).map(power).collect();
+    let mut text = if numerator.is_empty() {
+        "1".to_owned()
+    } else {
+        numerator.join(".")
+    };
+    for term in terms.iter().filter(|term| term.1 < 0) {
+        text.push('/');
+        text.push_str(&power(term));
+    }
+    text
+}
+
 /// Whether amounts in `unit_a` and `unit_b` can be converted into each other.
 #[cfg(test)]
 pub(crate) fn comparable(unit_a: &str, unit_b: &str) -> bool {

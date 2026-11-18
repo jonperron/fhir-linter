@@ -125,6 +125,11 @@ pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collecti
         let unit = unit.ok_or_else(|| EvalError::Type("a duration needs a unit".into()))?;
         return Ok(vec![super::temporal::add_duration(temporal, amount, unit)?]);
     }
+    if matches!(op, ArithOp::Mul | ArithOp::Div)
+        && let Some(result) = super::quantity::quantity_product(lv, rv, &op)
+    {
+        return Ok(result);
+    }
     let a = lv
         .as_decimal()
         .ok_or_else(|| EvalError::Type("arithmetic requires numbers".into()))?;
@@ -171,6 +176,14 @@ fn integer_op(lv: &Value, rv: &Value, op: &ArithOp) -> Result<Option<Value>, Eva
 }
 
 // ── Equality / comparison ─────────────────────────────────────────────────────
+
+/// A FHIR Quantity Object as a `System.Quantity` value; `None` without a unit.
+pub(super) fn object_quantity(v: &Value) -> Option<Value> {
+    match as_quantity(v)? {
+        (value, Some(unit)) => Some(Value::Quantity(value, Arc::from(unit))),
+        _ => None,
+    }
+}
 
 /// The value and unit of a Quantity literal, or of a FHIR Quantity whose
 /// children are typed (R5 fhirpath.html §2.1.9.1: FHIR Quantity maps to
