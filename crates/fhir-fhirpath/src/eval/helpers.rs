@@ -146,20 +146,23 @@ pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collecti
         ArithOp::Mod => a % b,
         ArithOp::DivInt => return Err(EvalError::Type("div is not a numeric_op".into())),
     };
-    // shortcut: N1 Decimal is exact; rounding the f64 to the operands' scale
-    // hides binary error (`1.8 - 1.2`) until Decimal carries its own scale.
-    let result = if matches!(op, ArithOp::Add | ArithOp::Sub | ArithOp::Mod) {
+    // shortcut: N1 Decimal is exact; computing on the operands scaled to whole
+    // numbers avoids binary error (`1.8 - 1.2`, `1.2 mod 0.1`) until Decimal
+    // carries its own scale. Larger values keep the plain f64 result.
+    if matches!(op, ArithOp::Add | ArithOp::Sub | ArithOp::Mod) {
         let factor = 10f64.powi(decimal_scale(a).max(decimal_scale(b)));
-        let scaled = result * factor;
-        // Past 2^53 the f64 has no fraction left to round; `+ 0.0` drops a -0.0.
-        if scaled.abs() < 9.0e15 {
-            scaled.round() / factor + 0.0
-        } else {
-            result
+        let (x, y) = ((a * factor).round(), (b * factor).round());
+        // Below 2^52 each, the scaled operands and their sum are exact integers.
+        if x.abs() < 4.5e15 && y.abs() < 4.5e15 {
+            let exact = match op {
+                ArithOp::Add => x + y,
+                ArithOp::Sub => x - y,
+                _ => x % y,
+            };
+            // `+ 0.0` drops a -0.0.
+            return Ok(vec![Value::Decimal(exact / factor + 0.0)]);
         }
-    } else {
-        result
-    };
+    }
     Ok(vec![Value::Decimal(result)])
 }
 
@@ -472,6 +475,24 @@ pub(super) fn distinct_last(focus: &[Value]) -> Option<Collection> {
         }
     }
     Some(kept)
+}
+
+/// `isDistinct()`: `false` at the first repeated value; `None` (empty) when no
+/// value repeats but two date/times cannot be compared.
+pub(super) fn is_distinct(focus: &[Value]) -> Option<bool> {
+    let mut uncomparable = false;
+    for (index, value) in focus.iter().enumerate() {
+        for later in &focus[index + 1..] {
+            match values_equal(value, later) {
+                Some(true) => return Some(false),
+                Some(false) => {}
+                None if is_temporal_pair(value, later) => uncomparable = true,
+                None if value == later => return Some(false),
+                None => {}
+            }
+        }
+    }
+    (!uncomparable).then_some(true)
 }
 
 fn is_temporal_pair(a: &Value, b: &Value) -> bool {
@@ -886,18 +907,26 @@ pub(super) fn json_unescape(s: &str) -> String {
             Some('n') => result.push('\n'),
             Some('r') => result.push('\r'),
             Some('t') => result.push('\t'),
-            // shortcut: a surrogate pair stays as written; decode pairs if a case needs it.
             Some('u') => {
-                let mut hex = String::with_capacity(4);
-                while hex.len() < 4
-                    && let Some(digit) = chars.next_if(char::is_ascii_hexdigit)
-                {
-                    hex.push(digit);
-                }
-                let decoded = (hex.len() == 4)
+                let hex = read_hex4(&mut chars);
+                let unit = (hex.len() == 4)
                     .then(|| u32::from_str_radix(&hex, 16).ok())
-                    .flatten()
-                    .and_then(char::from_u32);
+                    .flatten();
+                let decoded = match unit {
+                    // A high surrogate joins the `\uDC00`-`\uDFFF` escape after it.
+                    Some(high @ 0xD800..=0xDBFF) => {
+                        let mut ahead = chars.clone();
+                        let low = (ahead.next() == Some('\\') && ahead.next() == Some('u'))
+                            .then(|| u32::from_str_radix(&read_hex4(&mut ahead), 16).ok())
+                            .flatten()
+                            .filter(|low| (0xDC00..=0xDFFF).contains(low));
+                        low.and_then(|low| {
+                            chars = ahead;
+                            char::from_u32(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))
+                        })
+                    }
+                    unit => unit.and_then(char::from_u32),
+                };
                 match decoded {
                     Some(c) => result.push(c),
                     None => {
@@ -914,6 +943,17 @@ pub(super) fn json_unescape(s: &str) -> String {
         }
     }
     result
+}
+
+/// Up to 4 hex digits of a `\u` escape; stops at the first other character.
+fn read_hex4(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+    let mut hex = String::with_capacity(4);
+    while hex.len() < 4
+        && let Some(digit) = chars.next_if(char::is_ascii_hexdigit)
+    {
+        hex.push(digit);
+    }
+    hex
 }
 
 // ── Argument extraction ───────────────────────────────────────────────────────

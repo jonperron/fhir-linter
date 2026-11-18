@@ -320,7 +320,11 @@ impl Evaluator<'_> {
                         let result = match format.as_ref() {
                             "base64" => base64_encode(s.as_bytes()),
                             "urlbase64" => base64_encode_url(s.as_bytes()),
-                            "hex" => hex_encode(s.as_bytes()),
+                            "hex" => {
+                                // Reject an over-long result before building it.
+                                check_string_len(s.len().saturating_mul(2))?;
+                                hex_encode(s.as_bytes())
+                            }
                             other => {
                                 return Err(EvalError::Type(format!(
                                     "unknown encode format: {other}"

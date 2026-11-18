@@ -6,7 +6,8 @@ use super::Evaluator;
 use super::helpers::{
     as_type, check_arity, check_arity_range, check_collection_len, check_known_content,
     check_type_name, collect_descendants, compare_values, contains_value, criteria_bool, distinct,
-    distinct_last, eval_type_name, is_type, optional_integer, primitive_values, value_is_type,
+    distinct_last, eval_type_name, is_distinct, is_type, optional_integer, primitive_values,
+    value_is_type,
 };
 
 impl Evaluator<'_> {
@@ -228,10 +229,7 @@ impl Evaluator<'_> {
             "isDistinct" => {
                 check_arity(name, args, 0)?;
                 check_known_content(focus)?;
-                match distinct_last(focus) {
-                    Some(kept) => vec![Value::Bool(kept.len() == focus.len())],
-                    None => vec![],
-                }
+                is_distinct(focus).map(Value::Bool).into_iter().collect()
             }
             "subsetOf" => {
                 check_arity(name, args, 1)?;

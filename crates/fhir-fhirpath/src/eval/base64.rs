@@ -91,7 +91,13 @@ pub(super) fn base64_decode_url(input: &[u8]) -> Option<Vec<u8>> {
 
 /// FHIRPath 3.0 `encode('hex')`: base 16 in lowercase.
 pub(super) fn hex_encode(input: &[u8]) -> String {
-    input.iter().map(|byte| format!("{byte:02x}")).collect()
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(input.len().saturating_mul(2));
+    for byte in input {
+        out.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        out.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
+    }
+    out
 }
 
 /// `decode('hex')`: pairs of hex digits, either case; anything else is `None`.

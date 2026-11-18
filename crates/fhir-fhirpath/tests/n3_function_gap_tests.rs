@@ -165,3 +165,39 @@ fn distinct_compares_complex_values_structurally() {
         vec![Value::Bool(false)],
     );
 }
+
+// Scaled operands keep a remainder at an exact multiple from rounding up to
+// the divisor (`1.2 % 0.1` is just below 0.1 in f64).
+#[test]
+fn decimal_mod_at_an_exact_multiple_is_zero() {
+    is_true("1.2 mod 0.1 = 0.0");
+    is_true("0.3 mod 0.1 = 0.0");
+    is_true("(-1.2) mod 0.5 = -0.2");
+}
+
+// A JSON surrogate pair is one character; a lone surrogate stays as written.
+#[test]
+fn unescape_json_joins_surrogate_pairs() {
+    assert_eq!(
+        eval(r"'\\uD83D\\uDE00!'.unescape('json')"),
+        vec![string("\u{1F600}!")],
+    );
+    assert_eq!(
+        eval(r"'\\uD83Dx'.unescape('json')"),
+        vec![string(r"\uD83Dx")],
+    );
+    assert_eq!(
+        eval(r"'\\uD83D\\u0041'.unescape('json')"),
+        vec![string(r"\uD83DA")],
+    );
+}
+
+// A repeated value makes `isDistinct()` false even next to uncomparable dates.
+#[test]
+fn is_distinct_false_on_a_repeat_beside_uncomparable_dates() {
+    assert_eq!(
+        eval("1.combine(1).combine(@2020).combine(@2020-01-01).isDistinct()"),
+        vec![Value::Bool(false)],
+    );
+    is_true("(1 | 2 | 3).isDistinct()");
+}
