@@ -371,6 +371,27 @@ fn huge_slice_minimums_do_not_overflow_json() {
 }
 
 #[test]
+fn slice_minimums_overflowing_a_u64_maximum_are_reported_json() {
+    let huge = i64::MAX;
+    let found = observation_profile(serde_json::json!([
+        { "id": "Observation.component", "path": "Observation.component",
+          "slicing": { "rules": "open" }, "max": u64::MAX.to_string() },
+        { "id": "Observation.component:a", "path": "Observation.component",
+          "sliceName": "a", "min": huge },
+        { "id": "Observation.component:b", "path": "Observation.component",
+          "sliceName": "b", "min": huge },
+        { "id": "Observation.component:c", "path": "Observation.component",
+          "sliceName": "c", "min": huge },
+    ]));
+    assert_single(
+        &found,
+        "DEFINITION_002",
+        "StructureDefinition.differential.element[0]",
+        &["Observation.component"],
+    );
+}
+
+#[test]
 fn differential_without_ids_has_no_slice_findings_json() {
     let found = observation_profile(serde_json::json!([
         { "path": "Observation.component", "slicing": { "rules": "open" }, "max": "1" },

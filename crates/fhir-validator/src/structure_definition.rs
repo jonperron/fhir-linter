@@ -96,6 +96,10 @@ fn slice_cardinality(
         };
         if let Some(slicing) = element.get("slicing") {
             // An unstated maximum is the base's: the unsliced element of the same path there.
+            // shortcut: the first base element of that path is taken, so a nested slicer inside
+            // a narrowed slice may get a larger maximum (check silent, never a false error);
+            // a slicer or base missing from the Registry is silent too. Resolve by element id
+            // and surface an unresolvable base if those gaps matter.
             let max_text = string(element, "max").or_else(|| {
                 base.and_then(|sd| sd.element(element_path))
                     .map(|element| &*element.max)
@@ -171,9 +175,13 @@ fn slices_within(
             .and_then(|slice_id| slice_id.strip_prefix(&prefix))
             .is_some_and(|name| !name.contains(['.', ':', '/']))
     });
-    let mut total = 0u64;
+    // u128: a sum of u64 minimums cannot overflow it or clamp to the maximum.
+    let mut total = 0u128;
+    // shortcut: a slice's unstated min or max is not read from the base, and a slicer
+    // declared only in the base is not checked (silent, never a false error); resolve them
+    // from the base snapshot if differentials that omit them need checking.
     for &(slice_index, slice) in slices {
-        total = total.saturating_add(min(slice).unwrap_or(0));
+        total += u128::from(min(slice).unwrap_or(0));
         let Some(slice_max) = string(slice, "max") else {
             continue;
         };
@@ -193,7 +201,7 @@ fn slices_within(
             );
         }
     }
-    if total > max {
+    if total > u128::from(max) {
         diagnostics.push(
             Diagnostic::error(
                 "DEFINITION_002",
