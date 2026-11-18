@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use fhir_definitions::{Constraint, StructureDefinition};
+use fhir_definitions::{Constraint, ElementDefinition, StructureDefinition};
 use fhir_fhirpath::Environment;
 use fhir_parser::{Resource, Span};
 
@@ -13,9 +13,13 @@ use crate::diagnostic::{Diagnostic, Severity};
 /// [`fhir_fhirpath::resource_to_typed_value`] and shared with the walk; it is the
 /// context and `%resource`, the rest of `environment` is used as given. `path` is the
 /// resource's instance path (`Bundle.entry[0].resource` for an embedded one).
+/// `ancestor_roots` are the root elements of the resource's resource ancestors
+/// (`DomainResource`, `Resource`), whose constraints also apply.
+#[allow(clippy::too_many_arguments)] // the resource, its definitions and its context
 pub fn validate(
     resource: &Resource,
     sd: &StructureDefinition,
+    ancestor_roots: &[&ElementDefinition],
     is_choice_variant: &dyn Fn(&str, &str) -> bool,
     root: &fhir_fhirpath::Value,
     environment: &Environment<'_>,
@@ -33,8 +37,21 @@ pub fn validate(
         return;
     };
 
+    // A resource inherits the root invariants of its resource ancestors (R5 publishes
+    // the ValueSet root without dom-2..dom-6); a key the resource repeats runs once.
+    let mut keys: Vec<&str> = root_elem.constraints.iter().map(|c| &*c.key).collect();
+    let mut constraints: Vec<&Constraint> = root_elem.constraints.iter().collect();
+    for ancestor in ancestor_roots {
+        for constraint in &ancestor.constraints {
+            if !keys.contains(&&*constraint.key) {
+                keys.push(&constraint.key);
+                constraints.push(constraint);
+            }
+        }
+    }
+
     let dom3_context = crate::narrative_refs::without_narrative_referenced(root);
-    for constraint in &root_elem.constraints {
+    for constraint in constraints {
         // dom-3 also counts narrative references, as the Java validator's manual
         // replacement does; `%resource` stays the whole resource.
         let context = match &dom3_context {
@@ -119,7 +136,7 @@ pub(crate) fn check(
 mod tests {
     use super::*;
 
-    use fhir_definitions::{CORE_PREFIX, ElementDefinition};
+    use fhir_definitions::CORE_PREFIX;
     use indexmap::IndexMap;
 
     fn make_constraint(key: &str, severity: &str, expression: &str) -> Constraint {
@@ -187,6 +204,7 @@ mod tests {
         validate(
             &resource,
             &sd,
+            &[],
             &|_, _| false,
             &empty_root(),
             &Environment::default(),
@@ -206,6 +224,7 @@ mod tests {
         validate(
             &resource,
             &sd,
+            &[],
             &|_, _| false,
             &empty_root(),
             &Environment::default(),
@@ -228,6 +247,7 @@ mod tests {
         validate(
             &resource,
             &sd,
+            &[],
             &|_, _| false,
             &empty_root(),
             &Environment::default(),
@@ -254,6 +274,7 @@ mod tests {
         validate(
             &resource,
             &sd,
+            &[],
             &|_, _| false,
             &empty_root(),
             &Environment::default(),
@@ -279,6 +300,7 @@ mod tests {
         validate(
             &resource,
             &sd,
+            &[],
             &|_, _| false,
             &empty_root(),
             &Environment::default(),
@@ -304,6 +326,7 @@ mod tests {
         validate(
             &make_empty_resource("Patient"),
             &sd,
+            &[],
             &|_, _| false,
             &empty_root(),
             &Environment::default(),
@@ -333,6 +356,7 @@ mod tests {
         validate(
             &make_empty_resource("Patient"),
             &sd,
+            &[],
             &|_, _| false,
             &empty_root(),
             &Environment::default(),
@@ -359,6 +383,7 @@ mod tests {
         validate(
             &make_empty_resource("Patient"),
             &sd,
+            &[],
             &|_, _| false,
             &empty_root(),
             &Environment::default(),
@@ -389,6 +414,7 @@ mod tests {
         validate(
             &resource,
             &sd,
+            &[],
             &|_, _| false,
             &empty_root(),
             &Environment::default(),
@@ -415,6 +441,7 @@ mod tests {
         validate(
             &resource,
             &sd,
+            &[],
             &|_, _| false,
             &empty_root(),
             &Environment::default(),
@@ -440,6 +467,7 @@ mod tests {
             validate(
                 &make_empty_resource("Patient"),
                 &sd,
+                &[],
                 &|_, _| false,
                 &empty_root(),
                 &Environment::default(),

@@ -143,9 +143,18 @@ fn validate_one<'a>(
         bundle,
         diagnostics,
     );
+    // Stop before Base: its root carries ele-1, an element rule, not a resource invariant.
+    let resource_type = resource.resource_type.as_ref();
+    let ancestor_roots: Vec<_> = registry
+        .type_ancestors(resource_type)
+        .skip(1)
+        .take_while(|&code| code != "Base")
+        .filter_map(|code| registry.core(code)?.element(code))
+        .collect();
     invariants::validate(
         resource,
         sd,
+        &ancestor_roots,
         &|base, suffix| registry.is_choice_variant(base, suffix),
         root,
         &environment,
