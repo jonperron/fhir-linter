@@ -218,6 +218,15 @@ fn registry_format_error(
     })
 }
 
+/// Whether `text` matches the R5 decimal regex
+/// `-?(0|[1-9][0-9]{0,17})(\.[0-9]{1,17})?([eE][+-]?[0-9]{1,9}})?`. Its exponent ends in a
+/// stray `}` (an R5 typo), read as the evident `[0-9]{1,9}`.
+pub(crate) fn is_r5_decimal(text: &str, registry: &Registry) -> bool {
+    registry
+        .primitive_regex("decimal")
+        .is_none_or(|pattern| matches_anchored(&pattern.replace("{1,9}}", "{1,9}"), text))
+}
+
 /// Whether `s` matches the R5 `pattern` anchored as `\A(?:...)\z` (datatypes.html: the
 /// regexes "should be qualified with start of string and end of string anchors").
 ///

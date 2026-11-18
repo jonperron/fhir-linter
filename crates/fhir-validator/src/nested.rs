@@ -89,8 +89,10 @@ pub(crate) fn validate<'a>(
     // A contained resource shares its container's ids, checked once at the container.
     let contained_ids = container_ids.unwrap_or_else(|| {
         references::check_duplicate_contained_ids(resource, path, diagnostics);
+        crate::uniqueness::check_element_ids(resource, registry, path, diagnostics);
         references::contained_ids(resource).into()
     });
+    crate::uniqueness::check_meta_sets(resource, path, diagnostics);
     // A Bundle is the innermost Bundle of everything it holds.
     let bundle = match resource.resource_type.as_ref() {
         "Bundle" => references::bundle_entries(resource, path, registry, diagnostics).into(),

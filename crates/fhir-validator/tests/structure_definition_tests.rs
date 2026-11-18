@@ -534,6 +534,78 @@ fn reference_targets_are_not_canonical_targets_json() {
     assert!(found.is_empty(), "{found:?}");
 }
 
+// R5 extensibility: an `element` context is the id of an element of the base specification.
+#[test]
+fn extension_context_must_name_a_base_element_json() {
+    for name in [
+        "ext-stds-status-normative.json",
+        "ext-stds-status-deprecated.json",
+    ] {
+        let found = json(&fixture(name));
+        assert_eq!(found.len(), 1, "{name}: {found:?}");
+        assert_eq!(&*found[0].code, "DEFINITION_005");
+        assert_eq!(found[0].severity, Severity::Error);
+        assert_eq!(found[0].path, "StructureDefinition.context[6].expression");
+        assert!(found[0].message.contains("ElementDefinition.targetProfile"));
+    }
+}
+
+#[test]
+fn extension_contexts_naming_base_elements_pass_json() {
+    let contexts = [
+        ("element", "Element"),
+        ("element", "CanonicalResource"),
+        ("element", "Observation.value[x]"),
+        ("element", "ElementDefinition.type.targetProfile"),
+        ("element", "Patient.contact.name"),
+        // A slice id from a core profile (vitalsigns), not resolvable by path.
+        ("element", "Observation.category:VSCat"),
+        ("fhirpath", "Patient.notAnElement"),
+        ("extension", "http://example.org/StructureDefinition/other"),
+    ];
+    let context: Vec<_> = contexts
+        .iter()
+        .map(|(kind, expression)| serde_json::json!({ "type": kind, "expression": expression }))
+        .collect();
+    let found = json(
+        &serde_json::json!({
+            "resourceType": "StructureDefinition",
+            "url": "http://example.org/StructureDefinition/ext",
+            "name": "Ext",
+            "status": "draft",
+            "kind": "complex-type",
+            "abstract": false,
+            "context": context,
+            "type": "Extension",
+            "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+            "derivation": "constraint",
+        })
+        .to_string(),
+    );
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn extension_context_naming_no_element_fails_xml() {
+    let found = xml_source(
+        r#"<StructureDefinition xmlns="http://hl7.org/fhir">
+            <url value="http://example.org/StructureDefinition/ext"/>
+            <name value="Ext"/>
+            <status value="draft"/>
+            <kind value="complex-type"/>
+            <abstract value="false"/>
+            <context><type value="element"/><expression value="Patient.name"/></context>
+            <context><type value="element"/><expression value="Patient.nope"/></context>
+            <type value="Extension"/>
+            <baseDefinition value="http://hl7.org/fhir/StructureDefinition/Extension"/>
+            <derivation value="constraint"/>
+        </StructureDefinition>"#,
+    );
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(&*found[0].code, "DEFINITION_005");
+    assert_eq!(found[0].path, "StructureDefinition.context[1].expression");
+}
+
 fn xml_source(source: &str) -> Vec<Diagnostic> {
     definition_findings(&parse_xml(source).expect("parses"))
 }

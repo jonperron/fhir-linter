@@ -497,7 +497,12 @@ Les enfants `id` des éléments imbriqués SHALL être vérifiés comme `string`
 
 ### Requirement: Validation des invariants FHIRPath (INVARIANT_<key>)
 
-Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur l'élément du snapshot de chaque nœud d'instance, ainsi que sur l'élément racine de son type, à toute profondeur (par ex. `qty-3` sur toute `Quantity`, `ext-1` sur toute `Extension`) ; chaque clé SHALL être évaluée une seule fois par nœud. Le `path` du Diagnostic SHALL être le chemin d'instance du nœud (ex. `Patient.contact[0]`) et sa localisation le span du nœud ; les contraintes de la ressource racine restent signalées au chemin du type de ressource, sans span. Un primitif SHALL être évalué avec son élément JSON `_nom`, appariés par indice ; un `_nom` sans valeur SHALL être évalué au chemin nu de l'élément (ex. `Patient.name[0].family`) ; le `_id` de la racine SHALL être apparié à l'`id` de la ressource, que le parseur extrait des champs ; un item JSON `null` n'est pas évalué. Chaque invariant (racine, imbriqué, profil de type) SHALL être évalué par `fhir_fhirpath::evaluate_parsed_with_environment` avec un `Environment` dont : `member_of` est construit depuis `Registry::value_set_contains` (`memberOf`) ; `is_subtype` est construit depuis `Registry::type_ancestors` (`is`, `as` et `ofType` répondent pour les sous-types FHIR : `canonical` et `url` sont des `uri`, `code` est un `string`) ; `%resource` est la ressource englobant le nœud à toute profondeur (une ressource contenue ou une entrée de Bundle est son propre `%resource`) ; `%rootResource` est le conteneur le plus externe pour une ressource contenue, sinon `%resource` (une entrée de Bundle est sa propre racine). Une valeur sans type FHIR (élément inconnu, STRUCTURE_001/TYPE_001) interrogée sur un sous-type FHIR de `string` SHALL donner `INVARIANT_SKIPPED`. Chaque expression SHALL être analysée une seule fois par contrainte (cache). La ressource SHALL être convertie par `fhir_fhirpath::resource_to_typed_value` (racine) ou `fhir_fhirpath::node_to_typed_value` (nœuds imbriqués, même typage) avec `Registry::child_element`, de sorte que les primitives `date`, `dateTime`, `instant` et `time` soient comparées comme des valeurs temporelles. Pour chaque contrainte dont l'expression ne retourne pas `[true]` (une seule valeur vraie, y compris un booléen FHIR portant des extensions), il SHALL émettre un `Diagnostic` avec code `INVARIANT_<key>` où `<key>` est la valeur du champ `key` de la contrainte. Le code `INVARIANT_SKIPPED` est réservé : il signale une contrainte non vérifiée et n'est jamais une violation. La severity R5 d'une contrainte est liée (binding required) à constraint-severity (`error | warning`) : seule la valeur exacte `warning` SHALL donner `Severity::Warning` ; toute autre valeur (`error`, mais aussi `information`, `Warning` ou un code inconnu) SHALL donner `Severity::Error`.
+Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur l'élément du snapshot de chaque nœud d'instance, ainsi que sur l'élément racine de son type, à toute profondeur (par ex. `qty-3` sur toute `Quantity`, `ext-1` sur toute `Extension`) ; chaque clé SHALL être évaluée une seule fois par nœud. Le `path` du Diagnostic SHALL être le chemin d'instance du nœud (ex. `Patient.contact[0]`) et sa localisation le span du nœud ; les contraintes de la ressource racine restent signalées au chemin du type de ressource, sans span. Les contraintes racine d’une ressource SHALL être celles de son élément racine et celles des éléments racine de ses ancêtres ressource (`DomainResource`, `Resource` ; `Base` exclu car son `ele-1` est une règle d’élément), chaque clé une seule fois ; le R5 publie 37 racines dérivées de `DomainResource` (ex. `ValueSet`, `CodeSystem`) sans `dom-2` à `dom-6`, qui SHALL quand même leur être appliquées par cet héritage. Un primitif SHALL être évalué avec son élément JSON `_nom`, appariés par indice ; un `_nom` sans valeur SHALL être évalué au chemin nu de l'élément (ex. `Patient.name[0].family`) ; le `_id` de la racine SHALL être apparié à l'`id` de la ressource, que le parseur extrait des champs ; un item JSON `null` n'est pas évalué. Chaque invariant (racine, imbriqué, profil de type) SHALL être évalué par `fhir_fhirpath::evaluate_parsed_with_environment` avec un `Environment` dont : `member_of` est construit depuis `Registry::value_set_contains` (`memberOf`) ; `is_subtype` est construit depuis `Registry::type_ancestors` (`is`, `as` et `ofType` répondent pour les sous-types FHIR : `canonical` et `url` sont des `uri`, `code` est un `string`) ; `%resource` est la ressource englobant le nœud à toute profondeur (une ressource contenue ou une entrée de Bundle est son propre `%resource`) ; `%rootResource` est le conteneur le plus externe pour une ressource contenue, sinon `%resource` (une entrée de Bundle est sa propre racine). Une valeur sans type FHIR (élément inconnu, STRUCTURE_001/TYPE_001) interrogée sur un sous-type FHIR de `string` SHALL donner `INVARIANT_SKIPPED`. Chaque expression SHALL être analysée une seule fois par contrainte (cache). La ressource SHALL être convertie par `fhir_fhirpath::resource_to_typed_value` (racine) ou `fhir_fhirpath::node_to_typed_value` (nœuds imbriqués, même typage) avec `Registry::child_element`, de sorte que les primitives `date`, `dateTime`, `instant` et `time` soient comparées comme des valeurs temporelles. Pour chaque contrainte dont l'expression ne retourne pas `[true]` (une seule valeur vraie, y compris un booléen FHIR portant des extensions), il SHALL émettre un `Diagnostic` avec code `INVARIANT_<key>` où `<key>` est la valeur du champ `key` de la contrainte. Le code `INVARIANT_SKIPPED` est réservé : il signale une contrainte non vérifiée et n'est jamais une violation. La severity R5 d'une contrainte est liée (binding required) à constraint-severity (`error | warning`) : seule la valeur exacte `warning` SHALL donner `Severity::Warning` ; toute autre valeur (`error`, mais aussi `information`, `Warning` ou un code inconnu) SHALL donner `Severity::Error`.
+
+#### Scenario: Contraintes racine héritées
+
+- **WHEN** une ressource dérive de `DomainResource` (ex. `Patient`)
+- **THEN** les contraintes racine de `DomainResource` et de `Resource` SHALL être évaluées en plus des siennes, une seule fois par clé ; pour `ValueSet` (racine publiée sans `dom-2` à `dom-6`) ces clés SHALL être appliquées par héritage, mais jamais `ele-1` de `Base`
 
 #### Scenario: Contrainte violée émet INVARIANT_<key>
 
@@ -1107,6 +1112,11 @@ Une valeur d'attribut épurée par le parseur (`Resource::trimmed_attributes`) s
 - **WHEN** `validate` reçoit une ressource XML avec `<active value="true"/>`
 - **THEN** `active` SHALL être validé comme booléen sans `TYPE_001`
 
+#### Scenario: Décimal XML selon la regex R5
+
+- **WHEN** le texte d’un `decimal` XML est comparé à la regex R5 du Registry `-?(0|[1-9][0-9]{0,17})(\.[0-9]{1,17})?([eE][+-]?[0-9]{1,9})?` (le `{1,9}}` publié est une coquille, lu `{1,9}`)
+- **THEN** `1e09` SHALL être valide ; un texte non conforme SHALL rester une chaîne et donner `TYPE_001`. Les nombres JSON ne sont pas encore bornés en chiffres (lacune connue : cas officiel `obs-decimal.json`)
+
 #### Scenario: Texte mal formé
 
 - **WHEN** une ressource XML contient `<multipleBirthInteger value="abc"/>`
@@ -1615,3 +1625,45 @@ Pour toute StructureDefinition dont `derivation` vaut `constraint`, le système 
 
 - **WHEN** le `targetProfile` n'est pas dans le Registry, ou la StructureDefinition est une spécialisation
 - **THEN** aucun Diagnostic `DEFINITION_004` SHALL être émis
+
+### Requirement: Validation des profils — contexte d’extension (DEFINITION_005)
+
+Pour une StructureDefinition d’extension, le système SHALL émettre une erreur `DEFINITION_005` à `StructureDefinition.context[<n>].expression` lorsqu’un contexte de type `element` sans `#` ne désigne aucun élément de la spécification de base (ExtensionContextType `element` : « If there is no #, the Element id is one defined in the base specification »). Les contextes `url#id` ne sont pas encore contrôlés.
+
+#### Scenario: Contexte element inconnu
+
+- **WHEN** un contexte `element` sans `#` a pour expression un id absent de la spécification de base
+- **THEN** une erreur `DEFINITION_005` SHALL être émise à `StructureDefinition.context[<n>].expression`
+
+#### Scenario: Contexte element connu ou avec dièse
+
+- **WHEN** l’expression désigne un élément de base (ex. `Patient`) ou contient `#`
+- **THEN** aucun Diagnostic `DEFINITION_005` SHALL être émis
+
+### Requirement: Validation structurelle — Element.id dupliqué (STRUCTURE_006)
+
+Le système SHALL émettre une erreur `STRUCTURE_006` pour tout `Element.id` dupliqué dans une ressource, ressources contenues comprises (Element.id : « Unique id for the element within a resource » ; narrative.html 2.1.4.0.4). Les `id` de ressource, les ressources embarquées ailleurs (entrées de Bundle, Parameters) et les sous-arbres `ElementDefinition` (portée par snapshot/différentiel selon sdf-16/sdf-17) SHALL être exclus.
+
+#### Scenario: Element.id dupliqué
+
+- **WHEN** deux éléments d’une même ressource portent le même `id`
+- **THEN** une erreur `STRUCTURE_006` SHALL être émise
+
+#### Scenario: Exclusions
+
+- **WHEN** l’`id` est répété entre une entrée de Bundle et son Bundle, ou dans deux listes d’`ElementDefinition` distinctes
+- **THEN** aucun Diagnostic `STRUCTURE_006` SHALL être émis
+
+### Requirement: Validation structurelle — meta.tag et meta.security dupliqués (STRUCTURE_007)
+
+Le système SHALL émettre une erreur `STRUCTURE_007` pour un couple system+code dupliqué dans `meta.tag` ou `meta.security`, par ressource contenues comprises (Meta : « The list of tags is a set. Uniqueness is based the system/code, and version and display are ignored »). Les codings sans `code` SHALL être ignorés.
+
+#### Scenario: Tag dupliqué
+
+- **WHEN** deux `meta.tag` ont même system et code (version ou display différents)
+- **THEN** une erreur `STRUCTURE_007` SHALL être émise
+
+#### Scenario: Coding sans code
+
+- **WHEN** deux codings de `meta.tag` n’ont pas de `code`
+- **THEN** aucun Diagnostic `STRUCTURE_007` SHALL être émis

@@ -112,3 +112,38 @@ fn contained_resource_without_a_narrative_still_violates_dom3() -> TestResult {
     assert_eq!(dom3(&parse_json(&json)?)?, vec!["Patient".to_owned()]);
     Ok(())
 }
+
+/// R5 publishes the ValueSet root without dom-2..dom-6 (only cnl-0 and its own keys), yet
+/// ValueSet is a DomainResource and inherits them (official case contained-canonical-bad).
+#[test]
+fn unreferenced_contained_resource_in_a_value_set_violates_dom3() -> TestResult {
+    let json = format!(r#"{{"resourceType":"ValueSet","status":"draft","contained":[{BASIC_B}]}}"#);
+    assert_eq!(dom3(&parse_json(&json)?)?, vec!["ValueSet".to_owned()]);
+    Ok(())
+}
+
+#[test]
+fn referenced_contained_resource_in_a_value_set_satisfies_dom3() -> TestResult {
+    let json = format!(
+        r##"{{"resourceType":"ValueSet","status":"draft","contained":[{BASIC_B}],
+            "extension":[{{"url":"http://x.org/e","valueReference":{{"reference":"#b"}}}}]}}"##
+    );
+    assert_eq!(dom3(&parse_json(&json)?)?, Vec::<String>::new());
+    Ok(())
+}
+
+/// The DomainResource invariants apply (dom-6: a narrative is advised), but not Base's ele-1,
+/// an element rule rather than a resource invariant.
+#[test]
+fn value_set_inherits_domain_resource_but_not_base_root_constraints() -> TestResult {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5");
+    let registry = Registry::from_definitions_dir(dir)?;
+    let resource = parse_json(r#"{"resourceType":"ValueSet","status":"draft"}"#)?;
+    let codes: Vec<_> = validate(&resource, &registry)
+        .into_iter()
+        .filter(|d| d.code.starts_with("INVARIANT_"))
+        .map(|d| d.code.to_string())
+        .collect();
+    assert_eq!(codes, ["INVARIANT_dom-6"]);
+    Ok(())
+}

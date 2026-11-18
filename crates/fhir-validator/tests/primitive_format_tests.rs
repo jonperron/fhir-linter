@@ -288,3 +288,47 @@ fn official_whitespace_cases_have_no_error() -> TestResult {
     }
     Ok(())
 }
+
+/// The R5 decimal regex `-?(0|[1-9][0-9]{0,17})(\.[0-9]{1,17})?([eE][+-]?[0-9]{1,9}})?`
+/// bounds the digits; its stray `}` is an R5 typo, read as `[0-9]{1,9}` (official case
+/// primitive-good.xml, where `1e09` is valid under R5).
+#[test]
+fn decimal_digits_follow_the_r5_regex_xml() -> TestResult {
+    let findings = |value: &str| -> TestResult<Vec<String>> {
+        let xml = format!(
+            r#"<Patient xmlns="http://hl7.org/fhir"><extension url="http://x.org/e">
+                <valueDecimal value="{value}"/></extension></Patient>"#
+        );
+        Ok(validate(&parse_xml(&xml)?, registry()?)
+            .into_iter()
+            .filter(|d| d.code.starts_with("TYPE_"))
+            .map(|d| format!("{} {}", d.code, d.path))
+            .collect())
+    };
+    let valid = [
+        "0",
+        "-1.5",
+        "1e09",
+        "123456789012345678",
+        "0.12345678901234567",
+        "1E+12",
+    ];
+    for value in valid {
+        assert_eq!(findings(value)?, Vec::<String>::new(), "{value}");
+    }
+    let invalid = [
+        "1234567890123456789",
+        "0.123456789012345678",
+        "1e1234567890",
+        "-0.00000000000000000000000023",
+        "121233786234234234234234.12323",
+    ];
+    for value in invalid {
+        assert_eq!(
+            findings(value)?,
+            ["TYPE_001 Patient.extension.valueDecimal"],
+            "{value}"
+        );
+    }
+    Ok(())
+}
