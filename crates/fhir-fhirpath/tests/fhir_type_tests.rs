@@ -216,3 +216,48 @@ fn an_unknown_type_name_is_an_error() -> TestResult {
     assert!(eval("Questionnaire.status.is(Any)", true).is_ok());
     Ok(())
 }
+
+/// fhirpath.html, type specifiers: `System.X` names a FHIRPath type, `FHIR.X`
+/// a FHIR type; the function form takes the same qualified names as the
+/// operator form, and a FHIR value is not a System value (nor the reverse).
+#[test]
+fn qualified_type_names_check_their_namespace() -> TestResult {
+    for (expression, expected) in [
+        ("Questionnaire.status.is(FHIR.code)", true),
+        ("Questionnaire.status is FHIR.string", true),
+        ("Questionnaire.status.is(FHIR.`code`)", true),
+        ("Questionnaire.status.is(System.String)", false),
+        ("Questionnaire.is(FHIR.Questionnaire)", true),
+        ("Questionnaire is FHIR.Questionnaire", true),
+        ("Questionnaire.is(System.Questionnaire)", false),
+        ("'a'.is(System.String)", true),
+        ("'a' is System.String", true),
+        ("'a'.is(FHIR.string)", false),
+        ("'a'.is(System.string)", false),
+        ("1.is(System.Integer)", true),
+        ("1.is(System.Quantity)", false),
+        ("true is System.Boolean", true),
+        ("Questionnaire.status.is(System.Any)", true),
+        ("1 is System.Any", true),
+    ] {
+        assert_eq!(
+            eval(expression, true)?,
+            [Value::Bool(expected)],
+            "{expression}"
+        );
+    }
+    assert_eq!(
+        strings(&eval("Questionnaire.ofType(FHIR.Questionnaire).id", true)?),
+        ["q1"]
+    );
+    assert_eq!(
+        strings(&eval("Questionnaire.status.as(FHIR.code)", true)?),
+        ["draft"]
+    );
+    assert_eq!(eval("Questionnaire.status.as(System.String)", true)?, []);
+    // An unknown FHIR type is an error, like an unknown unqualified name.
+    let error = eval("Questionnaire.is(FHIR.NoSuchType)", true).err();
+    let error = error.as_deref().and_then(|e| e.downcast_ref::<EvalError>());
+    assert!(matches!(error, Some(EvalError::Type(_))), "{error:?}");
+    Ok(())
+}
