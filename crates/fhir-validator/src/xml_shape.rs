@@ -317,6 +317,15 @@ impl Shaper<'_> {
         }
     }
 
+    /// The JSON value of XML text of primitive type `ty`, as FHIRPath types it; decimal text
+    /// beyond the digit bounds of the R5 regex stays text, so the type check reports it.
+    fn typed_text(&self, text: &Arc<str>, ty: &str) -> Value {
+        if ty == "decimal" && !crate::type_check::is_r5_decimal(text, self.registry) {
+            return Value::Str(Arc::clone(text));
+        }
+        typed_xml_text(text, ty)
+    }
+
     /// `TYPE_007` Warning when the parser trimmed attribute `name` of the element at
     /// `node`'s offset.
     fn warn_if_trimmed(&mut self, node: &Node, name: &str, path: &str) {
@@ -377,7 +386,7 @@ impl Shaper<'_> {
                 }
                 (
                     Node {
-                        value: typed_xml_text(text, ty),
+                        value: self.typed_text(text, ty),
                         span: node.span,
                     },
                     null,
@@ -400,7 +409,7 @@ impl Shaper<'_> {
                         }
                         match &v.value {
                             Value::Str(text) => Node {
-                                value: typed_xml_text(text, ty),
+                                value: self.typed_text(text, ty),
                                 span: v.span,
                             },
                             _ => v.clone(),
