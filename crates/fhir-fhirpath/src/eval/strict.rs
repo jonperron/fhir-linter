@@ -86,11 +86,15 @@ impl Evaluator<'_> {
 /// (the root, a contained resource, a Bundle entry) starts its own path at its
 /// `resourceType`; the first path recorded for an object wins.
 fn index_paths(node: &Value, path: &str, paths: &mut InstancePaths) {
-    let Value::Object(fields, _) = node else {
-        return;
+    let (fields, is_object) = match node {
+        Value::Object(fields, _) => (fields, true),
+        // A primitive's `extension` may hold a backbone (`valueTiming.repeat`).
+        Value::Primitive(_, fields, _) => (fields, false),
+        _ => return,
     };
+    let address = Arc::as_ptr(fields) as usize;
     // Already reached from an earlier root, with everything below it.
-    if paths.contains_key(&(Arc::as_ptr(fields) as usize)) {
+    if is_object && paths.contains_key(&address) {
         return;
     }
     let path = match fields.get("resourceType").map(Vec::as_slice) {
@@ -98,16 +102,18 @@ fn index_paths(node: &Value, path: &str, paths: &mut InstancePaths) {
         _ => Arc::from(path),
     };
     for (key, values) in fields.iter() {
-        // Only objects get paths: skip the allocation for primitive fields.
-        if values
-            .iter()
-            .any(|value| matches!(value, Value::Object(..)))
-        {
+        // Skip the allocation for fields with nothing below them.
+        let has_children = |value: &Value| {
+            matches!(value, Value::Object(..)) || value.fields().is_some_and(|f| !f.is_empty())
+        };
+        if values.iter().any(has_children) {
             let child = format!("{path}.{key}");
             for value in values {
                 index_paths(value, &child, paths);
             }
         }
     }
-    paths.entry(Arc::as_ptr(fields) as usize).or_insert(path);
+    if is_object {
+        paths.entry(address).or_insert(path);
+    }
 }

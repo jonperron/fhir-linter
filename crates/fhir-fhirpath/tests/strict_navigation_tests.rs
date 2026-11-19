@@ -37,6 +37,9 @@ const OBSERVATION: &str = r#"{"resourceType":"Observation","status":"final",
     "component":[{"code":{"text":"c"},"valueString":"x"}]}"#;
 
 const PATIENT: &str = r#"{"resourceType":"Patient",
+    "birthDate":"1970-01-01",
+    "_birthDate":{"extension":[{"url":"http://example.org/e",
+        "valueTiming":{"repeat":{"frequency":2}}}]},
     "contact":[{"name":{"family":"Doe"}}],
     "contained":[{"resourceType":"Questionnaire","status":"draft",
         "item":[{"linkId":"c1","type":"group"}]}]}"#;
@@ -181,12 +184,42 @@ fn strict_checks_backbones_in_bundle_entries_and_complex_types() -> TestResult {
 }
 
 #[test]
+fn strict_checks_below_a_primitive_extension() -> TestResult {
+    // A primitive's children (`id`, `extension`) are typed by its own definition.
+    let extension = "Patient.birthDate.extension";
+    // A backbone inside an extension value is reached through the primitive.
+    let repeat = format!("{extension}.value.repeat");
+    assert_eq!(
+        eval_on(PATIENT, &format!("{repeat}.frequency"), true)?.len(),
+        1
+    );
+    assert_unresolved_on(
+        PATIENT,
+        &format!("{repeat}.frequency1"),
+        "frequency1 is not an element of Patient.birthDate.extension.valueTiming.repeat",
+    );
+    assert_eq!(
+        eval_on(PATIENT, &format!("{extension}.url"), true)?.len(),
+        1
+    );
+    assert_unresolved_on(
+        PATIENT,
+        &format!("{extension}.urll"),
+        "urll is not an element of Extension",
+    );
+    Ok(())
+}
+
+#[test]
 fn strict_finds_a_context_backbone_through_the_environment_resources() -> TestResult {
     let patient = typed(PATIENT)?;
     let Value::Object(fields, _) = &patient else {
         return Err("the patient is not an object".into());
     };
-    let contact = fields.get("contact").and_then(|c| c.first()).ok_or("no contact")?;
+    let contact = fields
+        .get("contact")
+        .and_then(|c| c.first())
+        .ok_or("no contact")?;
     let eval_contact = |resource: Option<&Value>, root_resource: Option<&Value>| {
         let environment = Environment {
             resource,
