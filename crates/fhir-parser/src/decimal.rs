@@ -39,10 +39,79 @@ pub enum Rounding {
     Ceiling,
 }
 
+/// The signed quotient of two mantissas from its magnitude; `None` past i128.
+fn signed_quotient(a: i128, b: i128, magnitude: u128) -> Option<i128> {
+    let negative = (a < 0) != (b < 0);
+    if negative && magnitude == i128::MIN.unsigned_abs() {
+        return Some(i128::MIN);
+    }
+    let magnitude = i128::try_from(magnitude).ok()?;
+    Some(if negative { -magnitude } else { magnitude })
+}
+
 fn pow10(exponent: i64) -> Option<i128> {
     u32::try_from(exponent)
         .ok()
         .and_then(|e| 10i128.checked_pow(e))
+}
+
+/// `(a + b) mod m` for `a, b < m`, without overflowing u128.
+fn add_mod(a: u128, b: u128, m: u128) -> u128 {
+    if a >= m - b { a - (m - b) } else { a + b }
+}
+
+/// `(a * b) mod m` for `a, b < m`, by doubling: no 256-bit intermediate.
+fn mul_mod(a: u128, mut b: u128, m: u128) -> u128 {
+    let (mut result, mut base) = (0, a);
+    while b > 0 {
+        if b & 1 == 1 {
+            result = add_mod(result, base, m);
+        }
+        base = add_mod(base, base, m);
+        b >>= 1;
+    }
+    result
+}
+
+/// `10^k mod m` by squaring.
+fn pow10_mod(mut k: u64, m: u128) -> u128 {
+    let (mut result, mut base) = (1 % m, 10 % m);
+    while k > 0 {
+        if k & 1 == 1 {
+            result = mul_mod(result, base, m);
+        }
+        base = mul_mod(base, base, m);
+        k >>= 1;
+    }
+    result
+}
+
+/// `n × 10^k / d` truncated, digit by digit so the product never has to fit;
+/// `None` only when the quotient itself exceeds u128. `d` is not zero.
+fn scaled_quotient(n: u128, k: u64, d: u128) -> Option<u128> {
+    let (mut quotient, mut rest) = (n / d, n % d);
+    let mut left = k;
+    // Each step brings down one digit; a non-zero quotient overflows within
+    // about 40 steps, so the loop is short even for a huge `k`.
+    while left > 0 && rest != 0 {
+        // 10 × rest = digit × d + next, by ten additions mod d.
+        let (mut digit, mut next) = (0, 0);
+        for _ in 0..10 {
+            if next >= d - rest {
+                next -= d - rest;
+                digit += 1;
+            } else {
+                next += rest;
+            }
+        }
+        quotient = quotient.checked_mul(10)?.checked_add(digit)?;
+        rest = next;
+        left -= 1;
+    }
+    if quotient == 0 || left == 0 {
+        return Some(quotient);
+    }
+    quotient.checked_mul(10u128.checked_pow(u32::try_from(left).ok()?)?)
 }
 
 impl Decimal {
@@ -130,9 +199,12 @@ impl Decimal {
         // The quotient is (a / b) × 10^e with e = other.scale - self.scale.
         let e = i64::from(other.scale) - i64::from(self.scale);
         let quotient = if e >= 0 {
-            self.mantissa
-                .checked_mul(pow10(e)?)?
-                .checked_div(other.mantissa)?
+            let magnitude = scaled_quotient(
+                self.mantissa.unsigned_abs(),
+                u64::try_from(e).ok()?,
+                other.mantissa.unsigned_abs(),
+            )?;
+            signed_quotient(self.mantissa, other.mantissa, magnitude)?
         } else {
             // A divisor beyond i128 exceeds any mantissa: the quotient is 0.
             // (5 divides it, so it cannot be exactly 2^127 either.)
@@ -154,7 +226,16 @@ impl Decimal {
             Some((a, b, scale)) => Some(Self::new(a.wrapping_rem(b), scale)),
             // The divisor outgrew i128 at the finer scale: it exceeds `self`.
             None if self.scale >= other.scale => Some(self),
-            None => None,
+            // `self` outgrew i128 at the divisor's finer scale: its residue is
+            // (a mod b) × (10^k mod b) mod b, and |result| < |b| always fits.
+            None => {
+                let m = other.mantissa.unsigned_abs();
+                let k = u64::try_from(i64::from(other.scale) - i64::from(self.scale)).ok()?;
+                let residue = mul_mod(self.mantissa.unsigned_abs() % m, pow10_mod(k, m), m);
+                let residue = i128::try_from(residue).ok()?;
+                let sign = if self.mantissa < 0 { -1 } else { 1 };
+                Some(Self::new(residue * sign, other.scale))
+            }
         }
     }
 
@@ -170,16 +251,20 @@ impl Decimal {
         let target = DIVISION_SCALE.max(self.scale).max(other.scale);
         // One guard digit past `target`; truncation keeps it below the exact digit.
         let shift = i64::from(target) + 1 + i64::from(other.scale) - i64::from(self.scale);
-        let (numerator, denominator) = if shift >= 0 {
-            (self.mantissa.checked_mul(pow10(shift)?)?, other.mantissa)
+        let quotient = if shift >= 0 {
+            let magnitude = scaled_quotient(
+                self.mantissa.unsigned_abs(),
+                u64::try_from(shift).ok()?,
+                other.mantissa.unsigned_abs(),
+            )?;
+            signed_quotient(self.mantissa, other.mantissa, magnitude)?
         } else {
             // A denominator beyond i128 leaves a quotient below the guard digit.
             match pow10(-shift).and_then(|p| other.mantissa.checked_mul(p)) {
-                Some(wide) => (self.mantissa, wide),
-                None => (0, 1),
+                Some(wide) => self.mantissa.checked_div(wide)?,
+                None => 0,
             }
         };
-        let quotient = numerator.checked_div(denominator)?;
         Some(
             Self::new(quotient, target.checked_add(1)?)
                 .rescale(target, Rounding::HalfAwayFromZero)?
@@ -512,5 +597,61 @@ mod tests {
         let half = Rounding::HalfAwayFromZero;
         assert!(min.rescale(-1, half).is_some());
         assert_eq!(min.rescale(-39, half).unwrap().mantissa(), 0);
+    }
+
+    #[test]
+    fn mod_is_always_representable() {
+        // |a mod b| < |b|, so no operand scales may make it overflow.
+        assert_eq!(dec("1e30").checked_rem(dec("0.5")).unwrap(), dec("0"));
+        assert_eq!(dec("7e30").checked_rem(dec("3")).unwrap(), dec("1"));
+        assert_eq!(dec("-7e30").checked_rem(dec("3")).unwrap(), dec("-1"));
+        assert_eq!(dec("1e1000000").checked_rem(dec("7")).unwrap(), dec("4"));
+    }
+
+    #[test]
+    fn div_overflows_only_when_the_quotient_does() {
+        // 1e20 over 1e18 is 100, though 10^39 never fits an i128 on the way.
+        let divisor = Decimal::new(10i128.pow(37), 19);
+        assert_eq!(
+            dec("1e20").checked_div_integer(divisor).unwrap(),
+            dec("100")
+        );
+        assert_eq!(dec("1e20").checked_div(divisor).unwrap().to_string(), "100");
+        // 1e30 over 1e-30 is 10^60: beyond 38 digits, so the overflow error is
+        // the right answer, not a lost result.
+        assert!(dec("1e30").checked_div_integer(dec("1e-30")).is_none());
+        assert!(dec("1e30").checked_div(dec("1e-30")).is_none());
+    }
+
+    #[test]
+    fn the_minimum_mantissa_quotient_still_fits() {
+        let min = Decimal::new(i128::MIN, 0);
+        assert_eq!(min.checked_div_integer(Decimal::from(1)).unwrap(), min);
+        assert!(min.checked_div_integer(Decimal::from(-1)).is_none());
+        assert_eq!(dec("5").checked_rem(min).unwrap(), dec("5"));
+    }
+
+    #[test]
+    fn mod_and_div_keep_signs_and_digits() {
+        // MAX × 10^5 overflows; the residue is (MAX mod 7) × (10^5 mod 7) mod 7.
+        let max = Decimal::new(i128::MAX, 0);
+        assert_eq!(
+            max.checked_rem(Decimal::new(7, 5)).unwrap(),
+            Decimal::new(5, 5)
+        );
+        assert_eq!(dec("7e1000000").checked_rem(dec("-3")).unwrap(), dec("1"));
+        assert_eq!(dec("-7e1000000").checked_rem(dec("-3")).unwrap(), dec("-1"));
+        for (a, b, q) in [("-6", "3", "-2"), ("6", "-3", "-2"), ("-6", "-3", "2")] {
+            assert_eq!(dec(a).checked_div_integer(dec(b)).unwrap(), dec(q));
+        }
+        // A scaling of 10^29 on the numerator, with a repeating quotient.
+        assert_eq!(
+            dec("1e20").checked_div(dec("3")).unwrap().to_string(),
+            "33333333333333333333.33333333"
+        );
+        assert_eq!(
+            dec("0").checked_div_integer(dec("3e-1000000")).unwrap(),
+            dec("0")
+        );
     }
 }
