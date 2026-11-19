@@ -290,7 +290,7 @@ Les types `string`, `markdown`, `base64Binary`, `uri`, `url`, `canonical`, `oid`
 
 #### Scenario: Entier attendu, moins zéro reçu
 
-- **WHEN** un champ de type `integer` contient le littéral JSON `-0` (parsé en `Value::Decimal(-0.0)`)
+- **WHEN** un champ de type `integer` contient le littéral JSON `-0` (parsé en `Value::Decimal` nul)
 - **THEN** un Diagnostic `TYPE_001` SHALL être émis
 
 #### Scenario: uri attendue, nombre reçu
