@@ -62,11 +62,19 @@ fn set_operations_on_many_decimals_are_linear() -> Result<(), Box<dyn std::error
     let context: Vec<Value> = (0..COUNT as i128)
         .map(|i| Value::Decimal(Decimal::new(i * 10, 1)))
         .collect();
+    // The right-hand sides are full, so the counts below prove deduplication;
+    // truncate() gives Integers (toInteger() is empty on a Decimal).
+    assert_eq!(count("select($this * 1.0)", &context)?, COUNT);
+    assert_eq!(
+        evaluate("select(truncate()).first()", &context)?,
+        vec![Value::Integer(0)],
+    );
+    assert_eq!(count("combine(select(truncate()))", &context)?, 2 * COUNT);
     let started = Instant::now();
     assert_eq!(count("distinct()", &context)?, COUNT);
     assert_eq!(count("union(select($this * 1.0))", &context)?, COUNT);
     assert_eq!(
-        count("combine(select(toInteger())).distinct()", &context)?,
+        count("combine(select(truncate())).distinct()", &context)?,
         COUNT
     );
     assert_eq!(count("exclude(select($this * 1.0))", &context)?, 0);
