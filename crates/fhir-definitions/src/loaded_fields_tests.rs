@@ -313,3 +313,14 @@ fn implements_extensions_are_loaded() -> TestResult {
     assert_eq!(implements("Patient"), Some(Vec::new()));
     Ok(())
 }
+
+#[test]
+fn order_meaning_and_is_modifier_are_loaded() -> TestResult {
+    let registry = registry()?;
+    assert_eq!(count(&registry, |e| e.order_meaning), 38);
+    assert!(element(&registry, "Bundle", "Bundle.entry")?.order_meaning);
+    assert!(!element(&registry, "Patient", "Patient.name")?.order_meaning);
+    assert!(element(&registry, "Patient", "Patient.active")?.is_modifier);
+    assert!(!element(&registry, "Patient", "Patient.gender")?.is_modifier);
+    Ok(())
+}

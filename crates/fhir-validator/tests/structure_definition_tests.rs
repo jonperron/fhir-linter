@@ -62,8 +62,13 @@ fn profile_on_a_resource_may_not_set_meaning_when_missing_xml() {
 
 #[test]
 fn profile_on_a_data_type_may_not_set_meaning_when_missing_xml() {
+    // The fixture breaks other root rules too (tests/profile_property_tests.rs).
+    let found: Vec<_> = xml("sd-root-profile.xml")
+        .into_iter()
+        .filter(|d| &*d.code == "DEFINITION_001")
+        .collect();
     assert_meaning_when_missing(
-        &xml("sd-root-profile.xml"),
+        &found,
         "StructureDefinition.differential.element[0].meaningWhenMissing",
         "CodeableConcept",
     );

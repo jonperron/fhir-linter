@@ -162,14 +162,52 @@ fn fixed_quantity_at_depth_compares_decimals_with_their_precision() {
         r#"{"value":3.00}"#,
         r#"{"value":3.0000000000000000001}"#,
         r#"{"value":3.1}"#,
-        r#"{"value":3.0,"unit":"mmol/L"}"#,
     ] {
         assert_eq!(
             paths(&ldl(different), "PROFILE_004"),
-            ["Observation.referenceRange[0].high"],
+            ["Observation.referenceRange[0].high.value"],
             "{different}"
         );
     }
+}
+
+#[test]
+fn fixed_value_reports_each_differing_or_extra_part() {
+    // fixed[x]: "all values must be an exact match [...] Missing elements/attributes must
+    // also be missing" (ElementDefinition.fixed[x]): each wrong, missing or extra part of
+    // the instance is its own finding.
+    assert_eq!(
+        paths(
+            &ldl(r#"{"value":0,"unit":"mmol/L","system":"http://unitsofmeasure.org"}"#),
+            "PROFILE_004"
+        ),
+        [
+            "Observation.referenceRange[0].high.value",
+            "Observation.referenceRange[0].high.unit",
+            "Observation.referenceRange[0].high.system",
+        ]
+    );
+    assert_eq!(
+        paths(&ldl(r#"{"unit":"mmol/L"}"#), "PROFILE_004"),
+        [
+            "Observation.referenceRange[0].high.value",
+            "Observation.referenceRange[0].high.unit",
+        ]
+    );
+    // cholesterol fixes Observation.code to one loinc#35200-5 coding with its display.
+    let json = r#"{"resourceType":"Observation","id":"o",
+        "meta":{"profile":["http://hl7.org/fhir/StructureDefinition/cholesterol"]},
+        "status":"final","code":{"coding":[{"system":"http://loinc.org","code":"13457-7",
+        "display":"Cholesterol [Moles/\u200bvolume] in Serum or Plasma"}],"text":"LDL"}}"#;
+    assert_eq!(
+        paths(json, "PROFILE_004"),
+        ["Observation.code.coding[0].code", "Observation.code.text"]
+    );
+    // A different number of repetitions is one finding on the element itself.
+    let two = json
+        .replace(r#","text":"LDL""#, "")
+        .replace("}]", "},{\"code\":\"x\"}]");
+    assert_eq!(paths(&two, "PROFILE_004"), ["Observation.code.coding"]);
 }
 
 fn claim(quantity: &str) -> String {

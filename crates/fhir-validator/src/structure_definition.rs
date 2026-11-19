@@ -10,9 +10,18 @@
 //! cardinalities must be less or equal to n". ElementDefinition eld-2: "Min <= Max", which
 //! also binds a slice's child against the unsliced child it narrows.
 //!
+//! ElementDefinition.contentReference: "ContentReferences can only be defined in
+//! specializations, not constrained types, and they cannot be changed".
+//!
+//! ElementDefinition.orderMeaning: "if absent in the base type, a profile cannot assert
+//! meaning".
+//!
+//! ElementDefinition.isModifier: "Once set, it cannot be changed in derived profiles (except
+//! in the special case of the defining a new extension)."
+//!
 //! references.html, Canonical URLs: only the resources that have canonical URLs "are allowed
 //! to be the target of references to a canonical URLs".
-use fhir_definitions::{Registry, StructureDefinition};
+use fhir_definitions::{ElementDefinition, Registry, StructureDefinition};
 use fhir_parser::{Node, Resource, Value};
 use indexmap::IndexMap;
 use std::collections::HashSet;
@@ -45,12 +54,157 @@ pub(crate) fn validate(
         .collect();
     if is_profile(resource, registry) {
         meaning_when_missing(&differential, path, diagnostics);
+        if let Some(base) = base_definition(resource, registry) {
+            modifiers(base, &differential, path, diagnostics);
+        }
     }
     slice_cardinality(resource, registry, &differential, path, diagnostics);
     // Constraints only: the R5 core specialization NutritionIntake itself lists the
     // non-canonical ClinicalUseDefinition as an instantiatesCanonical target.
     if string(&resource.fields, "derivation") == Some("constraint") {
         canonical_targets(registry, &differential, path, diagnostics);
+        if let Some(base) = base_definition(resource, registry) {
+            content_references(base, &differential, path, diagnostics);
+            order_meanings(base, &differential, path, diagnostics);
+        }
+    }
+}
+
+/// The element path a contentReference names: what follows its last `#`.
+fn reference_target(reference: &str) -> &str {
+    reference
+        .rsplit_once('#')
+        .map_or(reference, |(_, target)| target)
+}
+
+/// orderMeaning asserted by a constraint on an element whose base has none
+/// (DEFINITION_007). ElementDefinition.orderMeaning: "This element can only be asserted on
+/// repeating elements and can only be introduced when defining resources or data types. It
+/// can be further refined profiled elements but if absent in the base type, a profile cannot
+/// assert meaning."
+fn order_meanings(
+    base: &StructureDefinition,
+    differential: &[(usize, &Fields)],
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for &(index, fields) in differential {
+        let (Some(node), Some(element)) = (fields.get("orderMeaning"), base_element(base, fields))
+        else {
+            continue;
+        };
+        if element.order_meaning {
+            continue;
+        }
+        diagnostics.push(
+            Diagnostic::error(
+                "DEFINITION_007",
+                format!(
+                    "The element definition for {} asserts an orderMeaning its base does not \
+                     have: if absent in the base type, a profile cannot assert meaning",
+                    element.path
+                ),
+                format!("{path}.differential.element[{index}].orderMeaning"),
+            )
+            .with_location(node.span),
+        );
+    }
+}
+
+/// isModifier changed by a profile (DEFINITION_008). ElementDefinition.isModifier: "Only the
+/// definition of an element can set IsModifier true - either the specification itself or
+/// where an extension is originally defined. Once set, it cannot be changed in derived
+/// profiles (except in the special case of the defining a new extension)."
+fn modifiers(
+    base: &StructureDefinition,
+    differential: &[(usize, &Fields)],
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for &(index, fields) in differential {
+        let (Some(node), Some(element)) = (fields.get("isModifier"), base_element(base, fields))
+        else {
+            continue;
+        };
+        // A boolean in JSON; XML text the reshape could not type stays a string.
+        let stated = match &node.value {
+            Value::Bool(stated) => *stated,
+            Value::Str(text) if matches!(&**text, "true" | "false") => &**text == "true",
+            _ => continue,
+        };
+        if stated == element.is_modifier {
+            continue;
+        }
+        diagnostics.push(
+            Diagnostic::error(
+                "DEFINITION_008",
+                format!(
+                    "The element definition for {} sets isModifier to {stated} but its base \
+                     has {}: once set, isModifier cannot be changed in derived profiles",
+                    element.path, element.is_modifier
+                ),
+                format!("{path}.differential.element[{index}].isModifier"),
+            )
+            .with_location(node.span),
+        );
+    }
+}
+
+/// The StructureDefinition `baseDefinition` names (any `|version` dropped), when the
+/// Registry holds it.
+fn base_definition<'a>(
+    resource: &Resource,
+    registry: &'a Registry,
+) -> Option<&'a StructureDefinition> {
+    let url = string(&resource.fields, "baseDefinition")?;
+    registry.structure_definition(url.split_once('|').map_or(url, |(url, _)| url))
+}
+
+/// The base element of the same path as differential element `fields`. Elements the base
+/// does not hold under that path (a renamed choice, a path-less element) give none, so the
+/// checks that compare with the base stay silent on them.
+fn base_element<'a>(
+    base: &'a StructureDefinition,
+    fields: &Fields,
+) -> Option<&'a ElementDefinition> {
+    base.element(string(fields, "path")?)
+}
+
+/// contentReference set or changed by a constraint (DEFINITION_006). ElementDefinition
+/// .contentReference: "ContentReferences can only be defined in specializations, not
+/// constrained types, and they cannot be changed".
+fn content_references(
+    base: &StructureDefinition,
+    differential: &[(usize, &Fields)],
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for &(index, fields) in differential {
+        let (Some(node), Some(element)) =
+            (fields.get("contentReference"), base_element(base, fields))
+        else {
+            continue;
+        };
+        // Compare the element paths: the Registry keeps a local `#path` as the bare path, and
+        // a derived profile's snapshot writes the same target as `<core url>#path`.
+        let stated = string(fields, "contentReference").map(reference_target);
+        if stated.is_some() && stated == element.content_reference.as_deref().map(reference_target)
+        {
+            continue;
+        }
+        diagnostics.push(
+            Diagnostic::error(
+                "DEFINITION_006",
+                format!(
+                    "The element definition for {} sets a contentReference its base does not \
+                     have: content references can only be defined in specializations, not in \
+                     constraints",
+                    element.path
+                ),
+                format!("{path}.differential.element[{index}].contentReference"),
+            )
+            .with_location(node.span),
+        );
     }
 }
 
@@ -137,9 +291,7 @@ fn slice_cardinality(
     path: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let base = string(&resource.fields, "baseDefinition")
-        .map(|url| url.split_once('|').map_or(url, |(url, _)| url))
-        .and_then(|url| registry.structure_definition(url));
+    let base = base_definition(resource, registry);
     let by_id = |id: &str| {
         differential
             .iter()

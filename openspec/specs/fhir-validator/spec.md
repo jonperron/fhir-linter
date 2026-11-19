@@ -858,7 +858,7 @@ Les contraintes (invariants FHIRPath) des profils de `meta.profile` SHALL aussi 
 
 ### Requirement: Validation de profil — valeur fixe (PROFILE_004) et motif (PROFILE_005)
 
-Le système SHALL émettre `PROFILE_004` (erreur) pour chaque occurrence d'un élément dont l'élément de profil porte `fixed[x]` et qui n'est pas exactement cette valeur (égalité profonde : mêmes propriétés, tableaux élément par élément, nombres comparés comme décimaux exacts tels qu'écrits, chiffres et échelle : `3` et `3.00` ne correspondent pas à `3.0`, R5 elementdefinition.html : la valeur fixe « SHALL be exactly the value », datatypes.html : « 0.010 is regarded as different to 0.01 » ; le texte du nombre de la définition est conservé par `arbitrary_precision` de serde_json). Un élément absent SHALL NOT produire de constat. Le système SHALL émettre `PROFILE_005` (erreur) lorsqu'une occurrence ne suit pas `pattern[x]` (nombres comparés comme pour `fixed[x]` ; chaque propriété du motif présente et conforme récursivement ; chaque élément de tableau du motif correspond à un élément de l'instance ; propriétés et éléments supplémentaires autorisés). Le `path` SHALL être le chemin d'instance de l'occurrence. En XML, un enfant répétable unique (resté scalaire) SHALL être comparé comme un tableau d'un élément.
+Le système SHALL émettre `PROFILE_004` (erreur) pour chaque partie d'une occurrence d'un élément dont l'élément de profil porte `fixed[x]` qui n'est pas exactement la valeur fixe (ElementDefinition.fixed[x] : « all values must be an exact match (case and accent sensitive). Missing elements/attributes must also be missing. »). Les objets sont comparés propriété par propriété, récursivement : une propriété de valeur différente ou manquante SHALL produire une erreur à `<chemin de l'occurrence>.<propriété>` avec le message « Value at '<chemin>' must be exactly <JSON attendu>: the <clé fixedX> <JSON fixe> required by '<chemin de l'élément>' » ; une propriété présente dans l'instance mais absente de la valeur fixe SHALL produire une erreur à son chemin (« must be absent »). Les tableaux de même longueur sont comparés élément par élément à `<chemin>[i]` ; un nombre de répétitions différent, ou tout autre écart (valeur primitive, primitive avec `id` ou `extension`), SHALL produire une seule erreur au chemin courant. Les nombres sont comparés comme décimaux exacts tels qu'écrits, chiffres et échelle : `3` et `3.00` ne correspondent pas à `3.0` (R5 elementdefinition.html : la valeur fixe « SHALL be exactly the value », datatypes.html : « 0.010 is regarded as different to 0.01 » ; le texte du nombre de la définition est conservé par `arbitrary_precision` de serde_json). Un élément absent SHALL NOT produire de constat. Le système SHALL émettre `PROFILE_005` (erreur) lorsqu'une occurrence ne suit pas `pattern[x]` (nombres comparés comme pour `fixed[x]` ; chaque propriété du motif présente et conforme récursivement ; chaque élément de tableau du motif correspond à un élément de l'instance ; propriétés et éléments supplémentaires autorisés). Le `path` SHALL être le chemin d'instance de l'occurrence. En XML, un enfant répétable unique (resté scalaire) SHALL être comparé comme un tableau d'un élément.
 
 #### Scenario: Valeur fixe violée
 
@@ -867,8 +867,13 @@ Le système SHALL émettre `PROFILE_004` (erreur) pour chaque occurrence d'un é
 
 #### Scenario: Valeur fixe sur occurrence imbriquée
 
-- **WHEN** `Observation.referenceRange[0].high` diffère de la valeur fixée par le profil
-- **THEN** un `PROFILE_004` SHALL être émis à `Observation.referenceRange[0].high`
+- **WHEN** `Observation.referenceRange[0].high` diffère de la valeur fixée par le profil sur `value` et `unit`
+- **THEN** un `PROFILE_004` SHALL être émis à `Observation.referenceRange[0].high.value` et un autre à `Observation.referenceRange[0].high.unit`, aucun à `Observation.referenceRange[0].high`
+
+#### Scenario: Propriété en trop ou répétitions différentes
+
+- **WHEN** l'instance porte une propriété absente de la valeur fixe, ou un nombre de répétitions différent de celui de la valeur fixe
+- **THEN** un `PROFILE_004` SHALL être émis à la propriété en trop (« must be absent »), ou une seule erreur au chemin du tableau
 
 #### Scenario: Nombres égaux par valeur
 
@@ -979,7 +984,7 @@ Lorsque `type.profile` d'un élément nomme un profil pour le type du nœud (ex.
 
 ### Requirement: Exécution des manifestes de test officiels
 
-Le crate `fhir-validator` SHALL fournir un test d'intégration exécutant le manifeste `validator/manifest.json` de `fhir-test-cases` pour les cas R5 autonomes (sans `supporting`, `profile`, `profiles`, `packages`, `logical`), JSON (`parse_json`) et XML (`parse_xml`). Le résultat attendu SHALL provenir de l'entrée `java` : le fichier OperationOutcome qu'elle nomme sous `outcomes/`, un `outcome` en ligne ou `errorCount` ; le nombre d'erreurs attendues est le nombre d'issues `error` + `fatal`. Les cas que le manifeste déclare hors périmètre — clé `supporting5` (définitions supplémentaires non chargées) ou `for-publication` valant `true` ou `"true"` (règles de publication HL7) — SHALL être ignorés, comptés par format dans un compteur distinct « skipped (out of scope) » affiché dans le rapport, et exclus du dénominateur du taux de réussite. Les cas sans résultat attendu (fichier d'outcome nommé absent des fixtures) sont comptés comme ignorés ; un fichier d'outcome nommé présent mais illisible ou qui n'est pas un OperationOutcome SHALL faire échouer le test. Chaque cas est jugé sur « présence d'erreurs » contre « erreurs attendues » ; un échec d'analyse (y compris un fichier non UTF-8) compte comme « présence d'erreurs ». Les taux JSON et XML SHALL être affichés séparément (réussites, fausses erreurs, erreurs manquées, échecs d'analyse) et SHALL être au moins 0,87 pour JSON et 0,88 pour XML (planchers de régression). Le test SHALL échouer si, par format, les décomptes (cas jugés, ignorés sans résultat attendu, hors périmètre) diffèrent exactement de JSON (108, 1, 3) et XML (107, 1, 1) sur les fixtures épinglées (dérive des fixtures ou des filtres). En plus du jugement « présence d'erreurs » (inchangé), le test SHALL comparer, pour chaque cas jugé, le nombre de diagnostics de sévérité Error (un échec d'analyse compte pour 1) au nombre d'erreurs attendues (`errorCount` + `fatalCount`, ou issues `error` + `fatal` de l'`outcome` en ligne ou du fichier `outcomes/`), et afficher par format une table des écarts (cas, format, attendu, obtenu, delta) triée par |delta| décroissant puis par nom de fichier, avec un résumé matched/over/under. Le décompte ne SHALL jamais modifier le verdict réussite/échec d'un cas. Le test SHALL échouer si le nombre de cas concordants descend sous le plancher exact `MIN_ERROR_COUNT_MATCHES` = (78, 78) (JSON, XML), à relever à mesure que les décomptes convergent. Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le manifeste est absent, le test SHALL être ignoré.
+Le crate `fhir-validator` SHALL fournir un test d'intégration exécutant le manifeste `validator/manifest.json` de `fhir-test-cases` pour les cas R5 autonomes (sans `supporting`, `profile`, `profiles`, `packages`, `logical`), JSON (`parse_json`) et XML (`parse_xml`). Le résultat attendu SHALL provenir de l'entrée `java` : le fichier OperationOutcome qu'elle nomme sous `outcomes/`, un `outcome` en ligne ou `errorCount` ; le nombre d'erreurs attendues est le nombre d'issues `error` + `fatal`. Les cas que le manifeste déclare hors périmètre — clé `supporting5` (définitions supplémentaires non chargées) ou `for-publication` valant `true` ou `"true"` (règles de publication HL7) — SHALL être ignorés, comptés par format dans un compteur distinct « skipped (out of scope) » affiché dans le rapport, et exclus du dénominateur du taux de réussite. Les cas sans résultat attendu (fichier d'outcome nommé absent des fixtures) sont comptés comme ignorés ; un fichier d'outcome nommé présent mais illisible ou qui n'est pas un OperationOutcome SHALL faire échouer le test. Chaque cas est jugé sur « présence d'erreurs » contre « erreurs attendues » ; un échec d'analyse (y compris un fichier non UTF-8) compte comme « présence d'erreurs ». Les taux JSON et XML SHALL être affichés séparément (réussites, fausses erreurs, erreurs manquées, échecs d'analyse) et SHALL être au moins 0,87 pour JSON et 0,88 pour XML (planchers de régression). Le test SHALL échouer si, par format, les décomptes (cas jugés, ignorés sans résultat attendu, hors périmètre) diffèrent exactement de JSON (108, 1, 3) et XML (107, 1, 1) sur les fixtures épinglées (dérive des fixtures ou des filtres). En plus du jugement « présence d'erreurs » (inchangé), le test SHALL comparer, pour chaque cas jugé, le nombre de diagnostics de sévérité Error (un échec d'analyse compte pour 1) au nombre d'erreurs attendues (`errorCount` + `fatalCount`, ou issues `error` + `fatal` de l'`outcome` en ligne ou du fichier `outcomes/`), et afficher par format une table des écarts (cas, format, attendu, obtenu, delta) triée par |delta| décroissant puis par nom de fichier, avec un résumé matched/over/under. Le décompte ne SHALL jamais modifier le verdict réussite/échec d'un cas. Le test SHALL échouer si le nombre de cas concordants descend sous le plancher exact `MIN_ERROR_COUNT_MATCHES` = (78, 79) (JSON, XML), à relever à mesure que les décomptes convergent. Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le manifeste est absent, le test SHALL être ignoré.
 
 #### Scenario: Taux de réussite sous le plancher
 
@@ -1003,7 +1008,7 @@ Le crate `fhir-validator` SHALL fournir un test d'intégration exécutant le man
 
 #### Scenario: Plancher de concordance des décomptes
 
-- **WHEN** le nombre de cas concordants JSON ou XML est inférieur à 78
+- **WHEN** le nombre de cas concordants JSON ou XML est inférieur à son plancher (78 pour JSON, 79 pour XML)
 - **THEN** le test SHALL échouer
 
 ---
@@ -1582,6 +1587,48 @@ Pour toute StructureDefinition (ressource racine ou intégrée) dont `derivation
 
 - **WHEN** une StructureDefinition de type Extension a pour `baseDefinition` une autre extension et `derivation` `constraint`, avec `meaningWhenMissing` dans le différentiel
 - **THEN** une erreur `DEFINITION_001` SHALL être émise
+
+### Requirement: Validation des profils — contentReference modifié (DEFINITION_006)
+
+Pour toute StructureDefinition dont `derivation` vaut `constraint` et dont la `baseDefinition` (sans `|version`) figure dans le Registry, le système SHALL émettre une erreur `DEFINITION_006` pour chaque `differential.element[i]` qui renseigne `contentReference` lorsque l'élément de même chemin existe dans le snapshot de base et que le chemin référencé (après le dernier `#`) diffère de celui de l'élément de base (ou que ce dernier n'en a pas), au `path` `<ressource>.differential.element[<i>].contentReference`. Selon ElementDefinition.contentReference : « ContentReferences can only be defined in specializations, not constrained types, and they cannot be changed ». Aucun diagnostic SHALL être émis pour une spécialisation, pour une même cible (forme `#chemin` ou canonique `<url>#chemin`), ni si l'élément de base est introuvable.
+
+#### Scenario: contentReference changé par un profil
+
+- **WHEN** un profil `constraint` renseigne `contentReference` vers un chemin différent de celui de l'élément de base
+- **THEN** une erreur `DEFINITION_006` SHALL être émise à `<ressource>.differential.element[<i>].contentReference`
+
+#### Scenario: contentReference inchangé ou hors périmètre
+
+- **WHEN** la cible est la même (nue ou canonique), la définition est une spécialisation, ou l'élément de base est introuvable
+- **THEN** aucun Diagnostic `DEFINITION_006` SHALL être émis
+
+### Requirement: Validation des profils — orderMeaning ajouté (DEFINITION_007)
+
+Pour toute StructureDefinition dont `derivation` vaut `constraint` et dont la `baseDefinition` est dans le Registry, le système SHALL émettre une erreur `DEFINITION_007` à `<ressource>.differential.element[<i>].orderMeaning` lorsque l'élément renseigne `orderMeaning` alors que l'élément de base de même chemin n'en a pas (ElementDefinition.orderMeaning : « if absent in the base type, a profile cannot assert meaning »). Aucun diagnostic SHALL être émis si la base porte `orderMeaning` (raffinement, ex. Bundle.entry) ni pour une spécialisation.
+
+#### Scenario: orderMeaning ajouté
+
+- **WHEN** un profil `constraint` renseigne `orderMeaning` sur un élément dont la base n'en a pas
+- **THEN** une erreur `DEFINITION_007` SHALL être émise à `<ressource>.differential.element[<i>].orderMeaning`
+
+#### Scenario: orderMeaning raffiné ou spécialisation
+
+- **WHEN** la base porte déjà `orderMeaning`, ou la définition est une spécialisation
+- **THEN** aucun Diagnostic `DEFINITION_007` SHALL être émis
+
+### Requirement: Validation des profils — isModifier changé (DEFINITION_008)
+
+Pour tout profil (même périmètre et même exemption que DEFINITION_001 : une nouvelle définition d'extension est exemptée) dont la `baseDefinition` est dans le Registry, le système SHALL émettre une erreur `DEFINITION_008` à `<ressource>.differential.element[<i>].isModifier` lorsque l'élément énonce `isModifier` (booléen JSON, ou « true »/« false » en XML) différent de celui de l'élément de base de même chemin (ElementDefinition.isModifier : « Once set, it cannot be changed in derived profiles (except in the special case of the defining a new extension) »). Aucun diagnostic SHALL être émis si la valeur est égale ni pour une définition d'extension.
+
+#### Scenario: isModifier changé
+
+- **WHEN** un profil énonce `isModifier` à une valeur différente de celle de l'élément de base
+- **THEN** une erreur `DEFINITION_008` SHALL être émise à `<ressource>.differential.element[<i>].isModifier`
+
+#### Scenario: isModifier égal ou extension
+
+- **WHEN** la valeur est égale à celle de la base, ou la définition est une nouvelle extension
+- **THEN** aucun Diagnostic `DEFINITION_008` SHALL être émis
 
 ### Requirement: Validation des profils — cardinalité des tranches (DEFINITION_002)
 

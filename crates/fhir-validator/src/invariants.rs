@@ -174,6 +174,8 @@ mod tests {
                 max_length: None,
                 min_value: None,
                 max_value: None,
+                is_modifier: false,
+                order_meaning: false,
             }],
         )
     }

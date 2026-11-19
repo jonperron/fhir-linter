@@ -54,7 +54,9 @@ const EXPECTED_XML_COUNTS: (u32, u32, u32) = (107, 1, 1);
 
 /// (JSON, XML) judged cases whose error count equals the expected one, measured on
 /// the pinned fixtures with no slack; raise them as counts converge.
-const MIN_ERROR_COUNT_MATCHES: (u32, u32) = (78, 78);
+// (78, 78) -> (78, 79): observation-cholesterol-bad-wrongcode.xml, once PROFILE_004 names
+// each part that breaks a fixed value.
+const MIN_ERROR_COUNT_MATCHES: (u32, u32) = (78, 79);
 
 fn fixtures_dir() -> PathBuf {
     std::env::var_os("FHIR_FIXTURES_DIR").map_or_else(

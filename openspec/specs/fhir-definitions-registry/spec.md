@@ -390,6 +390,15 @@ Chaque `ElementDefinition` SHALL exposer `fixed`, `pattern`, `min_value`, `max_v
 - **WHEN** un élément ne porte que `_fixedCode`
 - **THEN** `fixed` SHALL être `None`
 
+### Requirement: isModifier et orderMeaning
+
+Chaque `ElementDefinition` SHALL exposer `is_modifier: bool` (absent = `false`) et `order_meaning: bool` (vrai lorsque `orderMeaning` est présent).
+
+#### Scenario: Indicateurs chargés
+
+- **WHEN** un élément déclare `isModifier: true` et un `orderMeaning`
+- **THEN** `is_modifier` et `order_meaning` SHALL être vrais ; sans ces champs, ils SHALL être faux
+
 ### Requirement: Slicing et longueur maximale
 
 Chaque `ElementDefinition` SHALL exposer `slicing: Option<Box<Slicing>>` avec `discriminators: Vec<Discriminator{kind, path}>`, `rules` et `ordered` (défaut `false`), ainsi que `max_length: Option<u32>`. Un slicing sans `rules`, ou un discriminateur sans `type` ou `path`, SHALL faire échouer le chargement du bundle avec `MalformedBundle` nommant l'élément.

@@ -210,6 +210,8 @@ fn parse_element_definition(
             .and_then(|n| u32::try_from(n).ok()),
         min_value: choice_value(elem, "minValue"),
         max_value: choice_value(elem, "maxValue"),
+        is_modifier: elem["isModifier"].as_bool().unwrap_or(false),
+        order_meaning: elem["orderMeaning"].is_string(),
     })
 }
 

@@ -168,6 +168,10 @@ pub struct ElementDefinition {
     pub min_value: Option<Box<ChoiceValue>>,
     /// `maxValue[x]`: the highest allowed value.
     pub max_value: Option<Box<ChoiceValue>>,
+    /// `isModifier`: the element's value changes the meaning of what holds it.
+    pub is_modifier: bool,
+    /// Whether `orderMeaning` is present: the order of the repetitions has a meaning.
+    pub order_meaning: bool,
 }
 
 /// `ElementDefinition.slicing`.
@@ -331,6 +335,8 @@ mod tests {
             max_length: None,
             min_value: None,
             max_value: None,
+            is_modifier: false,
+            order_meaning: false,
         }
     }
 
