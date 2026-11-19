@@ -573,11 +573,15 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
             Ok(x.as_decimal().cmp(&y.as_decimal()))
         }
         (Value::String(x), Value::String(y)) => Ok(x.cmp(y)),
-        // shortcut: sort/min/max order date-times by text (total, but zones are not
-        // normalised); operators use `operator_order`. Upgrade when sort needs zones.
-        (Value::Date(x), Value::Date(y))
-        | (Value::DateTime(x), Value::DateTime(y))
-        | (Value::Time(x), Value::Time(y)) => Ok(x.cmp(y)),
+        // Operator semantics (zones normalised); an unknown order cannot be sorted.
+        (x @ (Value::Date(_) | Value::DateTime(_)), y @ (Value::Date(_) | Value::DateTime(_)))
+        | (x @ Value::Time(_), y @ Value::Time(_)) => temporal_order(x, y).ok_or_else(|| {
+            EvalError::Type(format!(
+                "cannot order {} and {}: different precision or zone",
+                x.type_name(),
+                y.type_name()
+            ))
+        }),
         (lhs @ Value::Quantity(_, xu), rhs @ Value::Quantity(_, yu)) => {
             match quantity_values(lhs, rhs, false) {
                 Some(Some((x, y))) => Ok(x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal)),
@@ -592,6 +596,54 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
             b.type_name()
         ))),
     }
+}
+
+/// min() / max() order (v3: "Comparison semantics are defined by the
+/// Comparison Operators"); `None` when date/time precision leaves it
+/// unknown. §min1: items of different types (a Date and a DateTime too)
+/// are an error.
+pub(super) fn min_max_order(a: &Value, b: &Value) -> Result<Option<std::cmp::Ordering>, EvalError> {
+    match (a.primitive_value(), b.primitive_value()) {
+        (x @ Value::Date(_), y @ Value::DateTime(_))
+        | (x @ Value::DateTime(_), y @ Value::Date(_)) => Err(EvalError::Type(format!(
+            "min() and max() need items of one type, got {} and {}",
+            x.type_name(),
+            y.type_name()
+        ))),
+        (x @ Value::Date(_), y @ Value::Date(_))
+        | (x @ Value::DateTime(_), y @ Value::DateTime(_))
+        | (x @ Value::Time(_), y @ Value::Time(_)) => Ok(temporal_order(x, y)),
+        _ => compare_values(a, b).map(Some),
+    }
+}
+
+/// Stable merge sort that stops at the first comparison error. `sort_by`
+/// cannot: it needs a total order and may panic without one (Rust 1.81+).
+pub(super) fn try_sort_by<T>(
+    items: Vec<T>,
+    compare: &mut impl FnMut(&T, &T) -> Result<std::cmp::Ordering, EvalError>,
+) -> Result<Vec<T>, EvalError> {
+    if items.len() <= 1 {
+        return Ok(items);
+    }
+    let mut left = items;
+    let right = left.split_off(left.len() / 2);
+    let left = try_sort_by(left, compare)?;
+    let right = try_sort_by(right, compare)?;
+    let mut merged = Vec::with_capacity(left.len() + right.len());
+    let (mut left, mut right) = (left.into_iter().peekable(), right.into_iter().peekable());
+    while let (Some(l), Some(r)) = (left.peek(), right.peek()) {
+        // Ties keep the left item first, so the sort is stable.
+        let next = if compare(r, l)? == std::cmp::Ordering::Less {
+            right.next()
+        } else {
+            left.next()
+        };
+        merged.extend(next);
+    }
+    merged.extend(left);
+    merged.extend(right);
+    Ok(merged)
 }
 
 // ── Boolean helpers ───────────────────────────────────────────────────────────

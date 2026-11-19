@@ -7,9 +7,11 @@ use super::Evaluator;
 use super::helpers::{
     as_type, check_arity, check_arity_range, check_collection_len, check_known_content,
     check_type_name, collect_descendants, compare_values, criteria_bool, distinct, distinct_last,
-    eval_type_name, is_distinct, is_type, optional_integer, primitive_values, value_is_type,
+    eval_type_name, is_distinct, is_type, min_max_order, optional_integer, primitive_values,
+    singleton, try_sort_by, value_is_type,
 };
 use super::value_set::ValueSet;
+use std::cmp::Ordering;
 
 impl Evaluator<'_> {
     /// Handle collection, existence, filtering, aggregation, and navigation functions.
@@ -346,12 +348,16 @@ impl Evaluator<'_> {
                     return Ok(Some(vec![]));
                 }
                 let mut min = focus[0].clone();
+                // Keep scanning after an undecided pair: a later type error still surfaces.
+                let mut undecided = false;
                 for v in &focus[1..] {
-                    if compare_values(v, &min)? == std::cmp::Ordering::Less {
-                        min = v.clone();
+                    match min_max_order(v, &min)? {
+                        Some(Ordering::Less) => min = v.clone(),
+                        Some(_) => {}
+                        None => undecided = true,
                     }
                 }
-                vec![min]
+                if undecided { vec![] } else { vec![min] }
             }
             "max" => {
                 check_arity(name, args, 0)?;
@@ -359,12 +365,16 @@ impl Evaluator<'_> {
                     return Ok(Some(vec![]));
                 }
                 let mut max = focus[0].clone();
+                // Keep scanning after an undecided pair: a later type error still surfaces.
+                let mut undecided = false;
                 for v in &focus[1..] {
-                    if compare_values(v, &max)? == std::cmp::Ordering::Greater {
-                        max = v.clone();
+                    match min_max_order(v, &max)? {
+                        Some(Ordering::Greater) => max = v.clone(),
+                        Some(_) => {}
+                        None => undecided = true,
                     }
                 }
-                vec![max]
+                if undecided { vec![] } else { vec![max] }
             }
             "avg" => {
                 check_arity(name, args, 0)?;
@@ -388,41 +398,7 @@ impl Evaluator<'_> {
                 }
                 vec![Value::Decimal(sum.checked_div(count).ok_or_else(overflow)?)]
             }
-            "sort" => {
-                check_arity_range(name, args, 0, 1)?;
-                let mut items = focus.to_vec();
-                if args.is_empty() {
-                    let mut sort_error: Option<EvalError> = None;
-                    items.sort_by(|a, b| {
-                        compare_values(a, b).unwrap_or_else(|e| {
-                            sort_error = Some(e);
-                            std::cmp::Ordering::Equal
-                        })
-                    });
-                    if let Some(e) = sort_error {
-                        return Err(e);
-                    }
-                    items
-                } else {
-                    let mut keys: Vec<Value> = Vec::with_capacity(items.len());
-                    for (index, item) in items.iter().enumerate() {
-                        let key_col = self.eval_item(&args[0], item, index)?;
-                        keys.push(key_col.into_iter().next().unwrap_or(Value::Null));
-                    }
-                    let mut indices: Vec<usize> = (0..items.len()).collect();
-                    let mut sort_error: Option<EvalError> = None;
-                    indices.sort_by(|&i, &j| {
-                        compare_values(&keys[i], &keys[j]).unwrap_or_else(|e| {
-                            sort_error = Some(e);
-                            std::cmp::Ordering::Equal
-                        })
-                    });
-                    if let Some(e) = sort_error {
-                        return Err(e);
-                    }
-                    indices.into_iter().map(|i| items[i].clone()).collect()
-                }
-            }
+            "sort" => self.sort(focus, args)?,
 
             // ── Navigation ────────────────────────────────────────────────
             // Checked per item: many copies of one node would otherwise expand
@@ -451,6 +427,91 @@ impl Evaluator<'_> {
             _ => return Ok(None),
         };
         Ok(Some(col))
+    }
+
+    /// FHIRPath v3 `sort([keySelector [asc | desc], ...])`. No selector
+    /// sorts the items themselves; an empty key is lower than any value.
+    fn sort(&self, focus: &[Value], args: &[Expr]) -> Result<Collection, EvalError> {
+        let selectors: Vec<(Option<&Expr>, bool, bool)> = if args.is_empty() {
+            vec![(None, false, false)]
+        } else {
+            args.iter()
+                .map(|arg| match arg {
+                    Expr::Descending(key) => (key.as_ref(), true),
+                    key => (key, false),
+                })
+                .map(|(key, descending)| {
+                    let (key, negated) = negated_key(key, false);
+                    (Some(key), negated, descending)
+                })
+                .collect()
+        };
+        let indices = self.sort_by_keys((0..focus.len()).collect(), focus, &selectors)?;
+        Ok(indices.into_iter().map(|i| focus[i].clone()).collect())
+    }
+
+    /// Sorts `indices` by the first selector, then each run of ties by the
+    /// rest, so a later key is only evaluated where earlier keys tied. Only
+    /// one level's keys are held at a time: memory stays linear in the input.
+    fn sort_by_keys(
+        &self,
+        indices: Vec<usize>,
+        focus: &[Value],
+        selectors: &[(Option<&Expr>, bool, bool)],
+    ) -> Result<Vec<usize>, EvalError> {
+        let Some((&(selector, negated, descending), rest)) = selectors.split_first() else {
+            return Ok(indices);
+        };
+        let mut keyed = Vec::with_capacity(indices.len());
+        for index in indices {
+            let col = match selector {
+                Some(expr) => self.eval_item(expr, &focus[index], index)?,
+                None => vec![focus[index].clone()],
+            };
+            keyed.push((index, singleton(&col, "sort() key")?.cloned()));
+        }
+        let compare = |a: &Option<Value>, b: &Option<Value>| -> Result<Ordering, EvalError> {
+            let order = match (a, b) {
+                (None, None) => Ordering::Equal,
+                (None, Some(_)) => Ordering::Less,
+                (Some(_), None) => Ordering::Greater,
+                (Some(a), Some(b)) if negated => compare_values(b, a)?,
+                (Some(a), Some(b)) => compare_values(a, b)?,
+            };
+            Ok(if descending { order.reverse() } else { order })
+        };
+        let keyed = try_sort_by(keyed, &mut |(_, a), (_, b)| compare(a, b))?;
+        let mut runs: Vec<Vec<usize>> = Vec::new();
+        for (position, (index, key)) in keyed.iter().enumerate() {
+            let ties_previous = match position.checked_sub(1) {
+                Some(previous) => compare(&keyed[previous].1, key)? == Ordering::Equal,
+                None => false,
+            };
+            match runs.last_mut() {
+                Some(run) if ties_previous => run.push(*index),
+                _ => runs.push(vec![*index]),
+            }
+        }
+        drop(keyed);
+        let mut sorted = Vec::new();
+        for run in runs {
+            if run.len() > 1 {
+                sorted.extend(self.sort_by_keys(run, focus, rest)?);
+            } else {
+                sorted.extend(run);
+            }
+        }
+        Ok(sorted)
+    }
+}
+
+/// A sort key without its `-` prefixes, and whether they negate it. Official
+/// testSort8 and testSort10 negate keys of any orderable type, String
+/// included; a negated empty key stays empty, so still lowest (testSort10).
+fn negated_key(expr: &Expr, negated: bool) -> (&Expr, bool) {
+    match expr {
+        Expr::Neg(inner) => negated_key(inner, !negated),
+        _ => (expr, negated),
     }
 }
 

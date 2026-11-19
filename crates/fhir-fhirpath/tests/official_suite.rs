@@ -78,17 +78,19 @@ use quick_xml::events::{BytesStart, Event};
 /// (#162), opt-in strict navigation (#163), conformsTo() (#164) and exact
 /// decimals that keep their written scale (#165), then to 1199 by a Date
 /// against a zoned DateTime answering when every offset agrees (testNow1,
-/// testDateTimeGreaterThanDate1).
-const MIN_PASSED: u32 = 1199;
+/// testDateTimeGreaterThanDate1), then to 1201 by sort() with several keys
+/// and a `-` prefix on any orderable key (testSort8, testSort10).
+const MIN_PASSED: u32 = 1201;
 
 /// Cases that must pass whatever the total: the boundary functions behind
 /// the FHIR per-1, rng-2 and ratrng-2 invariants, exact decimals (#165),
 /// FHIR types on complex values (#162), strict navigation (#163) and
 /// conformsTo() (#164), UCUM in comparable() (Comparable1), the sign of a
 /// negated zero (HighBoundaryDecimal16) and a Date against a zoned DateTime
-/// (testNow1, testDateTimeGreaterThanDate1). Not listed: `@2014` as a
+/// (testNow1, testDateTimeGreaterThanDate1), and multi-key sort()
+/// (testSort8, testSort10). Not listed: `@2014` as a
 /// dateTime (N2 returns a Date for a Date).
-const REQUIRED_PASSING: [&str; 89] = [
+const REQUIRED_PASSING: [&str; 91] = [
     "Comparable1",
     "Comparable2",
     "Comparable3",
@@ -178,6 +180,8 @@ const REQUIRED_PASSING: [&str; 89] = [
     "testPolymorphismIsA2",
     "testSimpleFail",
     "testSimpleWithWrongContext",
+    "testSort8",
+    "testSort10",
 ];
 
 /// (run, skipped) case counts on the pinned fixtures, so loader drift or a

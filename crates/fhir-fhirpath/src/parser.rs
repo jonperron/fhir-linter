@@ -368,7 +368,23 @@ fn build_func_call(pair: Pair<Rule>) -> Result<Expr, ParseError> {
 fn parse_func_call_inner(pair: Pair<Rule>) -> Result<(String, Vec<Expr>), ParseError> {
     let mut iter = pair.into_inner();
     let name = ident_name(&iter.next().ok_or_else(missing)?);
-    let args = iter.map(build_expr).collect::<Result<Vec<_>, _>>()?;
+    let mut args = Vec::new();
+    for arg in iter {
+        if arg.as_rule() != Rule::sort_direction {
+            args.push(build_expr(arg)?);
+            continue;
+        }
+        if name != "sort" {
+            return Err(ParseError::Syntax(format!(
+                "'{}' is only allowed in sort(), not in {name}()",
+                arg.as_str()
+            )));
+        }
+        if arg.as_str() == "desc" {
+            let key = args.pop().ok_or_else(missing)?;
+            args.push(Expr::Descending(Box::new(key)));
+        }
+    }
     Ok((name, args))
 }
 

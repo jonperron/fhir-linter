@@ -53,6 +53,8 @@ pub enum Expr {
     Concat(Box<Expr>, Box<Expr>),
     /// Unary negation.
     Neg(Box<Expr>),
+    /// A sort() key selector qualified with `desc` (FHIRPath v3).
+    Descending(Box<Expr>),
 
     // ── Comparisons ─────────────────────────────────────────────────────────
     Eq(Box<Expr>, Box<Expr>),
