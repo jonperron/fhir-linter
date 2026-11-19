@@ -109,7 +109,10 @@ fn matches(value: &FhirPathValue, expected: &Json, exact: bool) -> bool {
             Some(e) => *i == e,
             None => e.as_f64() == Some(*i as f64),
         },
-        (FhirPathValue::Decimal(d), Json::Number(e)) => e.as_f64() == Some(*d),
+        (FhirPathValue::Decimal(d), Json::Number(e)) => e
+            .to_string()
+            .parse::<fhir_fhirpath::Decimal>()
+            .is_ok_and(|e| e == *d),
         (_, Json::String(e)) => value.as_string().is_some_and(|s| *s == **e),
         _ => false,
     }

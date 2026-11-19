@@ -15,28 +15,25 @@ fn text(s: &str) -> Arc<str> {
 #[test]
 fn decimal_boundaries_follow_the_input_precision() {
     let cases = [
-        ("1.587.lowBoundary()", 1.5865),
-        ("1.587.lowBoundary(2)", 1.58),
-        ("1.587.lowBoundary(0)", 1.0),
-        ("1.587.highBoundary()", 1.5875),
-        ("1.587.highBoundary(2)", 1.59),
-        ("(-1.587).lowBoundary(2)", -1.59),
-        ("(-1.587).highBoundary(2)", -1.58),
-        ("(-9.96).lowBoundary(1)", -10.0),
-        ("99.96.highBoundary(1)", 100.0),
-        ("0.0034.highBoundary(1)", 0.0),
-        ("1.lowBoundary(5)", 0.5),
-        ("120.lowBoundary(2)", 119.5),
-        ("10.lowBoundary(0)", 9.0),
+        ("1.587.lowBoundary()", "1.5865"),
+        ("1.587.lowBoundary(2)", "1.58"),
+        ("1.587.lowBoundary(0)", "1.0"),
+        ("1.587.highBoundary()", "1.5875"),
+        ("1.587.highBoundary(2)", "1.59"),
+        ("(-1.587).lowBoundary(2)", "-1.59"),
+        ("(-1.587).highBoundary(2)", "-1.58"),
+        ("(-9.96).lowBoundary(1)", "-10.0"),
+        ("99.96.highBoundary(1)", "100.0"),
+        ("0.0034.highBoundary(1)", "0.0"),
+        ("1.lowBoundary(5)", "0.5"),
+        ("120.lowBoundary(2)", "119.5"),
+        ("10.lowBoundary(0)", "9.0"),
     ];
     for (expr, expected) in cases {
-        assert_eq!(eval(expr), [Value::Decimal(expected)], "{expr}");
+        assert_eq!(eval(expr), [Value::Decimal(dec(expected))], "{expr}");
     }
-    // The sign of a zero boundary below a negative value is kept.
-    let [Value::Decimal(zero)] = eval("(-0.0034).lowBoundary(1)")[..] else {
-        panic!("not a Decimal");
-    };
-    assert!(zero == 0.0 && zero.is_sign_negative());
+    // N1 Decimal has no negative zero: the boundary below -0.0034 is 0.0.
+    assert_eq!(texts("(-0.0034).lowBoundary(1)", &[]), ["0.0"]);
 }
 
 #[test]
@@ -129,4 +126,47 @@ fn hour_only_literals_parse_and_short_parts_do_not() {
     for expr in ["@T1", "@2014-01-01T8", "@T10:3"] {
         assert!(evaluate(expr, &[]).is_err(), "{expr}");
     }
+}
+
+/// One-item results as text, so the written scale (`12.4995`, `155.0`) is checked.
+fn texts(expr: &str, input: &[Value]) -> Vec<String> {
+    let result = evaluate(expr, input).unwrap_or_else(|e| panic!("{expr}: {e}"));
+    result.iter().map(ToString::to_string).collect()
+}
+
+#[test]
+fn decimal_precision_and_boundaries_keep_the_written_scale() {
+    // FHIRPath N1: Decimal is exact; trailing zeros are precision.
+    assert_eq!(eval("1.58700.precision()"), [Value::Integer(5)]);
+    assert_eq!(texts("12.500.lowBoundary(4)", &[]), ["12.4995"]);
+    assert_eq!(texts("12.500.highBoundary(4)", &[]), ["12.5005"]);
+    assert_eq!(texts("1.587.lowBoundary()", &[]), ["1.58650000"]);
+    assert_eq!(texts("(1.8 - 1.2) + 1.2 mod 0.5", &[]), ["0.8"]);
+}
+
+#[test]
+fn exponent_decimals_take_their_precision_from_the_mantissa() {
+    // FHIR R5 decimals may carry an exponent; 9.5e2 is precise to the tens.
+    let json = r#"{"resourceType":"Basic","a":9.5e2,"b":-9.5e2,"c":1.5e-3,"d":1.5E2}"#;
+    let input = [fhir_fhirpath::resource_to_value(
+        &fhir_parser::parse_json(json).unwrap(),
+    )];
+    let cases = [
+        ("a.lowBoundary(0)", "945"),
+        ("a.highBoundary(0)", "955"),
+        ("a.highBoundary()", "955.00000000"),
+        ("b.lowBoundary(0)", "-955"),
+        ("b.highBoundary(0)", "-945"),
+        ("c.lowBoundary()", "0.00145000"),
+        ("d.lowBoundary(1)", "145.0"),
+        ("d.highBoundary(1)", "155.0"),
+        ("a + 0", "950"),
+    ];
+    for (expr, expected) in cases {
+        assert_eq!(texts(expr, &input), [expected], "{expr}");
+    }
+}
+
+fn dec(text: &str) -> fhir_fhirpath::Decimal {
+    text.parse().expect("decimal literal")
 }

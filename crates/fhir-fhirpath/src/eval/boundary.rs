@@ -6,6 +6,7 @@ use std::sync::Arc;
 use crate::ast::Expr;
 use crate::error::EvalError;
 use crate::value::{Collection, Value};
+use crate::{Decimal, Rounding};
 
 use super::Evaluator;
 use super::helpers::{
@@ -120,11 +121,9 @@ fn boundary(item: &Value, bound: Bound, precision: Option<i64>) -> Option<Value>
     };
     match item {
         Value::Integer(n) | Value::Long(n) => {
-            decimal_boundary(&n.to_string(), bound, precision).map(Value::Decimal)
+            decimal_boundary(Decimal::from(*n), bound, precision).map(Value::Decimal)
         }
-        Value::Decimal(d) if d.is_finite() => {
-            decimal_boundary(&d.to_string(), bound, precision).map(Value::Decimal)
-        }
+        Value::Decimal(d) => decimal_boundary(*d, bound, precision).map(Value::Decimal),
         Value::Date(text) => temporal(text, Temporal::Date).map(|t| Value::Date(t.into())),
         Value::DateTime(text) => {
             temporal(text, Temporal::DateTime).map(|t| Value::DateTime(t.into()))
@@ -133,7 +132,7 @@ fn boundary(item: &Value, bound: Bound, precision: Option<i64>) -> Option<Value>
         other => {
             // N2: the Decimal boundary of the value, with the original unit.
             let (value, unit) = as_quantity(other)?;
-            let boundary = decimal_boundary(&value.to_string(), bound, precision)?;
+            let boundary = decimal_boundary(Decimal::from_f64(value)?, bound, precision)?.to_f64();
             // A unitless FHIR Quantity has unit '1', as in toQuantity().
             Some(Value::Quantity(boundary, Arc::from(unit.unwrap_or("1"))))
         }
@@ -159,60 +158,38 @@ fn precision(name: &str, args: &[Expr], focus: &[Value]) -> Result<Collection, E
                 .filter(u8::is_ascii_digit)
                 .count()
         }
-        // shortcut: the f64 drops trailing zeros (`1.50` gives 1); exact once
-        // Decimal keeps its scale.
-        Value::Decimal(d) if d.is_finite() => d
-            .to_string()
-            .split_once('.')
-            .map_or(0, |(_, fraction)| fraction.len()),
+        Value::Decimal(d) => usize::try_from(d.scale()).unwrap_or(0),
         _ => return Ok(vec![]),
     };
     Ok(vec![Value::Integer(digits as i64)])
 }
 
-/// The boundary of a decimal text, half a unit of its last digit away,
-/// cut to `precision` decimal places the way the official suite expects:
-/// truncated towards zero, and rounded half up away from zero.
-/// shortcut: `Value::Decimal` is an f64, so trailing zeros (`12.500`) and
-/// exponents (`9.5e2`) of the source text are lost and the precision comes
-/// from the shortest f64 text; values beyond i128 give empty. Upgrade when
-/// Value keeps the decimal text.
-fn decimal_boundary(text: &str, bound: Bound, precision: Option<i64>) -> Option<f64> {
+/// The boundary of a decimal, half a unit of its last written digit away
+/// (`9.5e2` is precise to the tens), at `precision` places the way the
+/// official suite expects: truncated towards zero, and rounded half up away
+/// from zero. Overflow gives empty.
+fn decimal_boundary(value: Decimal, bound: Bound, precision: Option<i64>) -> Option<Decimal> {
     let precision = precision.unwrap_or(DECIMAL_DEFAULT_PRECISION);
     if !(0..=DECIMAL_MAX_PRECISION).contains(&precision) {
         return None;
     }
-    let (negative, magnitude) = match text.strip_prefix('-') {
-        Some(magnitude) => (true, magnitude),
-        None => (false, text),
-    };
-    let (whole, fraction) = magnitude.split_once('.').unwrap_or((magnitude, ""));
+    let negative = value.mantissa() < 0;
     // One digit past the input's own precision holds the half unit.
-    let scale = i64::try_from(fraction.len()).ok()? + 1;
-    let units = format!("{whole}{fraction}")
-        .parse::<i128>()
-        .ok()?
-        .checked_mul(10)?;
+    let units = value.mantissa().checked_abs()?.checked_mul(10)?;
+    let scale = value.scale().checked_add(1)?;
     // Below a negative value the magnitude grows: low(-x) is -high(x).
     let away_from_zero = (bound == Bound::High) != negative;
-    let edge = if away_from_zero {
-        units.checked_add(5)?
+    let (edge, rounding) = if away_from_zero {
+        (units.checked_add(5)?, Rounding::HalfAwayFromZero)
     } else {
-        units - 5
+        (units - 5, Rounding::TowardZero)
     };
-    let (digits, places) = if precision >= scale {
-        (edge, scale)
+    let cut = Decimal::new(edge, scale).rescale(i32::try_from(precision).ok()?, rounding)?;
+    if negative {
+        cut.checked_neg()
     } else {
-        let divisor = 10i128.checked_pow(u32::try_from(scale - precision).ok()?)?;
-        let cut = if away_from_zero {
-            edge.checked_add(divisor / 2)? / divisor
-        } else {
-            edge / divisor
-        };
-        (cut, precision)
-    };
-    let value: f64 = format!("{digits}e-{places}").parse().ok()?;
-    Some(if negative { -value } else { value })
+        Some(cut)
+    }
 }
 
 /// The boundary of a date, date-time or time text at `precision` digits:

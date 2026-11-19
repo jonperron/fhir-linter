@@ -391,7 +391,7 @@ fn parse_long(pair: Pair<Rule>) -> Result<Expr, ParseError> {
 
 fn parse_decimal(pair: Pair<Rule>) -> Result<Expr, ParseError> {
     let s = pair.into_inner().next().ok_or_else(missing)?.as_str();
-    s.parse::<f64>()
+    s.parse::<crate::Decimal>()
         .map(Expr::Decimal)
         .map_err(|_| ParseError::Syntax(format!("invalid decimal: {s}")))
 }

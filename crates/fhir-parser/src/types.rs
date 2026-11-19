@@ -31,7 +31,7 @@ pub enum Value {
     Null,
     Bool(bool),
     Integer(i64),
-    Decimal(f64),
+    Decimal(crate::Decimal),
     Str(Arc<str>),
     Array(Vec<Node>),
     Object(IndexMap<Arc<str>, Node>),

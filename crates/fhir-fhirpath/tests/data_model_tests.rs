@@ -378,7 +378,7 @@ fn aggregates_skip_primitives_without_a_value() {
     assert_eq!(bools(&one("x.allTrue()")), [true]);
     assert_eq!(bools(&one("x.anyFalse()")), [false]);
     assert_eq!(one("n.sum()"), vec![Value::Integer(2)]);
-    assert_eq!(one("n.avg()"), vec![Value::Decimal(2.0)]);
+    assert_eq!(one("n.avg()"), vec![Value::Decimal(dec("2.0"))]);
     assert_eq!(one("n.min()"), vec![Value::Integer(2)]);
     assert_eq!(one("n.max()"), vec![Value::Integer(2)]);
 }
@@ -389,4 +389,8 @@ fn get_value_gives_only_primitive_values() {
     assert!(evaluate("name.getValue()", &ctx).unwrap().is_empty());
     let family = evaluate("name.family.getValue()", &ctx).unwrap();
     assert_eq!(family, vec![Value::String(Arc::from("F"))]);
+}
+
+fn dec(text: &str) -> fhir_fhirpath::Decimal {
+    text.parse().expect("decimal literal")
 }

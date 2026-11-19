@@ -2,6 +2,7 @@ use std::sync::{Arc, LazyLock};
 
 use regex_lite::Regex;
 
+use crate::Decimal;
 use crate::ast::Expr;
 use crate::error::EvalError;
 use crate::value::{Collection, Value, calendar_unit, is_calendar_date, quantity_unit_factor};
@@ -156,7 +157,7 @@ fn to_quantity(item: &Value) -> Option<Value> {
     let (value, unit) = match item {
         Value::Quantity(..) => return Some(item.clone()),
         Value::Integer(n) => (*n as f64, "1"),
-        Value::Decimal(d) if d.is_finite() => (*d, "1"),
+        Value::Decimal(d) => (d.to_f64(), "1"),
         Value::Bool(b) => (f64::from(u8::from(*b)), "1"),
         Value::String(s) => {
             let captures = QUANTITY.as_ref()?.captures(s)?;
@@ -189,7 +190,7 @@ fn to_string(item: &Value) -> Option<Value> {
         Value::String(_) => return Some(item.clone()),
         Value::Bool(b) => b.to_string(),
         Value::Integer(n) | Value::Long(n) => n.to_string(),
-        Value::Decimal(d) if d.is_finite() => decimal_text(*d),
+        Value::Decimal(d) => decimal_text(*d),
         Value::Date(s) | Value::DateTime(s) | Value::Time(s) => s.to_string(),
         Value::Quantity(value, unit) => format!("{value} '{unit}'"),
         _ => return None,
@@ -202,13 +203,11 @@ fn finite(digits: &str) -> Option<f64> {
     digits.parse::<f64>().ok().filter(|d| d.is_finite())
 }
 
-/// A Decimal as `(\+|-)?\d+(.\d+)?`, always with a fraction so it stays
-/// distinct from an Integer (`1.0.toString()` is `'1.0'`).
-// shortcut: f64 keeps no literal precision, so `1.50` renders as `1.5`;
-// upgrade with a real decimal type.
-fn decimal_text(d: f64) -> String {
+/// A Decimal as `(\+|-)?\d+(.\d+)?` with its written places (`1.50` stays
+/// `'1.50'`), always with a fraction so it stays distinct from an Integer.
+fn decimal_text(d: Decimal) -> String {
     let text = d.to_string();
-    if text.contains('.') {
+    if text.contains(['.', 'e']) {
         text
     } else {
         format!("{text}.0")
@@ -220,9 +219,9 @@ fn decimal_text(d: f64) -> String {
 fn to_decimal(item: &Value) -> Option<Value> {
     match item {
         Value::Decimal(d) => Some(Value::Decimal(*d)),
-        Value::Integer(n) => Some(Value::Decimal(*n as f64)),
-        Value::Bool(b) => Some(Value::Decimal(if *b { 1.0 } else { 0.0 })),
-        Value::String(s) if full_match(&DECIMAL, s) => finite(s).map(Value::Decimal),
+        Value::Integer(n) => Some(Value::Decimal(Decimal::from(*n))),
+        Value::Bool(b) => Some(Value::Decimal(Decimal::new(i128::from(*b) * 10, 1))),
+        Value::String(s) if full_match(&DECIMAL, s) => s.parse().ok().map(Value::Decimal),
         _ => None,
     }
 }
@@ -234,8 +233,8 @@ fn to_boolean(item: &Value) -> Option<Value> {
         Value::Bool(b) => *b,
         Value::Integer(1) => true,
         Value::Integer(0) => false,
-        Value::Decimal(d) if *d == 1.0 => true,
-        Value::Decimal(d) if *d == 0.0 => false,
+        Value::Decimal(d) if *d == Decimal::from(1) => true,
+        Value::Decimal(d) if d.is_zero() => false,
         Value::String(s) => match s.to_ascii_lowercase().as_str() {
             "true" | "t" | "yes" | "y" | "1" | "1.0" => true,
             "false" | "f" | "no" | "n" | "0" | "0.0" => false,

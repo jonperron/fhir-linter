@@ -405,12 +405,14 @@ fn sort_key_sees_its_own_index() {
     );
 }
 
-// A decimal literal beyond f64 is infinite; it has no Quantity or String form.
+// N1 requires 28 digits; a decimal literal beyond the 38-digit exact mantissa
+// is a parse error, never a silently rounded or infinite value.
 #[test]
-fn non_finite_decimals_do_not_convert() {
+fn decimal_literals_beyond_the_exact_range_are_rejected() {
     let huge = format!("1{}.0", "0".repeat(400));
     for function in ["toQuantity()", "toString()"] {
         let expr = format!("{huge}.{function}");
-        assert_eq!(eval(&expr), vec![], "{expr}");
+        assert!(evaluate(&expr, &[]).is_err(), "{expr}");
     }
+    assert_eq!(eval(&format!("1{}.5.toString()", "0".repeat(30))).len(), 1);
 }

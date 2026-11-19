@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::ast::Expr;
 use crate::error::EvalError;
 use crate::value::{Collection, Value};
+use crate::{Decimal, Rounding};
 
 use super::Evaluator;
 use super::helpers::{check_arity, single_integer};
@@ -41,7 +42,9 @@ impl Evaluator<'_> {
                             EvalError::Type("integer overflow in abs()".into())
                         })?)]
                     }
-                    Some(Value::Decimal(d)) => vec![Value::Decimal(d.abs())],
+                    Some(Value::Decimal(d)) => {
+                        vec![Value::Decimal(d.checked_abs().ok_or_else(overflow)?)]
+                    }
                     // N1 §5.7.1: the absolute value of a quantity keeps its unit.
                     Some(Value::Quantity(d, unit)) => {
                         vec![Value::Quantity(d.abs(), Arc::clone(unit))]
@@ -62,7 +65,11 @@ impl Evaluator<'_> {
                 check_arity(name, args, 0)?;
                 match focus.first() {
                     Some(Value::Integer(n)) => vec![Value::Integer(*n)],
-                    Some(Value::Decimal(d)) => vec![Value::Integer(d.ceil() as i64)],
+                    Some(Value::Decimal(d)) => {
+                        vec![Value::Integer(
+                            d.to_i64(Rounding::Ceiling).ok_or_else(overflow)?,
+                        )]
+                    }
                     Some(v) => {
                         return Err(EvalError::Type(format!(
                             "ceiling() requires number, got {}",
@@ -76,7 +83,11 @@ impl Evaluator<'_> {
                 check_arity(name, args, 0)?;
                 match focus.first() {
                     Some(Value::Integer(n)) => vec![Value::Integer(*n)],
-                    Some(Value::Decimal(d)) => vec![Value::Integer(d.floor() as i64)],
+                    Some(Value::Decimal(d)) => {
+                        vec![Value::Integer(
+                            d.to_i64(Rounding::Floor).ok_or_else(overflow)?,
+                        )]
+                    }
                     Some(v) => {
                         return Err(EvalError::Type(format!(
                             "floor() requires number, got {}",
@@ -102,8 +113,13 @@ impl Evaluator<'_> {
                 match focus.first() {
                     Some(Value::Integer(n)) => vec![Value::Integer(*n)],
                     Some(Value::Decimal(d)) => {
-                        let factor = 10f64.powi(precision as i32);
-                        vec![Value::Decimal((d * factor).round() / factor)]
+                        let places = i32::try_from(precision).map_err(|_| overflow())?;
+                        let rounded = if places >= d.scale() {
+                            Some(*d)
+                        } else {
+                            d.rescale(places, Rounding::HalfAwayFromZero)
+                        };
+                        vec![Value::Decimal(rounded.ok_or_else(overflow)?)]
                     }
                     Some(v) => {
                         return Err(EvalError::Type(format!(
@@ -118,7 +134,7 @@ impl Evaluator<'_> {
                 check_arity(name, args, 0)?;
                 match focus.first() {
                     Some(Value::Integer(n)) => representable((*n as f64).sqrt()),
-                    Some(Value::Decimal(d)) => representable(d.sqrt()),
+                    Some(Value::Decimal(d)) => representable(d.to_f64().sqrt()),
                     Some(v) => {
                         return Err(EvalError::Type(format!(
                             "sqrt() requires number, got {}",
@@ -131,8 +147,8 @@ impl Evaluator<'_> {
             "exp" => {
                 check_arity(name, args, 0)?;
                 match focus.first() {
-                    Some(Value::Integer(n)) => vec![Value::Decimal((*n as f64).exp())],
-                    Some(Value::Decimal(d)) => vec![Value::Decimal(d.exp())],
+                    Some(Value::Integer(n)) => representable((*n as f64).exp()),
+                    Some(Value::Decimal(d)) => representable(d.to_f64().exp()),
                     Some(v) => {
                         return Err(EvalError::Type(format!(
                             "exp() requires number, got {}",
@@ -145,8 +161,8 @@ impl Evaluator<'_> {
             "ln" => {
                 check_arity(name, args, 0)?;
                 match focus.first() {
-                    Some(Value::Integer(n)) => vec![Value::Decimal((*n as f64).ln())],
-                    Some(Value::Decimal(d)) => vec![Value::Decimal(d.ln())],
+                    Some(Value::Integer(n)) => representable((*n as f64).ln()),
+                    Some(Value::Decimal(d)) => representable(d.to_f64().ln()),
                     Some(v) => {
                         return Err(EvalError::Type(format!(
                             "ln() requires number, got {}",
@@ -161,12 +177,13 @@ impl Evaluator<'_> {
                 let base = match self.eval(&args[0], ctx)?.first() {
                     Some(v) => v
                         .as_decimal()
-                        .ok_or_else(|| EvalError::Type("log() base must be a number".into()))?,
+                        .ok_or_else(|| EvalError::Type("log() base must be a number".into()))?
+                        .to_f64(),
                     None => return Ok(Some(vec![])),
                 };
                 match focus.first() {
-                    Some(Value::Integer(n)) => vec![Value::Decimal((*n as f64).log(base))],
-                    Some(Value::Decimal(d)) => vec![Value::Decimal(d.log(base))],
+                    Some(Value::Integer(n)) => representable((*n as f64).log(base)),
+                    Some(Value::Decimal(d)) => representable(d.to_f64().log(base)),
                     Some(v) => {
                         return Err(EvalError::Type(format!(
                             "log() requires number, got {}",
@@ -179,14 +196,15 @@ impl Evaluator<'_> {
             "power" => {
                 check_arity(name, args, 1)?;
                 let exp = match self.eval(&args[0], ctx)?.first() {
-                    Some(v) => v.as_decimal().ok_or_else(|| {
-                        EvalError::Type("power() exponent must be a number".into())
-                    })?,
+                    Some(v) => v
+                        .as_decimal()
+                        .ok_or_else(|| EvalError::Type("power() exponent must be a number".into()))?
+                        .to_f64(),
                     None => return Ok(Some(vec![])),
                 };
                 match focus.first() {
                     Some(Value::Integer(n)) => representable((*n as f64).powf(exp)),
-                    Some(Value::Decimal(d)) => representable(d.powf(exp)),
+                    Some(Value::Decimal(d)) => representable(d.to_f64().powf(exp)),
                     Some(v) => {
                         return Err(EvalError::Type(format!(
                             "power() requires number, got {}",
@@ -200,7 +218,11 @@ impl Evaluator<'_> {
                 check_arity(name, args, 0)?;
                 match focus.first() {
                     Some(Value::Integer(n)) => vec![Value::Integer(*n)],
-                    Some(Value::Decimal(d)) => vec![Value::Integer(d.trunc() as i64)],
+                    Some(Value::Decimal(d)) => {
+                        vec![Value::Integer(
+                            d.to_i64(Rounding::TowardZero).ok_or_else(overflow)?,
+                        )]
+                    }
                     Some(v) => {
                         return Err(EvalError::Type(format!(
                             "truncate() requires number, got {}",
@@ -217,12 +239,17 @@ impl Evaluator<'_> {
     }
 }
 
-/// N2 sqrt() and power(): a result that cannot be represented (NaN or
-/// infinity) is empty.
+/// N2 sqrt() and power(), and exp(), ln() and log(): a result that cannot be
+/// represented (NaN or infinity) is empty.
+/// shortcut: computed in f64, then kept as its shortest decimal text; exact
+/// only for the arithmetic operators.
 fn representable(result: f64) -> Collection {
-    if result.is_finite() {
-        vec![Value::Decimal(result)]
-    } else {
-        vec![]
-    }
+    Decimal::from_f64(result)
+        .map(Value::Decimal)
+        .into_iter()
+        .collect()
+}
+
+fn overflow() -> EvalError {
+    EvalError::Type("decimal overflow".into())
 }

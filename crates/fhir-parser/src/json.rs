@@ -406,19 +406,17 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
         if !is_float && num_str != "-0" {
             // The grammar above guarantees digits, so a failure here means
             // i64 overflow: fall back to a decimal like any other JSON number.
-            // shortcut: f64 rounds beyond ~17 significant digits, switch to an
-            // arbitrary-precision decimal if exact FHIR decimals are required.
             if let Ok(i) = num_str.parse::<i64>() {
                 return Ok(Value::Integer(i));
             }
         }
-        let f: f64 = num_str
-            .parse()
-            .map_err(|_| self.error_at(start, format!("invalid number: {}", num_str)))?;
-        if !f.is_finite() {
-            return Err(self.error_at(start, format!("number out of range: {}", num_str)));
+        // The exact decimal keeps the written scale; the f64 keeps the range
+        // check of every JSON number ("number out of range", never infinity).
+        let finite = num_str.parse::<f64>().is_ok_and(f64::is_finite);
+        match num_str.parse() {
+            Ok(decimal) if finite => Ok(Value::Decimal(decimal)),
+            _ => Err(self.error_at(start, format!("number out of range: {}", num_str))),
         }
-        Ok(Value::Decimal(f))
     }
 
     // ── Object scanning ───────────────────────────────────────────────────
@@ -622,18 +620,28 @@ mod tests {
         let resource = parse_json(source).unwrap();
         assert!(matches!(
             resource.fields.get("big").unwrap().value,
-            Value::Decimal(f) if f == 12345678901234567890.0
+            Value::Decimal(d) if d.to_string() == "12345678901234567890"
         ));
         // R5 integer regex `[0]|[-+]?[1-9][0-9]*` rejects `-0`: keep it a decimal.
         assert!(matches!(
             resource.fields.get("neg").unwrap().value,
-            Value::Decimal(f) if f == 0.0 && f.is_sign_negative()
+            Value::Decimal(d) if d.is_zero()
         ));
         let tiny = parse_json(r#"{"resourceType": "Basic", "x": 1e-400}"#).unwrap();
         assert!(matches!(
             tiny.fields.get("x").unwrap().value,
-            Value::Decimal(f) if f == 0.0
+            Value::Decimal(d) if d.mantissa() == 1 && d.scale() == 400
         ));
+        let exponent = parse_json(r#"{"resourceType": "Basic", "x": 9.5e2}"#).unwrap();
+        assert!(matches!(
+            exponent.fields.get("x").unwrap().value,
+            Value::Decimal(d) if d.scale() == -1 && d.to_string() == "950"
+        ));
+        let wide = parse_json(&format!(
+            r#"{{"resourceType": "Basic", "x": {}}}"#,
+            "9".repeat(40)
+        ));
+        assert!(wide.is_err(), "beyond 38 digits is out of range");
     }
 
     #[test]

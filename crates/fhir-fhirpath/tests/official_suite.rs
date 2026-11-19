@@ -77,8 +77,7 @@ use quick_xml::events::{BytesStart, Event};
 const MIN_PASSED: u32 = 1155;
 
 /// Cases that must pass whatever the total: the boundary functions behind
-/// the FHIR per-1, rng-2 and ratrng-2 invariants. Not listed: 12.500 and
-/// exponent decimals (`Value::Decimal` keeps no source text), `@2014` as a
+/// the FHIR per-1, rng-2 and ratrng-2 invariants. Not listed: `@2014` as a
 /// dateTime (N2 returns a Date for a Date), HighBoundaryDecimal16 (unary
 /// minus keeps the sign of zero) and Comparable1 (no UCUM conversion).
 const REQUIRED_PASSING: [&str; 62] = [
@@ -272,7 +271,10 @@ fn load_cases(xml: &str) -> Vec<Case> {
 fn expected_key(kind: &str, text: &str) -> String {
     match kind {
         "boolean" | "integer" | "long" => format!("{kind}:{text}"),
-        "decimal" => format!("decimal:{}", text.parse::<f64>().expect("decimal output")),
+        "decimal" => format!(
+            "decimal:{}",
+            decimal_key(text.parse().expect("decimal output"))
+        ),
         "date" | "dateTime" | "time" => format!("{kind}:{}", temporal_text(text)),
         "Quantity" => {
             let (number, unit) = text.split_once(' ').expect("Quantity output");
@@ -284,15 +286,20 @@ fn expected_key(kind: &str, text: &str) -> String {
     }
 }
 
+/// A decimal's key by value: `-0.0`, `0.0` and `0` agree, as N1 equality has it.
+// shortcut: compared by value, so the written scale ("1.0" vs "1") is not
+// checked; the suite does not always write results at their N1 scale.
+fn decimal_key(d: fhir_fhirpath::Decimal) -> f64 {
+    d.to_f64() + 0.0
+}
+
 /// Canonical `type:value` key for an evaluated value.
-// shortcut: decimals compare by f64 value, so precision ("1.0" vs "1") is not
-// checked; upgrade when Value keeps decimal precision.
 fn actual_key(value: &Value) -> String {
     match value {
         Value::Bool(b) => format!("boolean:{b}"),
         Value::Integer(n) => format!("integer:{n}"),
         Value::Long(n) => format!("long:{n}"),
-        Value::Decimal(d) => format!("decimal:{d}"),
+        Value::Decimal(d) => format!("decimal:{}", decimal_key(*d)),
         Value::String(s) => format!("string:{s}"),
         Value::Date(s) => format!("date:{}", temporal_text(s)),
         Value::DateTime(s) => format!("dateTime:{}", temporal_text(s)),
@@ -437,7 +444,7 @@ fn keys_match_across_expected_and_actual_forms() {
     );
     assert_eq!(
         expected_key("decimal", "1.58650000"),
-        actual_key(&Value::Decimal(1.5865))
+        actual_key(&Value::Decimal("1.5865".parse().unwrap()))
     );
     assert_eq!(
         expected_key("Quantity", "1 '1'"),

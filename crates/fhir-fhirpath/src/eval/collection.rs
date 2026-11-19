@@ -1,6 +1,7 @@
 use crate::ast::Expr;
 use crate::error::EvalError;
 use crate::value::{Collection, Value};
+use crate::{Decimal, Rounding};
 
 use super::Evaluator;
 use super::helpers::{
@@ -311,14 +312,14 @@ impl Evaluator<'_> {
                 if focus.is_empty() {
                     return Ok(Some(vec![Value::Integer(0)]));
                 }
-                let mut sum = 0f64;
+                let mut sum = Decimal::from(0);
                 let mut all_integer = true;
                 for v in focus {
-                    match v.primitive_value() {
-                        Value::Integer(n) => sum += *n as f64,
+                    let item = match v.primitive_value() {
+                        Value::Integer(n) => Decimal::from(*n),
                         Value::Decimal(d) => {
-                            sum += d;
                             all_integer = false;
+                            *d
                         }
                         other => {
                             return Err(EvalError::Type(format!(
@@ -326,10 +327,12 @@ impl Evaluator<'_> {
                                 other.type_name()
                             )));
                         }
-                    }
+                    };
+                    sum = sum.checked_add(item).ok_or_else(overflow)?;
                 }
                 if all_integer {
-                    vec![Value::Integer(sum as i64)]
+                    let total = sum.to_i64(Rounding::TowardZero).ok_or_else(overflow)?;
+                    vec![Value::Integer(total)]
                 } else {
                     vec![Value::Decimal(sum)]
                 }
@@ -365,22 +368,22 @@ impl Evaluator<'_> {
                 if focus.is_empty() {
                     return Ok(Some(vec![]));
                 }
-                let count = focus.len() as f64;
-                let mut sum = 0f64;
+                let count = Decimal::from(i64::try_from(focus.len()).map_err(|_| overflow())?);
+                let mut sum = Decimal::from(0);
                 for v in focus {
-                    match v.primitive_value() {
-                        Value::Integer(n) => sum += *n as f64,
-                        Value::Long(n) => sum += *n as f64,
-                        Value::Decimal(d) => sum += d,
+                    let item = match v.primitive_value() {
+                        Value::Integer(n) | Value::Long(n) => Decimal::from(*n),
+                        Value::Decimal(d) => *d,
                         other => {
                             return Err(EvalError::Type(format!(
                                 "avg() requires numbers, got {}",
                                 other.type_name()
                             )));
                         }
-                    }
+                    };
+                    sum = sum.checked_add(item).ok_or_else(overflow)?;
                 }
-                vec![Value::Decimal(sum / count)]
+                vec![Value::Decimal(sum.checked_div(count).ok_or_else(overflow)?)]
             }
             "sort" => {
                 check_arity_range(name, args, 0, 1)?;
@@ -446,4 +449,8 @@ impl Evaluator<'_> {
         };
         Ok(Some(col))
     }
+}
+
+fn overflow() -> EvalError {
+    EvalError::Type("numeric overflow".into())
 }
