@@ -81,6 +81,14 @@ pub struct Environment<'a> {
     /// decided (build it from `Registry::value_set_contains`). Unset, or
     /// undecided, `memberOf()` is an error.
     pub member_of: Option<&'a MemberOf<'a>>,
+    /// Strict navigation (N1 §3: an identifier that cannot be resolved is an
+    /// error): `has_element(type, name)` tells whether the FHIR type declares
+    /// the element `name`, `None` when the type alone cannot tell (build it
+    /// from `Registry::has_element`). Set, a path step on a typed node that
+    /// names neither an element nor (leading the expression) the node's type
+    /// is an error, so `Observation.valueQuantity` fails. Unset, an unknown
+    /// name yields empty.
+    pub strict: Option<&'a HasElement<'a>>,
 }
 
 impl std::fmt::Debug for Environment<'_> {
@@ -90,9 +98,13 @@ impl std::fmt::Debug for Environment<'_> {
             .field("root_resource", &self.root_resource)
             .field("is_subtype", &self.is_subtype.map(|_| "Fn"))
             .field("member_of", &self.member_of.map(|_| "Fn"))
+            .field("strict", &self.strict.map(|_| "Fn"))
             .finish()
     }
 }
+
+/// Element declarations for strict navigation, see [`Environment::strict`].
+pub type HasElement<'a> = dyn Fn(&str, &str) -> Option<bool> + 'a;
 
 /// FHIR type inheritance, see [`Environment::is_subtype`].
 pub type IsSubtype<'a> = dyn Fn(&str, &str) -> bool + 'a;
@@ -367,6 +379,7 @@ impl Evaluator<'_> {
     ) -> Result<Collection, EvalError> {
         helpers::check_known_content(ctx)?;
         let mut result = Vec::new();
+        self.check_strict_step(ctx, name, allow_type_name)?;
         for item in ctx {
             if let Some(fields) = item.fields() {
                 if let Some(children) = fields.get(name) {
@@ -376,11 +389,7 @@ impl Evaluator<'_> {
                     result.extend(variants);
                 } else if allow_type_name
                     && let Value::Object(_, Some(fhir_type)) = item
-                    && (&**fhir_type == name
-                        || self
-                            .environment
-                            .is_subtype
-                            .is_some_and(|is_subtype| is_subtype(fhir_type, name)))
+                    && self.names_type(fhir_type, name)
                 {
                     // N1 §3: an expression may start with the type of the context
                     // or a supertype of it (`DomainResource.text` on a Patient).
@@ -391,6 +400,46 @@ impl Evaluator<'_> {
             helpers::check_collection_len(result.len())?;
         }
         Ok(result)
+    }
+
+    /// Under [`Environment::strict`], fail when no item of `ctx` resolves
+    /// `name`: every item is a typed node that declares no such element and
+    /// (leading the expression) is not of that type or a subtype of it.
+    /// N1 §3: "If the identifier cannot be resolved, the evaluation will end
+    /// and signal an error". An item whose type cannot tell (a backbone, an
+    /// untyped node, a primitive) may resolve it, so a mixed collection such
+    /// as `descendants()` never fails.
+    fn check_strict_step(
+        &self,
+        ctx: &[Value],
+        name: &str,
+        allow_type_name: bool,
+    ) -> Result<(), EvalError> {
+        // shortcut: backbone children, primitives and untyped nodes are not checked;
+        // check them once a node carries its definition path, not only its type.
+        let Some(has_element) = self.environment.strict else {
+            return Ok(());
+        };
+        let unresolved = |item: &Value| {
+            matches!(item, Value::Object(_, Some(fhir_type))
+                if has_element(fhir_type, name) == Some(false)
+                    && !(allow_type_name && self.names_type(fhir_type, name)))
+        };
+        match ctx {
+            [Value::Object(_, Some(fhir_type)), ..] if ctx.iter().all(unresolved) => Err(
+                EvalError::Type(format!("{name} is not an element of {fhir_type}")),
+            ),
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether `name` is the FHIR type `fhir_type` or one of its supertypes.
+    fn names_type(&self, fhir_type: &str, name: &str) -> bool {
+        fhir_type == name
+            || self
+                .environment
+                .is_subtype
+                .is_some_and(|is_subtype| is_subtype(fhir_type, name))
     }
 
     /// Values of the choice variants of `name` (`valueQuantity` for `value`), or `None`.

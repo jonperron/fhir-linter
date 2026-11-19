@@ -17,7 +17,7 @@ mod xml_text;
 
 pub use ast::Expr;
 pub use error::{EvalError, ParseError};
-pub use eval::{Environment, IsSubtype, MemberOf};
+pub use eval::{Environment, HasElement, IsSubtype, MemberOf};
 pub use value::{
     ChildElement, Collection, Value, from_parser_value, is_primitive_type, node_to_typed_value,
     resource_to_typed_value, resource_to_value,

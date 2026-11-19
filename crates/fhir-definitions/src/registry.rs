@@ -143,6 +143,25 @@ impl Registry {
             .is_some_and(|suffixes| suffixes.contains(suffix))
     }
 
+    /// Whether the FHIR type `type_name` declares an element `name`, as FHIRPath
+    /// names it: a choice element without its `[x]` (`value`), never with a type
+    /// suffix (`valueQuantity`). `None` when the type is unknown, or its children
+    /// are defined at the owning element's path (`BackboneElement`, `Element`;
+    /// see [`Registry::child_element`]), so the type alone cannot tell.
+    pub fn has_element(&self, type_name: &str, name: &str) -> Option<bool> {
+        if matches!(type_name, "BackboneElement" | "Element") {
+            return None;
+        }
+        let sd = self.core(type_name)?;
+        // A constraint (`SimpleQuantity`) lists its elements under the base type's path.
+        let root = &sd.snapshot.first()?.path;
+        // `value[x]` or `a.b` is a definition path, not an element name.
+        let declared = !name.contains(['.', '[', ']'])
+            && (sd.element(&format!("{root}.{name}")).is_some()
+                || sd.element(&format!("{root}.{name}[x]")).is_some());
+        Some(declared)
+    }
+
     /// The child `name` of the element at definition path `parent` (a type name
     /// such as `Patient` or `HumanName`, or a backbone path such as
     /// `Patient.contact`), as its definition path and its type code for this
@@ -375,6 +394,25 @@ mod tests {
         assert!(!REGISTRY.is_choice_variant("value", "Element"));
         // Suffixes are case-sensitive: `valuequantity` is not a variant.
         assert!(!REGISTRY.is_choice_variant("value", "quantity"));
+    }
+
+    #[test]
+    fn has_element_names_declared_elements_without_choice_suffix() {
+        assert_eq!(REGISTRY.has_element("Patient", "name"), Some(true));
+        assert_eq!(REGISTRY.has_element("Patient", "id"), Some(true));
+        assert_eq!(REGISTRY.has_element("HumanName", "given1"), Some(false));
+        // A choice element is named without its `[x]` and never with a type suffix.
+        assert_eq!(REGISTRY.has_element("Observation", "value"), Some(true));
+        assert_eq!(
+            REGISTRY.has_element("Observation", "valueQuantity"),
+            Some(false)
+        );
+        assert_eq!(REGISTRY.has_element("Observation", "value[x]"), Some(false));
+        // A constraint on a type lists its elements under the base type's path.
+        assert_eq!(REGISTRY.has_element("SimpleQuantity", "unit"), Some(true));
+        // Backbone children are defined at the owning path, not under the type.
+        assert_eq!(REGISTRY.has_element("BackboneElement", "name"), None);
+        assert_eq!(REGISTRY.has_element("NoSuchType", "name"), None);
     }
 
     #[test]

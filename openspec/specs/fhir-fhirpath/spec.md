@@ -988,7 +988,7 @@ Le système SHALL définir la constante `MAX_EVAL_STRING_CHARS` = 16 777 216 (`c
 
 ### Requirement: Variables d'environnement
 
-Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` suivi d'un identifiant délimité par accents graves, et `%'chaîne'` en un nœud `Expr::External` (nom sans le `%`), et les évaluer comme suit. Il SHALL exposer `pub struct Environment { resource: Option<&Value>, root_resource: Option<&Value>, is_subtype: Option<&IsSubtype>, member_of: Option<&MemberOf> }` où `pub type IsSubtype = dyn Fn(&str, &str) -> bool` est construit par l'appelant à partir de `Registry::type_ancestors` (`is_subtype(nom, nom)` signifie « nom est un type FHIR »), `pub type MemberOf = dyn Fn(&str, Option<&str>, &str) -> Option<bool>` (valueset, système, code ; `None` = indécidable) est construit par l'appelant à partir de `Registry::value_set_contains`, et `evaluate_parsed_with_environment(expr, context, is_choice_variant, &Environment)`. `evaluate`, `evaluate_parsed` et `evaluate_parsed_with_choices` SHALL conserver leur signature et utiliser les valeurs par défaut.
+Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` suivi d'un identifiant délimité par accents graves, et `%'chaîne'` en un nœud `Expr::External` (nom sans le `%`), et les évaluer comme suit. Il SHALL exposer `pub struct Environment { resource: Option<&Value>, root_resource: Option<&Value>, is_subtype: Option<&IsSubtype>, member_of: Option<&MemberOf>, strict: Option<&HasElement> }` où `pub type IsSubtype = dyn Fn(&str, &str) -> bool` est construit par l'appelant à partir de `Registry::type_ancestors` (`is_subtype(nom, nom)` signifie « nom est un type FHIR »), `pub type MemberOf = dyn Fn(&str, Option<&str>, &str) -> Option<bool>` (valueset, système, code ; `None` = indécidable) est construit par l'appelant à partir de `Registry::value_set_contains`, et `evaluate_parsed_with_environment(expr, context, is_choice_variant, &Environment)`. `evaluate`, `evaluate_parsed` et `evaluate_parsed_with_choices` SHALL conserver leur signature et utiliser les valeurs par défaut.
 
 - `%context` SHALL être la collection d'entrée d'origine, inchangée à l'intérieur de `where`, `select`, etc.
 - `%ucum` = `http://unitsofmeasure.org`, `%sct` = `http://snomed.info/sct`, `%loinc` = `http://loinc.org`, `%vs-[nom]` = `http://hl7.org/fhir/ValueSet/[nom]`, `%ext-[nom]` = `http://hl7.org/fhir/StructureDefinition/[nom]` (un nom vide est une erreur).
@@ -1024,6 +1024,25 @@ Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` 
 
 - **WHEN** `evaluate_parsed_with_environment` reçoit un `Environment` avec `resource` et `root_resource`
 - **THEN** `%resource` et `%rootResource` SHALL valoir ces valeurs
+
+### Requirement: Navigation stricte opt-in
+
+`Environment::strict: Option<&HasElement>` (défaut `None`), où `pub type HasElement = dyn Fn(&str, &str) -> Option<bool>` (type, nom ; `None` = indécidable) est exporté et construit par l'appelant à partir de `Registry::has_element`, SHALL activer l'erreur de navigation (N1 §3 : « If the identifier cannot be resolved, the evaluation will end and signal an error »). Lorsqu'il est fourni, une étape de chemin SHALL retourner `Err(EvalError::Type("<nom> is not an element of <type>"))` si et seulement si l'entrée est non vide et que chaque élément est un objet typé dont le type ne déclare pas l'élément et, pour un identifiant initial, n'est ni ce type ni un sous-type. Les éléments dont le type ne peut pas trancher (backbone, non typé, primitive) SHALL NOT provoquer d'erreur, de sorte que les collections mixtes (ex. `descendants()`) n'échouent pas. Sans `strict`, un nom inconnu SHALL donner une collection vide. Le validateur SHALL rester non strict (`strict: None`).
+
+#### Scenario: Élément inconnu en mode strict
+
+- **WHEN** `Patient.bogus` est évalué avec `strict` fourni sur un `Patient`
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))`
+
+#### Scenario: Collection mixte
+
+- **WHEN** `descendants().bogus` est évalué avec `strict` sur une collection mêlant objets typés et éléments backbone ou primitives
+- **THEN** aucune erreur SHALL être retournée
+
+#### Scenario: Défaut non strict
+
+- **WHEN** `Patient.bogus` est évalué sans `strict`
+- **THEN** le résultat SHALL être vide
 
 ### Requirement: defineVariable
 

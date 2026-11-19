@@ -131,6 +131,8 @@ fn validate_one<'a>(
         root_resource: Some(container.unwrap_or(root)),
         is_subtype: Some(&is_subtype),
         member_of: Some(&member_of),
+        // Not strict: `Registry::has_element` does not follow `contentReference`.
+        strict: None,
     };
     let embedded = nested::validate(
         resource,
