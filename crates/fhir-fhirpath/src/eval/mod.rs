@@ -24,6 +24,7 @@ mod regex;
 mod string_fns;
 mod temporal;
 mod type_conv;
+mod value_set;
 
 use helpers::{
     as_type, bool_col, collections_equal, collections_equivalent, contains_value, is_type,

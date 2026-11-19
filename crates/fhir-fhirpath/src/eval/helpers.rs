@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use super::value_set::{ValueSet, is_keyed};
 use super::{ArithOp, Evaluator};
 use crate::ast::Expr;
 use crate::error::EvalError;
@@ -433,8 +434,12 @@ fn decimal_scale(d: f64) -> i32 {
 
 /// Membership using FHIRPath equality (`1 = 1.0`); complex values fall back to structural equality.
 pub(super) fn contains_value(col: &[Value], v: &Value) -> bool {
-    col.iter()
-        .any(|x| values_equal(x, v).unwrap_or_else(|| x == v))
+    col.iter().any(|x| same_value(x, v))
+}
+
+/// FHIRPath equality, falling back to structural equality where it is empty.
+pub(super) fn same_value(a: &Value, b: &Value) -> bool {
+    values_equal(a, b).unwrap_or_else(|| a == b)
 }
 
 /// `distinct()`: the last occurrence of each value, under FHIRPath equality.
@@ -443,41 +448,66 @@ pub(super) fn contains_value(col: &[Value], v: &Value) -> bool {
 /// occurrence. Returns `None` when two date/times cannot be compared (different
 /// precision, N1 §6.1.1), so the caller yields empty.
 pub(super) fn distinct_last(focus: &[Value]) -> Option<Collection> {
+    // Walk back so `later` holds every value after the current one. A keyed
+    // value is never half of a temporal pair, so its lookup cannot be empty.
+    let mut later = ValueSet::default();
     let mut kept = Vec::new();
-    for (index, value) in focus.iter().enumerate() {
-        let mut repeated = false;
-        for later in &focus[index + 1..] {
-            // Same fallback as `contains_value`: complex values compare structurally.
-            repeated = match values_equal(value, later) {
-                Some(equal) => equal,
-                None if is_temporal_pair(value, later) => return None,
-                None => value == later,
-            };
-            if repeated {
-                break;
-            }
-        }
+    for (index, value) in focus.iter().enumerate().rev() {
+        let repeated = if is_keyed(value) {
+            later.contains(value)
+        } else {
+            repeated_later(value, &focus[index + 1..])?
+        };
         if !repeated {
             kept.push(value.clone());
         }
+        later.push(value.clone());
     }
+    kept.reverse();
     Some(kept)
+}
+
+/// Whether a value of `later` equals `value`; `None` when an uncomparable
+/// date/time comes before any equal one.
+fn repeated_later(value: &Value, later: &[Value]) -> Option<bool> {
+    for other in later {
+        // Same fallback as `contains_value`: complex values compare structurally.
+        let repeated = match values_equal(value, other) {
+            Some(equal) => equal,
+            None if is_temporal_pair(value, other) => return None,
+            None => value == other,
+        };
+        if repeated {
+            return Some(true);
+        }
+    }
+    Some(false)
 }
 
 /// `isDistinct()`: `false` at the first repeated value; `None` (empty) when no
 /// value repeats but two date/times cannot be compared.
 pub(super) fn is_distinct(focus: &[Value]) -> Option<bool> {
+    // Same backward walk as `distinct_last`: every pair is checked once, from
+    // its first value.
     let mut uncomparable = false;
-    for (index, value) in focus.iter().enumerate() {
-        for later in &focus[index + 1..] {
-            match values_equal(value, later) {
-                Some(true) => return Some(false),
-                Some(false) => {}
-                None if is_temporal_pair(value, later) => uncomparable = true,
-                None if value == later => return Some(false),
-                None => {}
+    let mut later = ValueSet::default();
+    for (index, value) in focus.iter().enumerate().rev() {
+        if is_keyed(value) {
+            if later.contains(value) {
+                return Some(false);
+            }
+        } else {
+            for other in &focus[index + 1..] {
+                match values_equal(value, other) {
+                    Some(true) => return Some(false),
+                    Some(false) => {}
+                    None if is_temporal_pair(value, other) => uncomparable = true,
+                    None if value == other => return Some(false),
+                    None => {}
+                }
             }
         }
+        later.push(value.clone());
     }
     (!uncomparable).then_some(true)
 }
@@ -494,13 +524,11 @@ fn is_temporal_pair(a: &Value, b: &Value) -> bool {
 
 /// First occurrence of each value, in order, under FHIRPath equality.
 pub(super) fn distinct(values: impl IntoIterator<Item = Value>) -> Collection {
-    let mut seen = Vec::new();
+    let mut seen = ValueSet::default();
     for v in values {
-        if !contains_value(&seen, &v) {
-            seen.push(v);
-        }
+        seen.insert(v);
     }
-    seen
+    seen.into_values()
 }
 
 /// N1 §6.1.3 `~` on single items; never empty.
