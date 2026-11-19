@@ -39,12 +39,15 @@ pub(crate) fn check_value(
             let mut parts = Vec::new();
             fixed_differences(&values, &fixed.value, &item_path, &mut parts);
             for (part_path, expected) in parts {
+                let rule = match expected {
+                    Some(expected) => format!("must be exactly {expected}"),
+                    None => "must be absent".to_owned(),
+                };
                 diagnostics.push(
                     Diagnostic::error(
                         "PROFILE_004",
                         format!(
-                            "Value at '{part_path}' is not exactly {expected} from the {} {} \
-                             required by '{}'",
+                            "Value at '{part_path}' {rule}: the {} {} required by '{}'",
                             fixed.key, fixed.value, elem.path
                         ),
                         part_path,
@@ -74,15 +77,16 @@ pub(crate) fn check_value(
 }
 
 /// The parts of `values` (instance `path`) that are not exactly `expected`, each with what
-/// was expected there. fixed[x]: "all values must be an exact match [...] Missing
-/// elements/attributes must also be missing", so objects compare property by property and
-/// each wrong, missing or extra property is its own part; repetitions compare item by item,
-/// and a different number of them is one part on the collection.
+/// was expected there (none: the part must be absent). fixed[x]: "all values must be an
+/// exact match [...] Missing elements/attributes must also be missing", so objects compare
+/// property by property and each wrong, missing or extra property is its own part;
+/// repetitions compare item by item, and a different number of them is one part on the
+/// collection.
 fn fixed_differences(
     values: &[FhirPathValue],
     expected: &Json,
     path: &str,
-    parts: &mut Vec<(String, String)>,
+    parts: &mut Vec<(String, Option<String>)>,
 ) {
     match (values, expected) {
         (values, Json::Array(items)) if values.len() == items.len() => {
@@ -100,15 +104,15 @@ fn fixed_differences(
                 let child = format!("{path}.{key}");
                 match fields.get(key.as_str()) {
                     Some(values) => fixed_differences(values, item, &child, parts),
-                    None => parts.push((child, item.to_string())),
+                    None => parts.push((child, Some(item.to_string()))),
                 }
             }
             for key in fields.keys().filter(|key| !map.contains_key(&***key)) {
-                parts.push((format!("{path}.{key}"), "absent".to_owned()));
+                parts.push((format!("{path}.{key}"), None));
             }
         }
         (values, expected) if matches_all(values, expected, true) => {}
-        _ => parts.push((path.to_owned(), expected.to_string())),
+        _ => parts.push((path.to_owned(), Some(expected.to_string()))),
     }
 }
 

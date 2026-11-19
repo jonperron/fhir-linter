@@ -70,6 +70,13 @@ pub(crate) fn validate(
     }
 }
 
+/// The element path a contentReference names: what follows its last `#`.
+fn reference_target(reference: &str) -> &str {
+    reference
+        .rsplit_once('#')
+        .map_or(reference, |(_, target)| target)
+}
+
 /// orderMeaning asserted by a constraint on an element whose base has none
 /// (DEFINITION_007). ElementDefinition.orderMeaning: "This element can only be asserted on
 /// repeating elements and can only be introduced when defining resources or data types. It
@@ -180,9 +187,9 @@ fn content_references(
         };
         // Compare the element paths: the Registry keeps a local `#path` as the bare path, and
         // a derived profile's snapshot writes the same target as `<core url>#path`.
-        let target = |reference: &str| reference.rsplit('#').next().map(str::to_owned);
-        let stated = string(fields, "contentReference").and_then(target);
-        if stated.is_some() && stated == element.content_reference.as_deref().and_then(target) {
+        let stated = string(fields, "contentReference").map(reference_target);
+        if stated.is_some() && stated == element.content_reference.as_deref().map(reference_target)
+        {
             continue;
         }
         diagnostics.push(
