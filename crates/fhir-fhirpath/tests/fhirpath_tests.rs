@@ -412,6 +412,13 @@ fn equality_semantics() {
         ("@2012-04-16 = @2012-04-15T23:00:00-05:00", vec![]),
         ("@2012-04-10 < @2012-04-15T23:00:00-05:00", t()),
         ("@2012-04-15T23:00:00-05:00 > @2012-04-10", t()),
+        // Less at one extreme and Greater at the other means some offset in
+        // between lands on the same day, where `=` is empty too.
+        ("@2012-04-15 = @2012-04-15T10:00:00Z", vec![]),
+        // A date-time on the date's own day is never decided, whatever its hour.
+        ("@2012-04-15T00:00:00Z > @2012-04-15", vec![]),
+        ("@2012-04-15T15:00:00Z > @2012-04-15", vec![]),
+        ("@2012-04-15T23:59:00Z > @2012-04-15", vec![]),
     ];
     for (expr, expected) in cases {
         assert_eq!(eval(expr), expected, "{expr}");

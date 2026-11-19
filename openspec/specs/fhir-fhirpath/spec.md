@@ -1110,7 +1110,7 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 - **WHEN** `memberOf(valueset)` est évalué avec le crochet `member_of`
 - **THEN** un élément de type `code` SHALL être cherché sans système ; un Coding requiert système et code ; un CodeableConcept est `true` si un coding est dans le ValueSet, `false` si chaque coding en est prouvé hors, sinon erreur (indécidable) ; une `String` simple donne vide
 - **AND** un objet typé SHALL être aiguillé par son type FHIR (CodeableConcept : `true` si un coding est membre ; Coding : cherché par système et code) ; un objet typé d'un autre type (BackboneElement comme `Observation.component`, Quantity) SHALL donner vide ; un objet sans type se rabat sur ses champs (`coding` -> CodeableConcept, `code` -> Coding)
-- **AND** l'absence de crochet, un ValueSet inconnu ou indécidable SHALL donner une `EvalError` (le validateur émet `INVARIANT_SKIPPED`, jamais une fausse violation) ; une entrée vide ou un argument vide SHALL donner une collection vide ; plusieurs items en entrée SHALL donner une erreur, même si l'argument est vide
+- **AND** sans crochet, une `String` simple ou un objet typé d'un type non défini pour memberOf (Quantity, BackboneElement) SHALL donner vide, tandis qu'un `code`, un Coding ou un CodeableConcept SHALL donner une `EvalError` (indécidable) ; un ValueSet inconnu ou indécidable SHALL donner une `EvalError` (le validateur émet `INVARIANT_SKIPPED`, jamais une fausse violation) ; une entrée vide ou un argument vide SHALL donner une collection vide ; plusieurs items en entrée SHALL donner une erreur, même si l'argument est vide
 
 #### Scenario: conformsTo() par le crochet d'environnement
 
