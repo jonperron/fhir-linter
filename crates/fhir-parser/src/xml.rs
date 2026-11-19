@@ -139,6 +139,7 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
                     fields,
                     trimmed_attributes,
                     schema_instance: notes.schema_instance,
+                    number_texts: Default::default(),
                 };
                 expect_eof(&mut reader, &line_index)?;
                 return Ok(resource);
@@ -160,6 +161,7 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
                     fields: IndexMap::new(),
                     trimmed_attributes: Vec::new(),
                     schema_instance: notes.schema_instance,
+                    number_texts: Default::default(),
                 };
                 expect_eof(&mut reader, &line_index)?;
                 return Ok(resource);

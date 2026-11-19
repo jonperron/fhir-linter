@@ -332,3 +332,71 @@ fn decimal_digits_follow_the_r5_regex_xml() -> TestResult {
     }
     Ok(())
 }
+
+/// JSON numbers follow the same R5 decimal regex, checked on the number as written:
+/// `1E-22` is valid though its expansion has 22 places (official case obs-decimal).
+#[test]
+fn decimal_digits_follow_the_r5_regex_json() -> TestResult {
+    let findings = |value: &str| -> TestResult<Vec<(String, String)>> {
+        type_findings(&format!(
+            r#"{{"resourceType":"Patient","extension":[{{"url":"http://x.org/e",
+                "valueDecimal":{value}}}]}}"#
+        ))
+    };
+    let valid = [
+        "0",
+        "-0",
+        "-1.5",
+        "1.00",
+        "1e09",
+        "1E-22",
+        "123456789012345678",
+        "0.12345678901234567",
+        "1E+12",
+    ];
+    for value in valid {
+        assert_eq!(findings(value)?, [], "{value}");
+    }
+    let invalid = [
+        "1000000000000000000",
+        "0.123456789012345678",
+        // `1e1234567890` never gets here: beyond f64 the parser reports "number out of range".
+        "1e-0000000001",
+        "1.000000000000000000E-24",
+        "-1.000000000000000000E+245",
+        "121233786234234234234234.12323",
+    ];
+    let path = "Patient.extension[0].valueDecimal";
+    for value in invalid {
+        assert_eq!(
+            findings(value)?,
+            [("TYPE_003".to_owned(), path.to_owned())],
+            "{value}"
+        );
+    }
+    Ok(())
+}
+
+/// The written number is checked at every depth: in an array, and in a contained resource.
+#[test]
+fn decimal_digits_are_checked_in_arrays_and_contained_resources() -> TestResult {
+    let json = r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},
+        "contained":[{"resourceType":"Observation","id":"o","status":"final",
+            "code":{"text":"x"},"valueQuantity":{"value":1.000000000000000000E-24}}],
+        "component":[{"code":{"text":"a"},"valueQuantity":{"value":1E-22}},
+            {"code":{"text":"b"},"valueQuantity":{"value":1000000000000000000}}]}"#;
+    assert_eq!(
+        type_findings(json)?,
+        [
+            (
+                "TYPE_003".to_owned(),
+                "Observation.component[1].valueQuantity.value".to_owned(),
+            ),
+            (
+                "TYPE_003".to_owned(),
+                "Observation.contained[0].valueQuantity.value".to_owned(),
+            ),
+        ]
+    );
+    Ok(())
+}

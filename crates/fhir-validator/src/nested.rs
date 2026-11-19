@@ -3,6 +3,7 @@ use fhir_fhirpath::{Collection, Environment, Value as FhirPathValue};
 use fhir_parser::{Node, Resource, Span, Value};
 use indexmap::IndexMap;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::cardinality::check_children_cardinality;
@@ -25,6 +26,9 @@ struct Walk<'a, 'e> {
     root_resource: &'e FhirPathValue,
     /// JSON input: array shapes are meaningful (`STRUCTURE_002`).
     json: bool,
+    /// The root's [`Resource::number_texts`] for JSON input; `None` for XML, whose
+    /// decimal text the reshape already checked.
+    number_texts: Option<&'e HashMap<u32, Box<str>>>,
     /// Where `#id` references resolve (see [`Embedded::container_ids`]).
     contained_ids: ContainedIds,
     /// Inside a contained resource, where `#` alone names the container.
@@ -66,6 +70,7 @@ pub(crate) fn validate<'a>(
     path: &str,
     container_ids: Option<ContainedIds>,
     bundle: BundleEntries,
+    number_texts: &HashMap<u32, Box<str>>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<Embedded<'a>> {
     // The parser lifts `id` out of `fields` (already rejecting non-strings), without a span.
@@ -103,6 +108,7 @@ pub(crate) fn validate<'a>(
         environment,
         root_resource: environment.root_resource.unwrap_or(root),
         json,
+        number_texts: json.then_some(number_texts),
         contained_ids,
         in_contained,
         bundle,
@@ -349,6 +355,7 @@ fn walk(
             &child_path,
             node.span,
             context.registry,
+            context.number_texts,
             diagnostics,
         );
         terminology::check(node, elem, &ty, &child_path, context.registry, diagnostics);

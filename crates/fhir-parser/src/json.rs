@@ -73,6 +73,7 @@ pub fn parse_json(source: &str) -> Result<Resource, ParseError> {
         fields,
         trimmed_attributes: Vec::new(),
         schema_instance: Vec::new(),
+        number_texts: scanner.number_texts,
     })
 }
 
@@ -83,6 +84,8 @@ struct Scanner<'src, 'idx> {
     pos: usize,
     line_index: &'idx LineIndex,
     depth: usize,
+    /// See [`Resource::number_texts`].
+    number_texts: std::collections::HashMap<u32, Box<str>>,
 }
 
 impl<'src, 'idx> Scanner<'src, 'idx> {
@@ -97,6 +100,7 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
             },
             line_index,
             depth: 0,
+            number_texts: Default::default(),
         }
     }
 
@@ -420,9 +424,13 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
         // shortcut: beyond the exact 38 digits (wider than the R5 regex allows)
         // keep the f64 value, as before exact decimals, rather than fail the parse.
         let decimal = num_str.parse().ok().or_else(|| Decimal::from_f64(float));
-        decimal
-            .map(Value::Decimal)
-            .ok_or_else(|| self.error_at(start, format!("number out of range: {}", num_str)))
+        let out_of_range = || self.error_at(start, format!("number out of range: {num_str}"));
+        let decimal = decimal.ok_or_else(out_of_range)?;
+        if decimal.to_string() != num_str {
+            self.number_texts
+                .insert(self.span_at(start).offset, num_str.into());
+        }
+        Ok(Value::Decimal(decimal))
     }
 
     // ── Object scanning ───────────────────────────────────────────────────

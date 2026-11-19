@@ -30,6 +30,7 @@ pub use diagnostic::{Diagnostic, Severity};
 
 use fhir_definitions::{Registry, StructureDefinition};
 use fhir_parser::Resource;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Validate a parsed FHIR resource against the definitions in the registry.
@@ -80,6 +81,7 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
         resource_type,
         None,
         Arc::default(),
+        &resource.number_texts,
         &mut diagnostics,
     );
     // Embedded resources (contained, Bundle entries) in document order, each after its
@@ -96,6 +98,8 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
             &embedded.path,
             embedded.container_ids,
             embedded.bundle,
+            // Embedded resources are nodes of the root: their numbers sit in its source.
+            &resource.number_texts,
             &mut diagnostics,
         );
         inner.reverse();
@@ -118,6 +122,7 @@ fn validate_one<'a>(
     path: &str,
     container_ids: Option<embedded::ContainedIds>,
     bundle: embedded::BundleEntries,
+    number_texts: &HashMap<u32, Box<str>>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<embedded::Embedded<'a>> {
     let is_subtype =
@@ -146,6 +151,7 @@ fn validate_one<'a>(
         path,
         container_ids,
         bundle,
+        number_texts,
         diagnostics,
     );
     // Stop before Base: its root carries ele-1, an element rule, not a resource invariant.

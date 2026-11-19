@@ -1948,6 +1948,7 @@ fn resource_to_value_maps_resource_type_and_id() {
         from_xml: false,
         trimmed_attributes: Vec::new(),
         schema_instance: Vec::new(),
+        number_texts: Default::default(),
         fields: IndexMap::new(),
     };
     let v = resource_to_value(&resource);
@@ -1970,6 +1971,7 @@ fn resource_to_value_without_id() {
         from_xml: false,
         trimmed_attributes: Vec::new(),
         schema_instance: Vec::new(),
+        number_texts: Default::default(),
         fields: IndexMap::new(),
     };
     let v = resource_to_value(&resource);
@@ -2000,6 +2002,7 @@ fn resource_to_value_includes_fields() {
         from_xml: false,
         trimmed_attributes: Vec::new(),
         schema_instance: Vec::new(),
+        number_texts: Default::default(),
         fields,
     };
     let v = resource_to_value(&resource);
