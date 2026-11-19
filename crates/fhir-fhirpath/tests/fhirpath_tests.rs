@@ -30,7 +30,7 @@ fn make_patient() -> Collection {
     );
     root.insert(
         Arc::from("name"),
-        vec![Value::Object(Arc::new(name_fields))],
+        vec![Value::Object(Arc::new(name_fields), None)],
     );
 
     // active: true
@@ -51,10 +51,10 @@ fn make_patient() -> Collection {
     );
     root.insert(
         Arc::from("telecom"),
-        vec![Value::Object(Arc::new(tel_fields))],
+        vec![Value::Object(Arc::new(tel_fields), None)],
     );
 
-    vec![Value::Object(Arc::new(root))]
+    vec![Value::Object(Arc::new(root), Some(Arc::from("Patient")))]
 }
 
 fn eval(expr: &str) -> Collection {
@@ -142,7 +142,10 @@ fn type_name_after_first_segment_yields_empty() {
         ),
         (Arc::from("contained"), make_patient()),
     ]);
-    let ctx = vec![Value::Object(Arc::new(observation))];
+    let ctx = vec![Value::Object(
+        Arc::new(observation),
+        Some(Arc::from("Observation")),
+    )];
     assert!(evaluate("contained.Patient.id", &ctx).unwrap().is_empty());
     assert_eq!(evaluate("contained.id", &ctx).unwrap().len(), 1);
 }
@@ -436,7 +439,7 @@ fn equivalence_semantics() {
         let mut fields: IndexMap<Arc<str>, Collection> = IndexMap::new();
         fields.insert(Arc::from("id"), vec![Value::String(Arc::from(id))]);
         fields.insert(Arc::from("text"), vec![Value::String(Arc::from("X"))]);
-        Value::Object(Arc::new(fields))
+        Value::Object(Arc::new(fields), None)
     };
     let ctx = vec![object("a"), object("b")];
     let both = |expr: &str| evaluate(expr, &ctx).unwrap();
@@ -746,9 +749,12 @@ fn extension_lookup() {
         Arc::from("valueString"),
         vec![Value::String(Arc::from("test"))],
     );
-    root.insert(Arc::from("extension"), vec![Value::Object(Arc::new(ext))]);
+    root.insert(
+        Arc::from("extension"),
+        vec![Value::Object(Arc::new(ext), None)],
+    );
 
-    let ctx = vec![Value::Object(Arc::new(root))];
+    let ctx = vec![Value::Object(Arc::new(root), None)];
     let result =
         fhir_fhirpath::evaluate("extension('http://example.com/ext').exists()", &ctx).unwrap();
     assert_eq!(result, vec![Value::Bool(true)]);
@@ -1603,14 +1609,17 @@ fn repeat_traverses_multi_level_hierarchy() {
     let mut child: IndexMap<Arc<str>, Collection> = IndexMap::new();
     child.insert(
         Arc::from("child"),
-        vec![Value::Object(Arc::new(grandchild))],
+        vec![Value::Object(Arc::new(grandchild), None)],
     );
     child.insert(Arc::from("label"), vec![Value::String(Arc::from("c"))]);
 
     let mut root: IndexMap<Arc<str>, Collection> = IndexMap::new();
-    root.insert(Arc::from("child"), vec![Value::Object(Arc::new(child))]);
+    root.insert(
+        Arc::from("child"),
+        vec![Value::Object(Arc::new(child), None)],
+    );
 
-    let ctx = vec![Value::Object(Arc::new(root))];
+    let ctx = vec![Value::Object(Arc::new(root), None)];
     let result = fhir_fhirpath::evaluate("$this.repeat(child)", &ctx).unwrap();
     // only projected items: child_obj + grandchild_obj (not the input root)
     assert_eq!(result.len(), 2);
@@ -1739,7 +1748,7 @@ fn display_quantity() {
 #[test]
 fn display_object() {
     let map: IndexMap<Arc<str>, Vec<Value>> = IndexMap::new();
-    assert_eq!(Value::Object(Arc::new(map)).to_string(), "{…}");
+    assert_eq!(Value::Object(Arc::new(map), None).to_string(), "{…}");
 }
 
 // ── Value::type_name ────────────────────────────────────────────────────────
@@ -1793,7 +1802,7 @@ fn type_name_quantity() {
 #[test]
 fn type_name_object() {
     let map: IndexMap<Arc<str>, Vec<Value>> = IndexMap::new();
-    assert_eq!(Value::Object(Arc::new(map)).type_name(), "Object");
+    assert_eq!(Value::Object(Arc::new(map), None).type_name(), "Object");
 }
 
 // ── Value helper methods ────────────────────────────────────────────────────
@@ -1926,7 +1935,7 @@ fn from_parser_value_object_becomes_value_object() {
     let obj = fhir_parser::Value::Object(fields);
     let result = from_parser_value(&obj);
     assert_eq!(result.len(), 1);
-    assert!(matches!(result[0], Value::Object(_)));
+    assert!(matches!(result[0], Value::Object(..)));
 }
 
 // ── resource_to_value ───────────────────────────────────────────────────────
@@ -1948,7 +1957,7 @@ fn resource_to_value_maps_resource_type_and_id() {
     };
     let v = resource_to_value(&resource);
     match &v {
-        Value::Object(map) => {
+        Value::Object(map, _) => {
             assert!(map.contains_key("resourceType"));
             assert!(map.contains_key("id"));
         }
@@ -1970,7 +1979,7 @@ fn resource_to_value_without_id() {
     };
     let v = resource_to_value(&resource);
     match &v {
-        Value::Object(map) => {
+        Value::Object(map, _) => {
             assert!(!map.contains_key("id"));
             assert!(map.contains_key("resourceType"));
         }
@@ -2000,7 +2009,7 @@ fn resource_to_value_includes_fields() {
     };
     let v = resource_to_value(&resource);
     match &v {
-        Value::Object(map) => {
+        Value::Object(map, _) => {
             assert!(map.contains_key("status"));
         }
         _ => panic!("expected Object"),
@@ -2531,7 +2540,7 @@ fn descendants_deep_tree_does_not_overflow_stack() {
     for _ in 0..500 {
         let mut m: IndexMap<Arc<str>, Collection> = IndexMap::new();
         m.insert(Arc::from("c"), vec![node]);
-        node = Value::Object(Arc::new(m));
+        node = Value::Object(Arc::new(m), None);
     }
     let r = evaluate("descendants().count()", &[node]).unwrap();
     assert_eq!(r, vec![Value::Integer(500)]);
@@ -2580,14 +2589,14 @@ fn descendants_is_depth_first_preorder() {
     let leaf = |n: &str| {
         let mut m: IndexMap<Arc<str>, Collection> = IndexMap::new();
         m.insert(Arc::from("v"), vec![Value::String(Arc::from(n))]);
-        Value::Object(Arc::new(m))
+        Value::Object(Arc::new(m), None)
     };
     let mut a = IndexMap::new();
     a.insert(Arc::from("k"), vec![leaf("a1"), leaf("a2")]);
     let mut root: IndexMap<Arc<str>, Collection> = IndexMap::new();
-    root.insert(Arc::from("x"), vec![Value::Object(Arc::new(a))]);
+    root.insert(Arc::from("x"), vec![Value::Object(Arc::new(a), None)]);
     root.insert(Arc::from("y"), vec![leaf("b")]);
-    let r = evaluate("descendants().v", &[Value::Object(Arc::new(root))]).unwrap();
+    let r = evaluate("descendants().v", &[Value::Object(Arc::new(root), None)]).unwrap();
     let got: Vec<String> = r.iter().map(|v| v.to_string()).collect();
     assert_eq!(got.len(), 3);
     assert!(got[0].contains("a1") && got[1].contains("a2") && got[2].contains('b'));
@@ -2684,7 +2693,7 @@ fn choice_element_is_navigable_by_its_base_name() {
     );
     let expr = fhir_fhirpath::parse("value").unwrap();
     let is_type = |base: &str, suffix: &str| base == "value" && suffix == "String";
-    let ctx = vec![Value::Object(Arc::new(fields.clone()))];
+    let ctx = vec![Value::Object(Arc::new(fields.clone()), None)];
     let found = fhir_fhirpath::evaluate_parsed_with_choices(&expr, &ctx, &is_type).unwrap();
     assert_eq!(found, vec![Value::String(Arc::from("a"))]);
     // Without type knowledge there is no choice navigation.
@@ -2695,7 +2704,7 @@ fn choice_element_is_navigable_by_its_base_name() {
     );
     // An element literally named `value` wins over the variants.
     fields.insert(Arc::from("value"), vec![Value::String(Arc::from("v"))]);
-    let ctx = vec![Value::Object(Arc::new(fields))];
+    let ctx = vec![Value::Object(Arc::new(fields), None)];
     let found = fhir_fhirpath::evaluate_parsed_with_choices(&expr, &ctx, &is_type).unwrap();
     assert_eq!(found, vec![Value::String(Arc::from("v"))]);
 }

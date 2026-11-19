@@ -89,7 +89,7 @@ impl Evaluator<'_> {
                     if let Some(fields) = item.fields() {
                         if let Some(exts) = fields.get("extension") {
                             for ext in exts {
-                                if let Value::Object(ext_fields) = ext {
+                                if let Value::Object(ext_fields, _) = ext {
                                     if let Some(urls) = ext_fields.get("url") {
                                         if urls.iter().any(|u| {
                                             u.as_string()
@@ -118,7 +118,7 @@ impl Evaluator<'_> {
                     [item]
                         if matches!(
                             item.primitive_value(),
-                            Value::Object(_) | Value::UnresolvedResource { .. }
+                            Value::Object(..) | Value::UnresolvedResource { .. }
                         ) =>
                     {
                         vec![]
@@ -135,7 +135,7 @@ impl Evaluator<'_> {
                     .filter(|v| {
                         !matches!(
                             v,
-                            Value::Null | Value::Object(_) | Value::UnresolvedResource { .. }
+                            Value::Null | Value::Object(..) | Value::UnresolvedResource { .. }
                         )
                     })
                     .cloned()

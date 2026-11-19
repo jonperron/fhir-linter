@@ -261,6 +261,30 @@ fn unknown_discriminator_profile_skips_the_slicing() {
 }
 
 #[test]
+fn type_discriminator_reads_the_type_of_a_complex_value() {
+    // `request` is a BackboneElement with no resourceType: its type comes from the
+    // object's type slot, so the entry is assigned instead of skipping the slicing.
+    // Every slice's `request` is a BackboneElement: the entry takes the first slice, whose
+    // children (resource 1..1, method pattern) then apply to it.
+    let sd = history_discriminated("type", "request");
+    let json = bundle(&[&history_entry("GET")]);
+    assert_eq!(found(&sd, &json, Severity::Information), []);
+    assert_eq!(
+        errors(&sd, &json),
+        [
+            (
+                "CARDINALITY_001".to_owned(),
+                "Bundle.entry[0].resource".to_owned(),
+            ),
+            (
+                "PROFILE_005".to_owned(),
+                "Bundle.entry[0].request.method".to_owned(),
+            ),
+        ]
+    );
+}
+
+#[test]
 fn unsupported_discriminator_kind_skips_the_slicing() {
     let sd = history_discriminated("position", "$this");
     let json = bundle(&[&history_entry("HEAD")]);

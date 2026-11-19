@@ -62,7 +62,9 @@ impl Evaluator<'_> {
         let root = self
             .environment_variable("rootResource")
             .unwrap_or_default();
-        let root = root.first().filter(|root| matches!(root, Value::Object(_)));
+        let root = root
+            .first()
+            .filter(|root| matches!(root, Value::Object(..)));
         let contained = root
             .and_then(|root| root.fields()?.get("contained"))
             .map_or(&[][..], Vec::as_slice);
@@ -141,10 +143,10 @@ impl Evaluator<'_> {
             Value::Primitive(code, _, Some(fhir_type)) if &**fhir_type == "code" => code
                 .as_string()
                 .and_then(|code| member_of(&url, None, &code)),
-            // shortcut: objects carry no type, so a CodeableConcept is told by its
-            // `coding` and a Coding by its `code` (a Quantity's system and code are
-            // looked up too); upgrade when objects carry their FHIR type.
-            Value::Object(fields) if fields.contains_key("coding") => {
+            // shortcut: a CodeableConcept is told by its `coding` and a Coding by its
+            // `code`, so untyped objects work too (a Quantity's system and code are
+            // looked up too); upgrade to the object's FHIR type once callers type them.
+            Value::Object(fields, _) if fields.contains_key("coding") => {
                 // fhirpath.html: true if any code in the concept is a member.
                 let codings = fields.get("coding").into_iter().flatten();
                 let answers: Vec<_> = codings.map(coding_member).collect();
@@ -156,7 +158,7 @@ impl Evaluator<'_> {
                     None
                 }
             }
-            Value::Object(fields) if fields.contains_key("code") => coding_member(item),
+            Value::Object(fields, _) if fields.contains_key("code") => coding_member(item),
             // A plain String is empty (see the shortcut above): not a lookup that failed.
             _ => return Ok(vec![]),
         };
@@ -179,14 +181,14 @@ fn html_checks(focus: &[Value]) -> Result<Collection, EvalError> {
 fn reference(item: &Value) -> Option<Arc<str>> {
     match item.primitive_value() {
         Value::String(reference) => Some(Arc::clone(reference)),
-        Value::Object(_) => field_string(item, "reference"),
+        Value::Object(..) => field_string(item, "reference"),
         _ => None,
     }
 }
 
 /// The single String value of the child `name` of an object.
 fn field_string(item: &Value, name: &str) -> Option<Arc<str>> {
-    let Value::Object(fields) = item else {
+    let Value::Object(fields, _) = item else {
         return None;
     };
     match fields.get(name)?.as_slice() {

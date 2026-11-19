@@ -162,7 +162,7 @@ impl Evaluator<'_> {
             return Ok(variable.value.clone());
         }
         let input_resource = match self.context {
-            [value @ Value::Object(map)] if map.contains_key("resourceType") => Some(value),
+            [value @ Value::Object(map, _)] if map.contains_key("resourceType") => Some(value),
             _ => None,
         };
         let resource = self.environment.resource.or(input_resource);
@@ -375,12 +375,15 @@ impl Evaluator<'_> {
                     // R5 §2.1.9.1.1: a choice element is named without its `[x]` suffix.
                     result.extend(variants);
                 } else if allow_type_name
-                    && matches!(
-                        fields.get("resourceType").map(Vec::as_slice),
-                        Some([Value::String(resource_type)]) if &**resource_type == name
-                    )
+                    && let Value::Object(_, Some(fhir_type)) = item
+                    && (&**fhir_type == name
+                        || self
+                            .environment
+                            .is_subtype
+                            .is_some_and(|is_subtype| is_subtype(fhir_type, name)))
                 {
-                    // FHIRPath: an expression may start with the context's type name.
+                    // N1 §3: an expression may start with the type of the context
+                    // or a supertype of it (`DomainResource.text` on a Patient).
                     result.push(item.clone());
                 }
             }

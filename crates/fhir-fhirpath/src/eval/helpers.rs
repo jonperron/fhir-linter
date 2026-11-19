@@ -206,13 +206,14 @@ pub(super) fn object_quantity(v: &Value) -> Option<Value> {
 /// children are typed (R5 fhirpath.html §2.1.9.1: FHIR Quantity maps to
 /// System.Quantity). The unit is the UCUM `code`, else the `unit` text, else
 /// none. A non-UCUM code or a `comparator` is not a System.Quantity value.
-/// shortcut: an Object does not carry its FHIR type, so a FHIR Quantity (or a
-/// descendant: Age, Duration...) is recognised by its typed `value: decimal` and
-/// its Quantity element names; upgrade when Object carries its type.
+/// shortcut: equality has no type hook to ask whether an Object's FHIR type
+/// derives from Quantity, so a FHIR Quantity (or a descendant: Age, Duration...)
+/// is recognised by its typed `value: decimal` and its Quantity element names;
+/// upgrade when comparisons can reach the type hook.
 pub(super) fn as_quantity(v: &Value) -> Option<(f64, Option<&str>)> {
     let fields = match v {
         Value::Quantity(value, unit) => return Some((*value, Some(unit))),
-        Value::Object(fields) => fields,
+        Value::Object(fields, _) => fields,
         _ => return None,
     };
     let quantity_element = |key: &Arc<str>| {
@@ -329,10 +330,10 @@ pub(super) fn values_equal(a: &Value, b: &Value) -> Option<bool> {
         (Value::Decimal(x), Value::Long(y)) => Some(*x == *y as f64),
         (Value::String(x), Value::String(y)) => Some(x == y),
         // N1 §6.1.1: complex values are equal when all their properties are.
-        (Value::Object(x), Value::Object(y)) => objects_match(x, y, false),
+        (Value::Object(x, _), Value::Object(y, _)) => objects_match(x, y, false),
         // A complex value never equals a primitive. Without type knowledge an XML
         // primitive with extensions is still an Object; see `resource_to_typed_value`.
-        (Value::Object(_), _) | (_, Value::Object(_)) => Some(false),
+        (Value::Object(..), _) | (_, Value::Object(..)) => Some(false),
         // N2 §6.1.1 "Otherwise, equals returns false": a Date or DateTime
         // never converts to a Time (testDateNotEqualTimeMinute).
         (Value::Date(_) | Value::DateTime(_), Value::Time(_))
@@ -542,7 +543,7 @@ pub(super) fn values_equivalent(a: &Value, b: &Value) -> bool {
             }
             _ => false,
         },
-        (Value::Object(x), Value::Object(y)) => objects_match(x, y, true) == Some(true),
+        (Value::Object(x, _), Value::Object(y, _)) => objects_match(x, y, true) == Some(true),
         _ => values_equal(a, b).unwrap_or(false),
     }
 }
@@ -689,7 +690,7 @@ pub(super) fn value_is_type(
     // a FHIR one.
     let is_fhir_data = matches!(
         v,
-        Value::Primitive(..) | Value::Object(_) | Value::UnresolvedResource { .. }
+        Value::Primitive(..) | Value::Object(..) | Value::UnresolvedResource { .. }
     );
     match type_name.split_once('.') {
         // Every type, FHIR ones included, derives from System.Any.
@@ -717,7 +718,10 @@ pub(super) fn value_is_type(
     {
         return value_is_type(v, &format!("System.{type_name}"), None);
     }
-    if let (Value::Primitive(_, _, Some(fhir_type)), Some(is_subtype)) = (v, is_subtype)
+    if let (
+        Value::Primitive(_, _, Some(fhir_type)) | Value::Object(_, Some(fhir_type)),
+        Some(is_subtype),
+    ) = (v, is_subtype)
         && is_subtype(type_name, type_name)
     {
         return Ok(is_subtype(fhir_type, type_name));
@@ -739,6 +743,13 @@ pub(super) fn value_is_type(
         }
         return Ok(is_subtype(resource_type, type_name));
     }
+    // Without the type hook, an object is only its own FHIR type (N1 §10.1:
+    // the model is searched before System, so a FHIR Quantity is a Quantity).
+    if let Value::Object(_, Some(fhir_type)) = v
+        && **fhir_type == *type_name
+    {
+        return Ok(true);
+    }
     let v = v.primitive_value();
     if matches!(v, Value::String(_)) && FHIR_STRING_SUBTYPES.contains(&type_name) {
         return Err(EvalError::Type(format!(
@@ -755,15 +766,7 @@ pub(super) fn value_is_type(
     }) {
         return Err(EvalError::Type(format!("unknown type {type_name}")));
     }
-    // A resource is its resourceType and, with the type hook, each of its
-    // ancestors (`DomainResource`, `Resource`).
-    // shortcut: complex datatype objects carry no type and match nothing,
-    // upgrade when objects carry their FHIR type like primitives do.
-    Ok(matches!(v, Value::Object(fields) if matches!(
-        fields.get("resourceType").map(Vec::as_slice),
-        Some([Value::String(rt)])
-            if **rt == *type_name || is_subtype.is_some_and(|is_subtype| is_subtype(rt, type_name))
-    )))
+    Ok(false)
 }
 
 /// Whether the plain value `v` has the System type `type_name` (or its FHIR
@@ -792,16 +795,12 @@ pub(super) fn type_info(v: &Value) -> Result<Value, EvalError> {
     let (namespace, name): (&str, Arc<str>) = match v {
         Value::Primitive(_, _, Some(fhir_type)) => ("FHIR", Arc::clone(fhir_type)),
         Value::UnresolvedResource { resource_type, .. } => ("FHIR", Arc::clone(resource_type)),
-        Value::Object(fields) => match fields.get("resourceType").map(Vec::as_slice) {
-            Some([Value::String(resource_type)]) => ("FHIR", Arc::clone(resource_type)),
-            // shortcut: complex datatype objects carry no type, upgrade
-            // when objects carry their FHIR type like primitives do.
-            _ => {
-                return Err(EvalError::Type(
-                    "the FHIR type of an object is unknown".into(),
-                ));
-            }
-        },
+        Value::Object(_, Some(fhir_type)) => ("FHIR", Arc::clone(fhir_type)),
+        Value::Object(_, None) => {
+            return Err(EvalError::Type(
+                "the FHIR type of an object is unknown".into(),
+            ));
+        }
         Value::Primitive(_, _, None) | Value::Null => {
             return Err(EvalError::Type(
                 "the FHIR type of a primitive is unknown".into(),
@@ -809,17 +808,20 @@ pub(super) fn type_info(v: &Value) -> Result<Value, EvalError> {
         }
         plain => ("System", Arc::from(plain.type_name())),
     };
-    Ok(Value::Object(Arc::new(
-        [
-            (
-                Arc::from("namespace"),
-                vec![Value::String(Arc::from(namespace))],
-            ),
-            (Arc::from("name"), vec![Value::String(name)]),
-        ]
-        .into_iter()
-        .collect(),
-    )))
+    Ok(Value::Object(
+        Arc::new(
+            [
+                (
+                    Arc::from("namespace"),
+                    vec![Value::String(Arc::from(namespace))],
+                ),
+                (Arc::from("name"), vec![Value::String(name)]),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        None,
+    ))
 }
 
 /// Fail on an unknown type name before looking at the input, so an empty
