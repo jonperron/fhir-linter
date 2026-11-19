@@ -7,7 +7,8 @@ use super::Evaluator;
 use super::helpers::{
     as_type, check_arity, check_arity_range, check_collection_len, check_known_content,
     check_type_name, collect_descendants, compare_values, criteria_bool, distinct, distinct_last,
-    eval_type_name, is_distinct, is_type, optional_integer, primitive_values, value_is_type,
+    eval_type_name, is_distinct, is_type, optional_integer, primitive_values, try_sort_by,
+    value_is_type,
 };
 use super::value_set::ValueSet;
 
@@ -390,37 +391,18 @@ impl Evaluator<'_> {
             }
             "sort" => {
                 check_arity_range(name, args, 0, 1)?;
-                let mut items = focus.to_vec();
                 if args.is_empty() {
-                    let mut sort_error: Option<EvalError> = None;
-                    items.sort_by(|a, b| {
-                        compare_values(a, b).unwrap_or_else(|e| {
-                            sort_error = Some(e);
-                            std::cmp::Ordering::Equal
-                        })
-                    });
-                    if let Some(e) = sort_error {
-                        return Err(e);
-                    }
-                    items
+                    try_sort_by(focus.to_vec(), &mut compare_values)?
                 } else {
-                    let mut keys: Vec<Value> = Vec::with_capacity(items.len());
-                    for (index, item) in items.iter().enumerate() {
+                    let mut keys: Vec<Value> = Vec::with_capacity(focus.len());
+                    for (index, item) in focus.iter().enumerate() {
                         let key_col = self.eval_item(&args[0], item, index)?;
                         keys.push(key_col.into_iter().next().unwrap_or(Value::Null));
                     }
-                    let mut indices: Vec<usize> = (0..items.len()).collect();
-                    let mut sort_error: Option<EvalError> = None;
-                    indices.sort_by(|&i, &j| {
-                        compare_values(&keys[i], &keys[j]).unwrap_or_else(|e| {
-                            sort_error = Some(e);
-                            std::cmp::Ordering::Equal
-                        })
-                    });
-                    if let Some(e) = sort_error {
-                        return Err(e);
-                    }
-                    indices.into_iter().map(|i| items[i].clone()).collect()
+                    let indices = try_sort_by((0..focus.len()).collect(), &mut |&i, &j| {
+                        compare_values(&keys[i], &keys[j])
+                    })?;
+                    indices.into_iter().map(|i| focus[i].clone()).collect()
                 }
             }
 

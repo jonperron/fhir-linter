@@ -594,6 +594,35 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
     }
 }
 
+/// Stable merge sort that stops at the first comparison error. `sort_by`
+/// cannot: it needs a total order and may panic without one (Rust 1.81+).
+pub(super) fn try_sort_by<T>(
+    items: Vec<T>,
+    compare: &mut impl FnMut(&T, &T) -> Result<std::cmp::Ordering, EvalError>,
+) -> Result<Vec<T>, EvalError> {
+    if items.len() <= 1 {
+        return Ok(items);
+    }
+    let mut left = items;
+    let right = left.split_off(left.len() / 2);
+    let left = try_sort_by(left, compare)?;
+    let right = try_sort_by(right, compare)?;
+    let mut merged = Vec::with_capacity(left.len() + right.len());
+    let (mut left, mut right) = (left.into_iter().peekable(), right.into_iter().peekable());
+    while let (Some(l), Some(r)) = (left.peek(), right.peek()) {
+        // Ties keep the left item first, so the sort is stable.
+        let next = if compare(r, l)? == std::cmp::Ordering::Less {
+            right.next()
+        } else {
+            left.next()
+        };
+        merged.extend(next);
+    }
+    merged.extend(left);
+    merged.extend(right);
+    Ok(merged)
+}
+
 // ── Boolean helpers ───────────────────────────────────────────────────────────
 
 /// N1 §4.5 singleton evaluation: the single item of `col`, `None` when empty,
