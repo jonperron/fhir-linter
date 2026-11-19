@@ -506,7 +506,7 @@ Le système SHALL implémenter `abs()`, `ceiling()`, `floor()`, `round()`, `roun
 #### Scenario: Arithmétique décimale exacte
 
 - **WHEN** `+`, `-`, `*` ou `mod` est appliqué à des Decimal (`1.2 mod 0.1`, `1.8 - 1.2`), ou `div`, `/`, `sum()` et `avg()` sur des Decimal
-- **THEN** le calcul SHALL être exact sur `fhir_parser::Decimal` (`0.0` et `0.6`) ; `div` SHALL tronquer exactement ; `/` SHALL arrondir à la moitié en s'éloignant de zéro à au moins 8 décimales (ou l'échelle des opérandes) puis retirer les zéros finaux ; un dépassement SHALL retourner `Err(EvalError::Type(...))` sans paniquer, y compris le dépassement d'un `sum()` d'entiers
+- **THEN** le calcul SHALL être exact sur `fhir_parser::Decimal` (`0.0` et `0.6`) ; `div` SHALL tronquer exactement ; `/` SHALL arrondir à la moitié en s'éloignant de zéro à au moins 8 décimales (ou l'échelle des opérandes) puis retirer les zéros finaux ; `div`, `/` et `mod` SHALL rester définis quand les échelles des opérandes sont très éloignées (`1e-30 div 1e30` donne `0`, `mod` rend le dividende quand le diviseur dépasse `i128`, `i128::MIN mod -1` donne `0`) ; un autre dépassement SHALL retourner `Err(EvalError::Type(...))` sans paniquer, y compris le dépassement d'un `sum()` d'entiers
 
 #### Scenario: sqrt sur entier positif
 
@@ -541,7 +541,7 @@ Les unités calendaires des littéraux de quantité (`year`, `month`, `week`, `d
 
 Pour `=`, `!=`, `~`, `!~`, `<`, `<=`, `>`, `>=`, un objet FHIR Quantity (enfants typés : `value` de type `decimal`, clés limitées à value/unit/system/code/id/extension, texte décimal XML fini) SHALL être traité comme une quantité littérale (R5 §2.1.9.1). Son unité est le `code` si `system` vaut `http://unitsofmeasure.org`, sinon le texte `unit` en l'absence de `code`, sinon aucune. Un `code` avec un `system` absent ou non UCUM, ou un `comparator`, n'est pas reconnu : la comparaison structurelle d'objets s'applique. `=`, `!=`, `~`, `!~`, `<`, `<=`, `>`, `>=`, `comparable()`, `sort`, `min` et `max` SHALL convertir les unités par le convertisseur UCUM : l'opérande droit est converti dans l'unité du gauche, en `f64` avec une tolérance relative de 1e-12 (shortcut). Des unités inconnues, spéciales (`Cel`, `[degF]`), incompatibles ou présentes d'un seul côté SHALL donner une collection vide pour `=`, `!=` et les opérateurs d'ordre, `false` pour `~` et pour `comparable()`, et une erreur de type pour `sort`/`min`/`max` (inchangé). `~` SHALL arrondir à la précision de l'opérande le moins précis, mesurée dans l'unité gauche (`4 'g' ~ 4040 'mg'` est vrai). `*` et `/` sur des Quantity (N1 §6.6) SHALL combiner les montants comme des nombres et les unités par UCUM : les puissances d'un même atome fusionnent et s'annulent (`12 'cm' * 3 'cm'` donne `36 'cm2'`, `1 'm' / 1 'm'` donne `1 '1'`, `4 'g' / 2 'm'` donne `2 'g/m'`, `2.0 'cm' * 2.0 'm'` donne `4.0 'cm.m'`, égal à `0.040 'm2'`). Un opérande nombre a l'unité `'1'` et laisse l'autre unité telle qu'écrite (`6 / 3 's'` donne `2 '1/s'`). Une unité avec parenthèses ou annotations SHALL être conservée entière entre parenthèses. Les mots-clés calendaires `week` et plus courts SHALL valoir leur unité UCUM. Le résultat SHALL être vide pour une division par zéro, une Quantity sans unité, une unité inconnue ou non prise en charge, ou un mot-clé `year`/`month`. `+`, `-`, `div` et `mod` sur des Quantity ne sont pas encore pris en charge (erreur de type). La négation unaire et `abs()` d'une Quantity SHALL conserver l'unité. La négation unaire, `abs()` et `toQuantity(unit)` SHALL aussi accepter un objet FHIR Quantity (même reconnaissance que pour la comparaison : `value` décimal typé, unité UCUM `code`) et le traiter comme la Quantity littérale équivalente.
 
-`toString()` et `convertsToString()` SHALL exiger une entrée singleton (plusieurs éléments : erreur). `String`, `Boolean`, `Integer`, `Long`, `Decimal`, `Date`, `DateTime`, `Time` et `Quantity` sont convertibles, tout autre élément non (collection vide pour `toString`, `false` pour `convertsToString`). Un `Decimal` SHALL toujours s'afficher avec une partie fractionnaire (`1.0` donne `'1.0'` ; un `Decimal` conserve ses décimales écrites, donc `1.50` donne `'1.50'`) et une `Quantity` SHALL s'afficher `valeur 'unité'`, unités calendaires comprises (`4 days` donne `"4 'day'"`). `toString` d'un `Decimal` non fini SHALL donner une collection vide. `convertsToString` sur une entrée vide SHALL donner une collection vide.
+`toString()` et `convertsToString()` SHALL exiger une entrée singleton (plusieurs éléments : erreur). `String`, `Boolean`, `Integer`, `Long`, `Decimal`, `Date`, `DateTime`, `Time` et `Quantity` sont convertibles, tout autre élément non (collection vide pour `toString`, `false` pour `convertsToString`). Un `Decimal` SHALL toujours s'afficher avec une partie fractionnaire (`1.0` donne `'1.0'` ; un `Decimal` conserve ses décimales écrites, donc `1.50` donne `'1.50'`) et une `Quantity` SHALL s'afficher `valeur 'unité'`, unités calendaires comprises (`4 days` donne `"4 'day'"`). `toString` d'un `Decimal` non fini, ou dont l'écriture exigerait un exposant (échelle au-delà de 1000), SHALL donner une collection vide. `convertsToString` sur une entrée vide SHALL donner une collection vide.
 
 #### Scenario: toInteger depuis une chaîne
 
@@ -632,6 +632,11 @@ Pour `=`, `!=`, `~`, `!~`, `<`, `<=`, `>`, `>=`, un objet FHIR Quantity (enfants
 
 - **WHEN** `1.0.toString()` puis `1.50.toString()` sont évalués
 - **THEN** les résultats SHALL être `[String('1.0')]` puis `[String('1.50')]`
+
+#### Scenario: Decimal à exposant
+
+- **WHEN** `toString()` est évalué sur un `Decimal` de plus de 1000 décimales
+- **THEN** le résultat SHALL être une collection vide
 
 #### Scenario: Decimal non fini
 

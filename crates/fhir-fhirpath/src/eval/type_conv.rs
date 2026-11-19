@@ -190,7 +190,7 @@ fn to_string(item: &Value) -> Option<Value> {
         Value::String(_) => return Some(item.clone()),
         Value::Bool(b) => b.to_string(),
         Value::Integer(n) | Value::Long(n) => n.to_string(),
-        Value::Decimal(d) => decimal_text(*d),
+        Value::Decimal(d) => decimal_text(*d)?,
         Value::Date(s) | Value::DateTime(s) | Value::Time(s) => s.to_string(),
         Value::Quantity(value, unit) => format!("{value} '{unit}'"),
         _ => return None,
@@ -205,12 +205,15 @@ fn finite(digits: &str) -> Option<f64> {
 
 /// A Decimal as `(\+|-)?\d+(.\d+)?` with its written places (`1.50` stays
 /// `'1.50'`), always with a fraction so it stays distinct from an Integer.
-fn decimal_text(d: Decimal) -> String {
+/// `None` when the value needs an exponent, which that form has no place for.
+fn decimal_text(d: Decimal) -> Option<String> {
     let text = d.to_string();
-    if text.contains(['.', 'e']) {
-        text
+    if text.contains('e') {
+        None
+    } else if text.contains('.') {
+        Some(text)
     } else {
-        format!("{text}.0")
+        Some(format!("{text}.0"))
     }
 }
 

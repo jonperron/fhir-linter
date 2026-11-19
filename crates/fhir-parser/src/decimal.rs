@@ -121,14 +121,41 @@ impl Decimal {
     /// The quotient truncated to a whole number (FHIRPath `div`); `None` for a
     /// zero divisor.
     pub fn checked_div_integer(self, other: Self) -> Option<Self> {
-        let (a, b, _) = self.aligned(other)?;
-        Some(Self::new(a.checked_div(b)?, 0))
+        if other.is_zero() {
+            return None;
+        }
+        if self.is_zero() {
+            return Some(Self::new(0, 0));
+        }
+        // The quotient is (a / b) × 10^e with e = other.scale - self.scale.
+        let e = i64::from(other.scale) - i64::from(self.scale);
+        let quotient = if e >= 0 {
+            self.mantissa
+                .checked_mul(pow10(e)?)?
+                .checked_div(other.mantissa)?
+        } else {
+            // A divisor beyond i128 exceeds any mantissa: the quotient is 0.
+            // (5 divides it, so it cannot be exactly 2^127 either.)
+            match other.mantissa.checked_mul(pow10(-e).unwrap_or(0)) {
+                Some(d) if d != 0 => self.mantissa.checked_div(d)?,
+                _ => 0,
+            }
+        };
+        Some(Self::new(quotient, 0))
     }
 
     /// Truncated remainder with the sign of `self`; `None` for a zero divisor.
     pub fn checked_rem(self, other: Self) -> Option<Self> {
-        let (a, b, scale) = self.aligned(other)?;
-        Some(Self::new(a.checked_rem(b)?, scale))
+        if other.is_zero() {
+            return None;
+        }
+        match self.aligned(other) {
+            // `wrapping_rem`: `i128::MIN % -1` is 0, not an overflow.
+            Some((a, b, scale)) => Some(Self::new(a.wrapping_rem(b), scale)),
+            // The divisor outgrew i128 at the finer scale: it exceeds `self`.
+            None if self.scale >= other.scale => Some(self),
+            None => None,
+        }
     }
 
     /// The quotient rounded half away from zero to at least 8 places (or the
@@ -137,13 +164,20 @@ impl Decimal {
         if other.is_zero() {
             return None;
         }
+        if self.is_zero() {
+            return Some(Self::new(0, 0));
+        }
         let target = DIVISION_SCALE.max(self.scale).max(other.scale);
         // One guard digit past `target`; truncation keeps it below the exact digit.
         let shift = i64::from(target) + 1 + i64::from(other.scale) - i64::from(self.scale);
         let (numerator, denominator) = if shift >= 0 {
             (self.mantissa.checked_mul(pow10(shift)?)?, other.mantissa)
         } else {
-            (self.mantissa, other.mantissa.checked_mul(pow10(-shift)?)?)
+            // A denominator beyond i128 leaves a quotient below the guard digit.
+            match pow10(-shift).and_then(|p| other.mantissa.checked_mul(p)) {
+                Some(wide) => (self.mantissa, wide),
+                None => (0, 1),
+            }
         };
         let quotient = numerator.checked_div(denominator)?;
         Some(
@@ -458,5 +492,25 @@ mod tests {
         assert_eq!(Decimal::from_f64(1e300).unwrap().scale(), -300);
         assert!(Decimal::from_f64(f64::INFINITY).is_none());
         assert_eq!(dec("12.5").to_f64(), 12.5);
+    }
+
+    #[test]
+    fn far_apart_scales_still_divide() {
+        // N1 §6.6 `div`/`/`: exact quotients, however far apart the scales.
+        let (tiny, huge) = (dec("1e-30"), dec("1e30"));
+        assert_eq!(tiny.checked_div_integer(huge).unwrap(), dec("0"));
+        assert_eq!(tiny.checked_div(huge).unwrap().to_string(), "0");
+        assert_eq!(dec("0").checked_div(dec("1e-30")).unwrap().to_string(), "0");
+        assert_eq!(tiny.checked_rem(huge).unwrap(), tiny);
+        let min = Decimal::new(i128::MIN, 0);
+        assert_eq!(min.checked_rem(Decimal::from(-1)).unwrap(), dec("0"));
+    }
+
+    #[test]
+    fn rescale_of_the_minimum_mantissa_does_not_panic() {
+        let min = Decimal::new(i128::MIN, 0);
+        let half = Rounding::HalfAwayFromZero;
+        assert!(min.rescale(-1, half).is_some());
+        assert_eq!(min.rescale(-39, half).unwrap().mantissa(), 0);
     }
 }

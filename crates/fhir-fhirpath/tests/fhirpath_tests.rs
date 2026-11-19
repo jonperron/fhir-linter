@@ -2707,3 +2707,30 @@ fn choice_element_is_navigable_by_its_base_name() {
 fn dec(text: &str) -> fhir_fhirpath::Decimal {
     text.parse().expect("decimal literal")
 }
+
+/// N1 §6.6: `div` truncates and `/` rounds exactly, so a quotient far below
+/// the operands' scales is 0, not an error.
+#[test]
+fn extreme_scale_division_and_to_string() {
+    let (tiny, huge) = (
+        "0.000000000000000000000000000001",
+        "1000000000000000000000000000000.0",
+    );
+    assert_eq!(
+        evaluate(&format!("{tiny} div {huge}"), &[]).unwrap(),
+        vec![Value::Integer(0)]
+    );
+    assert_eq!(evaluate(&format!("{tiny} / {huge}"), &[]).unwrap().len(), 1);
+    assert_eq!(
+        evaluate(&format!("{tiny} mod {huge}"), &[]).unwrap().len(),
+        1
+    );
+    // Display switches to an exponent past 1000 places, which the String
+    // grammar has no form for.
+    let long = format!("0.{}1", "0".repeat(1001));
+    assert!(
+        evaluate(&format!("{long}.toString()"), &[])
+            .unwrap()
+            .is_empty()
+    );
+}
