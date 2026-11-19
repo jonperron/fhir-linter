@@ -5,8 +5,9 @@ use crate::Registry;
 impl Registry {
     /// Whether an instance of the FHIR type `fhir_type` conforms to the
     /// StructureDefinition at `url`, as far as its type tells:
-    /// - `None` when no loaded definition has that URL (fhirpath.html: the
-    ///   structure "cannot be resolved to a valid profile");
+    /// - `None` when no loaded definition has that URL, or that version for a
+    ///   versioned canonical (fhirpath.html: the structure "cannot be resolved to a
+    ///   valid profile");
     /// - `Some(None)` when the definition is a constraint (a profile such as
     ///   `vitalsigns` or `SimpleQuantity`), whose rules the type alone cannot check;
     /// - `Some(Some(conforms))` for a base definition: whether it defines `fhir_type`
@@ -19,7 +20,14 @@ impl Registry {
     /// shortcut: the instance's content is not validated against the definition, only
     /// its type is compared. Upgrade when `conformsTo()` runs a nested validation.
     pub fn conforms_to(&self, fhir_type: &str, url: &str) -> Option<Option<bool>> {
+        // A versioned canonical (`url|version`) resolves only to the loaded version.
+        let (url, version) = url
+            .split_once('|')
+            .map_or((url, None), |(u, v)| (u, Some(v)));
         let sd = self.structure_definition(url)?;
+        if version.is_some_and(|version| sd.version.as_deref() != Some(version)) {
+            return None;
+        }
         let defined_type = sd.snapshot.first().map(|root| &*root.path);
         let is_base = defined_type
             .and_then(|defined_type| self.core(defined_type))
@@ -67,5 +75,11 @@ mod tests {
     #[test]
     fn an_unknown_url_is_unresolved() {
         assert_eq!(REGISTRY.conforms_to("Patient", "http://trash"), None);
+    }
+
+    #[test]
+    fn a_versioned_canonical_must_name_the_loaded_version() {
+        assert_eq!(conforms_to("Patient", "Patient|5.0.0"), Some(Some(true)));
+        assert_eq!(conforms_to("Patient", "Patient|4.0.1"), None);
     }
 }

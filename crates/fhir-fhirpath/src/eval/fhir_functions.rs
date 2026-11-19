@@ -181,10 +181,20 @@ impl Evaluator<'_> {
     ) -> Result<Collection, EvalError> {
         check_arity("conformsTo", args, 1)?;
         let url = self.eval(&args[0], ctx)?;
-        let url = singleton(&url, "conformsTo")?.and_then(Value::as_string);
+        let url = singleton(&url, "conformsTo")?
+            .map(|url| {
+                url.as_string().ok_or_else(|| {
+                    EvalError::Type("conformsTo() takes a string structure URL".to_string())
+                })
+            })
+            .transpose()?;
         let (Some(url), [item]) = (url, focus) else {
             return Ok(vec![]);
         };
+        // A null placeholder (a JSON `null` array entry) is no item.
+        if matches!(item, Value::Null) {
+            return Ok(vec![]);
+        }
         let unchecked =
             |reason: &str| EvalError::Type(format!("conformsTo() cannot check '{url}': {reason}"));
         let conforms_to = self
