@@ -96,7 +96,7 @@ fn matches(value: &FhirPathValue, expected: &Json, exact: bool) -> bool {
         return false;
     }
     match (value.primitive_value(), expected) {
-        (FhirPathValue::Object(fields), Json::Object(map)) => {
+        (FhirPathValue::Object(fields, _), Json::Object(map)) => {
             (!exact || fields.len() == map.len())
                 && map.iter().all(|(key, e)| {
                     fields

@@ -198,7 +198,9 @@ pub(crate) fn queue<'a>(
                 &|parent, name| child_element(registry, parent, name),
             )
             .pop()
-            .unwrap_or_else(|| FhirPathValue::Object(Arc::default())),
+            .unwrap_or_else(|| {
+                FhirPathValue::Object(Arc::default(), Some(Arc::clone(resource_type)))
+            }),
         };
         queue.push(Embedded {
             resource: Resource {

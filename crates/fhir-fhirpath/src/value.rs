@@ -27,8 +27,11 @@ pub enum Value {
     /// Quantity with a UCUM unit, or a calendar duration unit given by its
     /// singular keyword (N1 §4.1.8: `4 days` has the unit `'day'`).
     Quantity(f64, Arc<str>),
-    /// An object node (maps field name → collection).
-    Object(Arc<IndexMap<Arc<str>, Collection>>),
+    /// An object node (maps field name → collection) and its FHIR type when
+    /// known: the resource's `resourceType`, or the declared type code of a
+    /// complex element (`Quantity`, `HumanName`, `BackboneElement`). `is`,
+    /// `as`, `ofType` and `type()` answer by that type.
+    Object(Arc<IndexMap<Arc<str>, Collection>>, Option<Arc<str>>),
     /// A FHIR primitive element: its value (`Null` when it has none), its own
     /// children (`id`, `extension`; JSON `_name` or XML element children) and
     /// its declared FHIR type code (`code`, `canonical`...) when known.
@@ -71,7 +74,7 @@ impl Value {
     /// The children of an object or of a primitive with an id or extensions.
     pub(crate) fn fields(&self) -> Option<&IndexMap<Arc<str>, Collection>> {
         match self {
-            Value::Object(fields) | Value::Primitive(_, fields, _) => Some(fields),
+            Value::Object(fields, _) | Value::Primitive(_, fields, _) => Some(fields),
             _ => None,
         }
     }
@@ -99,7 +102,7 @@ impl Value {
             Value::DateTime(_) => "DateTime",
             Value::Time(_) => "Time",
             Value::Quantity(_, _) => "Quantity",
-            Value::Object(_) => "Object",
+            Value::Object(..) => "Object",
             Value::Primitive(value, _, _) => value.type_name(),
             Value::UnresolvedResource { .. } => "Object",
         }
@@ -143,7 +146,7 @@ impl fmt::Display for Value {
             Value::String(s) => write!(f, "{s}"),
             Value::Date(s) | Value::DateTime(s) | Value::Time(s) => write!(f, "{s}"),
             Value::Quantity(n, u) => write!(f, "{n} '{u}'"),
-            Value::Object(_) => write!(f, "{{…}}"),
+            Value::Object(..) => write!(f, "{{…}}"),
             Value::Primitive(value, _, _) => write!(f, "{value}"),
             Value::UnresolvedResource { reference, .. } => write!(f, "{reference}"),
         }
@@ -285,7 +288,7 @@ pub fn resource_to_typed_value(
         }
         map.insert(key, values);
     }
-    Value::Object(Arc::new(map))
+    Value::Object(Arc::new(map), Some(Arc::clone(&resource.resource_type)))
 }
 
 /// Convert one instance value and, for a primitive, its JSON `_name` element,
@@ -370,12 +373,10 @@ fn convert(
                 },
             )) = fields.first()
             else {
-                return vec![Value::Object(Arc::new(object_fields(
-                    fields,
+                return vec![Value::Object(
+                    Arc::new(object_fields(fields, None, child_element, xml)),
                     None,
-                    child_element,
-                    xml,
-                )))];
+                )];
             };
             let mut map = IndexMap::from([(
                 Arc::from("resourceType"),
@@ -387,20 +388,26 @@ fn convert(
                 child_element,
                 xml,
             ));
-            vec![Value::Object(Arc::new(map))]
+            vec![Value::Object(
+                Arc::new(map),
+                Some(Arc::clone(resource_type)),
+            )]
         }
         fhir_parser::Value::Object(fields) => {
             // A resource (contained, Bundle entry) is typed by its own resourceType.
-            let definition = match fields.get("resourceType").map(|n| &n.value) {
-                Some(fhir_parser::Value::Str(resource_type)) => Some(&**resource_type),
-                _ => child.map(|(definition, _)| &**definition),
+            let (definition, fhir_type) = match fields.get("resourceType").map(|n| &n.value) {
+                Some(fhir_parser::Value::Str(resource_type)) => {
+                    (Some(&**resource_type), Some(Arc::clone(resource_type)))
+                }
+                _ => (
+                    child.map(|(definition, _)| &**definition),
+                    child.map(|(_, ty)| Arc::clone(ty)),
+                ),
             };
-            vec![Value::Object(Arc::new(object_fields(
-                fields,
-                definition,
-                child_element,
-                xml,
-            )))]
+            vec![Value::Object(
+                Arc::new(object_fields(fields, definition, child_element, xml)),
+                fhir_type,
+            )]
         }
     }
 }

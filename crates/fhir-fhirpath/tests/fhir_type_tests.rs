@@ -56,7 +56,7 @@ fn eval_on(input: Value, expression: &str, with_hook: bool) -> Result<Collection
     Ok(evaluate_parsed_with_environment(
         &parse(expression)?,
         &input,
-        &|_, _| false,
+        &|base, suffix| registry().is_choice_variant(base, suffix),
         &environment,
     )?)
 }
@@ -183,9 +183,23 @@ fn type_reflects_fhir_data_in_the_fhir_namespace() -> TestResult {
 }
 
 #[test]
-fn type_of_a_complex_datatype_is_an_error() {
-    // The Extension object does not carry its type.
-    assert!(eval("Questionnaire.version.extension.type()", true).is_err());
+fn type_of_a_complex_datatype_is_its_fhir_type() -> TestResult {
+    // N1 §10.2: FHIR data answers in the FHIR namespace, objects included.
+    let name = eval("Questionnaire.version.extension.type().name", true)?;
+    assert_eq!(strings(&name), ["Extension"]);
+    let namespace = eval("Questionnaire.version.extension.type().namespace", true)?;
+    assert_eq!(strings(&namespace), ["FHIR"]);
+    Ok(())
+}
+
+#[test]
+fn type_of_an_untyped_object_is_an_error() -> TestResult {
+    // Without the model, a complex datatype object has no known type.
+    let untyped = fhir_fhirpath::resource_to_value(&parse_json(
+        r#"{"resourceType":"Patient","name":[{"family":"Doe"}]}"#,
+    )?);
+    assert!(eval_on(untyped, "Patient.name.type()", false).is_err());
+    Ok(())
 }
 
 #[test]
@@ -336,5 +350,93 @@ fn qualified_type_names_check_their_namespace() -> TestResult {
     let error = eval("Questionnaire.is(FHIR.NoSuchType)", true).err();
     let error = error.as_deref().and_then(|e| e.downcast_ref::<EvalError>());
     assert!(matches!(error, Some(EvalError::Type(_))), "{error:?}");
+    Ok(())
+}
+
+fn observation() -> Result<Value, Box<dyn Error>> {
+    Ok(typed(&parse_json(
+        r#"{"resourceType":"Observation","status":"final","code":{"text":"weight"},
+        "valueQuantity":{"value":185,"unit":"lbs","system":"http://unitsofmeasure.org",
+          "code":"[lb_av]"},
+        "extension":[{"url":"http://example.org/age","valueAge":{"value":40,"unit":"yr",
+          "system":"http://unitsofmeasure.org","code":"a"}}],
+        "component":[{"code":{"text":"x"},"valueString":"y"}],
+        "contained":[{"resourceType":"Patient","id":"p","name":[{"family":"Doe"}]}]}"#,
+    )?))
+}
+
+#[test]
+fn a_complex_datatype_is_its_fhir_type_and_its_ancestors() -> TestResult {
+    // N1 §6.3: `is` / `as` / `ofType` match the type or a subtype of it;
+    // R5 fhirpath.html §2.1.9.1.2: `Observation.value.ofType(Quantity)`.
+    for (expression, expected) in [
+        ("Observation.value is Quantity", true),
+        ("Observation.value.is(Quantity)", true),
+        ("Observation.value is Element", true),
+        ("Observation.value is Age", false),
+        ("Observation.value is Period", false),
+        ("Observation.extension.value is Age", true),
+        ("Observation.extension.value is Quantity", true),
+        ("Observation.code is CodeableConcept", true),
+        ("Observation.component.is(BackboneElement)", true),
+        ("Observation.contained.name.is(HumanName)", true),
+        ("Observation.contained.is(Patient)", true),
+        ("Observation.contained.is(DomainResource)", true),
+    ] {
+        assert_eq!(
+            eval_on(observation()?, expression, true)?,
+            [Value::Bool(expected)],
+            "{expression}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn as_and_of_type_keep_a_matching_complex_datatype() -> TestResult {
+    for (expression, expected) in [
+        ("Observation.value.as(Quantity).unit", vec!["lbs"]),
+        ("(Observation.value as Quantity).unit", vec!["lbs"]),
+        ("Observation.value.ofType(Quantity).unit", vec!["lbs"]),
+        ("Observation.value.as(Period).start", vec![]),
+        (
+            "Observation.contained.name.ofType(HumanName).family",
+            vec!["Doe"],
+        ),
+    ] {
+        assert_eq!(
+            strings(&eval_on(observation()?, expression, true)?),
+            expected,
+            "{expression}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_typed_quantity_still_compares_as_a_quantity() -> TestResult {
+    let result = eval_on(observation()?, "Observation.value = 185 '[lb_av]'", true)?;
+    assert_eq!(result, [Value::Bool(true)]);
+    Ok(())
+}
+
+#[test]
+fn an_expression_may_start_with_a_supertype_of_the_context() -> TestResult {
+    // N1 §3: a leading type name resolves to the context's type or a supertype.
+    let patient = typed(&parse_json(
+        r#"{"resourceType":"Patient","id":"p1","text":{"status":"generated",
+        "div":"<div xmlns=\"http://www.w3.org/1999/xhtml\">x</div>"}}"#,
+    )?);
+    for (expression, expected) in [
+        ("DomainResource.text.status", vec!["generated"]),
+        ("Resource.id", vec!["p1"]),
+        ("Observation.id", vec![]),
+    ] {
+        assert_eq!(
+            strings(&eval_on(patient.clone(), expression, true)?),
+            expected,
+            "{expression}"
+        );
+    }
     Ok(())
 }

@@ -306,7 +306,7 @@ fn test(
             let actual = match (item.choice_type.filter(|_| at_this), value) {
                 (Some(ty), _) => ty,
                 (None, FhirPathValue::Primitive(_, _, Some(ty))) => ty.as_ref(),
-                (None, FhirPathValue::Object(fields)) => match fields.get("resourceType") {
+                (None, FhirPathValue::Object(fields, _)) => match fields.get("resourceType") {
                     Some(v) => match v.as_slice() {
                         [FhirPathValue::String(rt)] => rt.as_ref(),
                         _ => return Err("the type of a discriminated value is unknown".into()),

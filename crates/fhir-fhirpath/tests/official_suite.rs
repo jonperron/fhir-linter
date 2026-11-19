@@ -299,7 +299,7 @@ fn actual_key(value: &Value) -> String {
         Value::Time(s) => format!("time:{}", temporal_text(s)),
         Value::Quantity(n, u) => format!("Quantity:{n} {u}"),
         Value::Null => "null".to_owned(),
-        Value::Object(_) | Value::UnresolvedResource { .. } => "object".to_owned(),
+        Value::Object(..) | Value::UnresolvedResource { .. } => "object".to_owned(),
         Value::Primitive(value, _, _) => actual_key(value),
     }
 }

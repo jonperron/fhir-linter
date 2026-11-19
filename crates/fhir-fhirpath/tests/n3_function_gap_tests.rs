@@ -155,7 +155,7 @@ fn distinct_compares_complex_values_structurally() {
     let object = |family: &str| {
         let mut fields: IndexMap<Arc<str>, Vec<Value>> = IndexMap::new();
         fields.insert(Arc::from("family"), vec![string(family)]);
-        Value::Object(Arc::new(fields))
+        Value::Object(Arc::new(fields), None)
     };
     let input = [object("Doe"), object("Roe"), object("Doe")];
     let distinct = evaluate("distinct()", &input).unwrap();

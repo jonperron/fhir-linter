@@ -128,7 +128,7 @@ pub(crate) fn validate<'a>(
 /// The FHIRPath children of a single object value.
 fn typed_fields(value: &[FhirPathValue]) -> Option<&IndexMap<Arc<str>, Collection>> {
     match value {
-        [FhirPathValue::Object(fields)] => Some(fields),
+        [FhirPathValue::Object(fields, _)] => Some(fields),
         _ => None,
     }
 }

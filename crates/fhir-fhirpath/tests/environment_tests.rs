@@ -38,7 +38,7 @@ fn container() -> Result<Value, Box<dyn Error>> {
 }
 
 fn child(value: &Value, name: &str) -> Result<Value, Box<dyn Error>> {
-    let Value::Object(map) = value else {
+    let Value::Object(map, _) = value else {
         return Err("not an object".into());
     };
     map.get(name)

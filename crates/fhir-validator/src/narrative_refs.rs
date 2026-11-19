@@ -21,7 +21,7 @@ const XHTML_NS: &[u8] = b"http://www.w3.org/1999/xhtml";
 /// by `#id` left out; `None` when no entry is left out. dom-3 evaluated on it, with the
 /// whole resource as `%resource`, then counts narrative references.
 pub(crate) fn without_narrative_referenced(root: &Value) -> Option<Value> {
-    let Value::Object(fields) = root else {
+    let Value::Object(fields, fhir_type) = root else {
         return None;
     };
     let contained = fields.get("contained")?;
@@ -37,12 +37,12 @@ pub(crate) fn without_narrative_referenced(root: &Value) -> Option<Value> {
     }
     let mut fields = (**fields).clone();
     fields.insert(Arc::from("contained"), kept);
-    Some(Value::Object(Arc::new(fields)))
+    Some(Value::Object(Arc::new(fields), fhir_type.clone()))
 }
 
 /// The `id` of a contained resource.
 fn contained_id(resource: &Value) -> Option<Arc<str>> {
-    let Value::Object(fields) = resource else {
+    let Value::Object(fields, _) = resource else {
         return None;
     };
     fields.get("id")?.first()?.primitive_value().as_string()
@@ -51,7 +51,7 @@ fn contained_id(resource: &Value) -> Option<Arc<str>> {
 /// Add the `#id` targets of every xhtml value under `value` to `referenced`.
 fn collect(value: &Value, referenced: &mut HashSet<String>) {
     match value {
-        Value::Object(fields) => fields
+        Value::Object(fields, _) => fields
             .values()
             .flatten()
             .for_each(|child| collect(child, referenced)),
