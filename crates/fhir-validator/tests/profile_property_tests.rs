@@ -109,3 +109,40 @@ fn specialization_may_define_a_content_reference() {
     );
     assert!(paths(&specialization, "DEFINITION_006").is_empty());
 }
+
+#[test]
+fn profile_may_not_assert_an_order_meaning_its_base_lacks() {
+    assert_eq!(
+        paths(&fixture("sd-root-profile.xml"), "DEFINITION_007"),
+        ["StructureDefinition.differential.element[0].orderMeaning"]
+    );
+    let name = definition(
+        "constraint",
+        "Patient",
+        "resource",
+        r#""id":"Patient.name","path":"Patient.name","orderMeaning":"by preference""#,
+    );
+    assert_eq!(
+        paths(&name, "DEFINITION_007"),
+        ["StructureDefinition.differential.element[1].orderMeaning"]
+    );
+}
+
+#[test]
+fn profile_may_refine_an_order_meaning_and_specializations_may_introduce_one() {
+    // Bundle.entry has an orderMeaning in the base: "It can be further refined".
+    let refined = definition(
+        "constraint",
+        "Bundle",
+        "resource",
+        r#""id":"Bundle.entry","path":"Bundle.entry","orderMeaning":"newest first""#,
+    );
+    assert!(paths(&refined, "DEFINITION_007").is_empty());
+    let specialization = definition(
+        "specialization",
+        "Patient",
+        "resource",
+        r#""id":"Patient.name","path":"Patient.name","orderMeaning":"by preference""#,
+    );
+    assert!(paths(&specialization, "DEFINITION_007").is_empty());
+}

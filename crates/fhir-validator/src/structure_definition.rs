@@ -13,6 +13,9 @@
 //! ElementDefinition.contentReference: "ContentReferences can only be defined in
 //! specializations, not constrained types, and they cannot be changed".
 //!
+//! ElementDefinition.orderMeaning: "if absent in the base type, a profile cannot assert
+//! meaning".
+//!
 //! references.html, Canonical URLs: only the resources that have canonical URLs "are allowed
 //! to be the target of references to a canonical URLs".
 use fhir_definitions::{ElementDefinition, Registry, StructureDefinition};
@@ -56,7 +59,42 @@ pub(crate) fn validate(
         canonical_targets(registry, &differential, path, diagnostics);
         if let Some(base) = base_definition(resource, registry) {
             content_references(base, &differential, path, diagnostics);
+            order_meanings(base, &differential, path, diagnostics);
         }
+    }
+}
+
+/// orderMeaning asserted by a constraint on an element whose base has none
+/// (DEFINITION_007). ElementDefinition.orderMeaning: "This element can only be asserted on
+/// repeating elements and can only be introduced when defining resources or data types. It
+/// can be further refined profiled elements but if absent in the base type, a profile cannot
+/// assert meaning."
+fn order_meanings(
+    base: &StructureDefinition,
+    differential: &[(usize, &Fields)],
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for &(index, fields) in differential {
+        let (Some(node), Some(element)) = (fields.get("orderMeaning"), base_element(base, fields))
+        else {
+            continue;
+        };
+        if element.order_meaning {
+            continue;
+        }
+        diagnostics.push(
+            Diagnostic::error(
+                "DEFINITION_007",
+                format!(
+                    "The element definition for {} asserts an orderMeaning its base does not \
+                     have: if absent in the base type, a profile cannot assert meaning",
+                    element.path
+                ),
+                format!("{path}.differential.element[{index}].orderMeaning"),
+            )
+            .with_location(node.span),
+        );
     }
 }
 
