@@ -241,6 +241,8 @@ impl Decimal {
 
     /// The quotient rounded half away from zero to at least 8 places (or the
     /// operands' own scale), trailing zeros dropped; `None` for a zero divisor.
+    /// When those places do not fit 38 digits beside the integer part, it keeps
+    /// as many as fit (N1: `/` always gives a Decimal).
     pub fn checked_div(self, other: Self) -> Option<Self> {
         if other.is_zero() {
             return None;
@@ -249,6 +251,20 @@ impl Decimal {
             return Some(Self::new(0, 0));
         }
         let target = DIVISION_SCALE.max(self.scale).max(other.scale);
+        self.quotient_at(other, target).or_else(|| {
+            let whole = self.checked_div_integer(other)?.mantissa.unsigned_abs();
+            let digits = whole.checked_ilog10().map_or(0, |log| log as i32 + 1);
+            // Integer digits, the places and one guard digit stay within 38 digits.
+            let fitting = (37 - digits).max(0);
+            (fitting < target)
+                .then(|| self.quotient_at(other, fitting))
+                .flatten()
+        })
+    }
+
+    /// `self / other` rounded half away from zero to `target` places, trailing
+    /// zeros dropped; `None` when it overflows. `other` is not zero.
+    fn quotient_at(self, other: Self, target: i32) -> Option<Self> {
         // One guard digit past `target`; truncation keeps it below the exact digit.
         let shift = i64::from(target) + 1 + i64::from(other.scale) - i64::from(self.scale);
         let quotient = if shift >= 0 {
@@ -621,6 +637,28 @@ mod tests {
         // the right answer, not a lost result.
         assert!(dec("1e30").checked_div_integer(dec("1e-30")).is_none());
         assert!(dec("1e30").checked_div(dec("1e-30")).is_none());
+    }
+
+    #[test]
+    fn a_wide_quotient_keeps_the_places_that_fit() {
+        // N1 §6.6 `/`: the result is always a Decimal. 1e30 / 3 has 30 integer
+        // digits, so 7 places fit beside them in 38 digits, not 8.
+        assert_eq!(
+            dec("1e30").checked_div(dec("3")).unwrap().to_string(),
+            "333333333333333333333333333333.3333333"
+        );
+        assert_eq!(
+            dec("-2e30").checked_div(dec("3")).unwrap().to_string(),
+            "-666666666666666666666666666666.6666667"
+        );
+        // A divisor written with 38 places asks for 38 places: 36 fit beside `3`.
+        let fine = Decimal::new(3 * 10i128.pow(37), 38);
+        assert_eq!(
+            dec("1").checked_div(fine).unwrap().to_string(),
+            format!("3.{}", "3".repeat(36))
+        );
+        // A hostile scale on the divisor stays a short computation.
+        assert!(dec("1").checked_div(dec("1e-2000000000")).is_none());
     }
 
     #[test]
