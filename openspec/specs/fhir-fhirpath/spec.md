@@ -733,7 +733,7 @@ L'union `|` et `intersect()` SHALL éliminer les doublons des deux opérandes, y
 
 ### Requirement: Fonctions d'agrégation
 
-Le système SHALL implémenter `aggregate(aggregator, init)`, `sum()`, `min()`, `max()`, `avg()`, `sort()`, `sort(keySelector)`.
+Le système SHALL implémenter `aggregate(aggregator, init)`, `sum()`, `min()`, `max()`, `avg()`, `sort()`, `sort(keySelector [asc|desc], ...)`.
 
 #### Scenario: $total dans aggregate
 
@@ -769,6 +769,26 @@ Le système SHALL implémenter `aggregate(aggregator, init)`, `sum()`, `min()`, 
 
 - **WHEN** `(3 | 1 | 2).sort()` est évalué
 - **THEN** le résultat SHALL être `[1, 2, 3]` (ordre croissant)
+
+#### Scenario: sort à plusieurs clés
+
+- **WHEN** `sort(k1 [asc|desc], k2 [asc|desc], ...)` est évalué (FHIRPath v3 CI fn-sort)
+- **THEN** le système SHALL accepter un nombre quelconque de sélecteurs de clé ; les clés suivantes ne SHALL être évaluées que pour les éléments à égalité sur les précédentes ; `asc`/`desc` SHALL qualifier une clé et SHALL être une erreur d'analyse dans toute autre fonction
+
+#### Scenario: préfixe moins sur une clé
+
+- **WHEN** une clé est préfixée par `-` (ex. `('a' | 'b').sort(-$this)`)
+- **THEN** l'ordre de ses valeurs SHALL être inversé pour tout type ordonnable, `String` compris (testSort8, testSort10) ; une clé vide niée SHALL rester vide
+
+#### Scenario: clés vides, multiples et incompatibles
+
+- **WHEN** une clé est vide, comporte plusieurs éléments, ou les clés sont incompatibles
+- **THEN** une clé vide SHALL se classer la plus basse (`desc` la place en dernier) ; une clé à plusieurs éléments SHALL être une erreur ; des clés incompatibles SHALL être une erreur et ne SHALL jamais provoquer de panique (le tri fusion stable s'arrête à la première erreur de comparaison)
+
+#### Scenario: min et max sur des dates
+
+- **WHEN** `min()` ou `max()` est évalué sur des dates ou date-heures
+- **THEN** la comparaison SHALL suivre les opérateurs ; un ordre indécidé SHALL donner une collection vide ; une `Date` mélangée à une `DateTime` SHALL être une erreur (§min1)
 
 #### Scenario: $index dans la clé de sort
 
@@ -1293,7 +1313,7 @@ L'opérateur `=` SHALL comparer deux collections élément par élément dans l'
 
 L'opérateur `~` SHALL ne jamais retourner de collection vide : `{} ~ {}` vaut `true` et un seul côté vide vaut `false`. Il SHALL ignorer l'ordre des collections, comparer les chaînes sans tenir compte de la casse en traitant chaque caractère d'espacement comme une espace, sans fusionner les suites d'espaces, arrondir les décimaux à la précision de l'opérande le moins précis (zéros finaux ignorés), et ignorer `id` dans les objets.
 
-Les dates, date-heures et heures SHALL être comparées précision par précision (secondes et millisecondes comptent pour une seule précision), les fuseaux étant normalisés en UTC. Une précision différente avec des parties communes égales SHALL donner une collection vide, de même que deux date-heures avec heure dont un seul a un fuseau. Une `Date` ou une `DateTime` sans heure (donc sans fuseau) comparée à une `DateTime` avec fuseau SHALL être évaluée (`=`, `<`, `>`, `<=`, `>=`) avec la date au décalage `-14:00` puis `+14:00` : N1 §6.1.1 laisse le fuseau par défaut à l'implémentation et aucun défaut n'est supposé ; le résultat est rendu quand les deux évaluations concordent, sinon la collection est vide. Une `Date` ou une `DateTime` comparée à une `Time` SHALL donner `[Bool(false)]` pour `=` et `[Bool(true)]` pour `!=` (N2 §6.1.1), et non une collection vide. `sort()`, `min()` et `max()` SHALL continuer d'ordonner les date-heures par leur texte.
+Les dates, date-heures et heures SHALL être comparées précision par précision (secondes et millisecondes comptent pour une seule précision), les fuseaux étant normalisés en UTC. Une précision différente avec des parties communes égales SHALL donner une collection vide, de même que deux date-heures avec heure dont un seul a un fuseau. Une `Date` ou une `DateTime` sans heure (donc sans fuseau) comparée à une `DateTime` avec fuseau SHALL être évaluée (`=`, `<`, `>`, `<=`, `>=`) avec la date au décalage `-14:00` puis `+14:00` : N1 §6.1.1 laisse le fuseau par défaut à l'implémentation et aucun défaut n'est supposé ; le résultat est rendu quand les deux évaluations concordent, sinon la collection est vide. Une `Date` ou une `DateTime` comparée à une `Time` SHALL donner `[Bool(false)]` pour `=` et `[Bool(true)]` pour `!=` (N2 §6.1.1), et non une collection vide. `sort()`, `min()` et `max()` SHALL ordonner les dates, date-heures et heures avec la sémantique des opérateurs (fuseaux normalisés) ; un ordre indécidé (précision différente) SHALL être une erreur pour `sort` et une collection vide pour `min`/`max`.
 
 #### Scenario: Collections de longueurs différentes
 
