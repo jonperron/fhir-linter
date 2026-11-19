@@ -137,13 +137,21 @@ fn strict_checks_backbone_children_at_their_definition_path() -> TestResult {
         1
     );
     // Reached through a function, the backbone still knows its path.
-    assert!(eval_on(PATIENT, "Patient.contact.first().nmae", true).is_err());
+    assert_unresolved_on(
+        PATIENT,
+        "Patient.contact.first().nmae",
+        "nmae is not an element of Patient.contact",
+    );
     // A contained resource starts its own paths.
     assert_eq!(
         eval_on(PATIENT, "Patient.contained.item.linkId", true)?.len(),
         1
     );
-    assert!(eval_on(PATIENT, "Patient.contained.item.lnkId", true).is_err());
+    assert_unresolved_on(
+        PATIENT,
+        "Patient.contained.item.lnkId",
+        "lnkId is not an element of Questionnaire.item",
+    );
     Ok(())
 }
 
