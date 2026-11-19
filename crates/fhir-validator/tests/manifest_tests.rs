@@ -13,7 +13,8 @@
 //! The error count (one for a parse failure) is also compared with the expected
 //! one: the test prints a mismatch table (largest gap first) and a matched / over /
 //! under summary per format, and the matched count has its own floor. The count
-//! does not change pass/fail.
+//! does not change pass/fail. A passing test hides its output: run
+//! `cargo test -p fhir-validator --test manifest_tests -- --nocapture` to see the reports.
 use std::path::{Path, PathBuf};
 
 use fhir_definitions::Registry;
