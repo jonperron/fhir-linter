@@ -9,6 +9,11 @@
 //! errors". JSON and XML cases are counted apart and each pass rate must not
 //! drop below its floor. A case that fails to parse counts as "has errors",
 //! so parser regressions lower the rate.
+//!
+//! The error count (one for a parse failure) is also compared with the expected
+//! one: the test prints a mismatch table (largest gap first) and a matched / over /
+//! under summary per format, and the matched count has its own floor. The count
+//! does not change pass/fail.
 use std::path::{Path, PathBuf};
 
 use fhir_definitions::Registry;
@@ -45,6 +50,10 @@ const MIN_XML_PASS_RATE: f64 = 0.88;
 /// the pinned fixtures, so the rates cannot rise by losing cases.
 const EXPECTED_JSON_COUNTS: (u32, u32, u32) = (108, 1, 3);
 const EXPECTED_XML_COUNTS: (u32, u32, u32) = (107, 1, 1);
+
+/// (JSON, XML) judged cases whose error count equals the expected one, measured on
+/// the pinned fixtures with no slack; raise them as counts converge.
+const MIN_ERROR_COUNT_MATCHES: (u32, u32) = (78, 78);
 
 fn fixtures_dir() -> PathBuf {
     std::env::var_os("FHIR_FIXTURES_DIR").map_or_else(
@@ -108,9 +117,80 @@ struct Tally {
     /// Cases the manifest marks as out of scope (see `out_of_scope`).
     out_of_scope: u32,
     failing: Vec<String>,
+    /// Judged cases whose error count equals the expected one.
+    count_matches: u32,
+    count_mismatches: Vec<CountMismatch>,
+}
+
+/// A judged case whose error count differs from the expected one.
+struct CountMismatch {
+    file: String,
+    expected: u64,
+    actual: u64,
+    /// The case did not parse; `actual` is then 1 (the parse error).
+    parse_failure: bool,
+}
+
+impl CountMismatch {
+    fn delta(&self) -> i64 {
+        self.actual as i64 - self.expected as i64
+    }
 }
 
 impl Tally {
+    fn record_count(&mut self, file: &str, expected: u64, actual: u64, parse_failure: bool) {
+        if expected == actual {
+            self.count_matches += 1;
+        } else {
+            self.count_mismatches.push(CountMismatch {
+                file: file.to_owned(),
+                expected,
+                actual,
+                parse_failure,
+            });
+        }
+    }
+
+    /// (matched, over-reported, under-reported) error counts.
+    fn count_summary(&self) -> (u32, u32, u32) {
+        let over = self
+            .count_mismatches
+            .iter()
+            .filter(|m| m.delta() > 0)
+            .count() as u32;
+        let under = self.count_mismatches.len() as u32 - over;
+        (self.count_matches, over, under)
+    }
+
+    /// Mismatches, largest gap first, then by file name.
+    fn sorted_mismatches(&self) -> Vec<&CountMismatch> {
+        let mut sorted: Vec<_> = self.count_mismatches.iter().collect();
+        sorted.sort_by(|a, b| (b.delta().abs(), &a.file).cmp(&(a.delta().abs(), &b.file)));
+        sorted
+    }
+
+    fn report_counts(&self, format: &str) {
+        let (matched, over, under) = self.count_summary();
+        eprintln!(
+            "error counts {format}: matched {matched}, over {over}, under {under}\n\
+             | case | format | expected | actual | delta |\n| --- | --- | --- | --- | --- |"
+        );
+        for m in self.sorted_mismatches() {
+            let parse = if m.parse_failure {
+                " (parse failure)"
+            } else {
+                ""
+            };
+            eprintln!(
+                "| {} | {format} | {} | {}{parse} | {:+} |",
+                m.file,
+                m.expected,
+                m.actual,
+                m.delta(),
+            );
+        }
+    }
+
     /// (judged, skipped without expected result, out of scope) case counts.
     fn counts(&self) -> (u32, u32, u32) {
         (self.cases, self.skipped, self.out_of_scope)
@@ -175,6 +255,31 @@ fn absent_outcome_file_is_skipped_but_corrupt_one_fails() {
     });
     std::fs::remove_dir_all(&dir).unwrap();
     assert!(corrupt.is_err());
+}
+
+#[test]
+fn error_count_mismatches_are_tallied_and_sorted_by_gap() {
+    let mut tally = Tally::default();
+    tally.record_count("same.json", 2, 2, false);
+    tally.record_count("small-under.json", 3, 2, false);
+    tally.record_count("big-under.json", 12, 1, false);
+    tally.record_count("over.json", 0, 4, false);
+    tally.record_count("parse.json", 5, 1, true);
+    assert_eq!(tally.count_summary(), (1, 1, 3));
+    let order: Vec<_> = tally
+        .sorted_mismatches()
+        .iter()
+        .map(|m| (m.file.as_str(), m.delta()))
+        .collect();
+    assert_eq!(
+        order,
+        [
+            ("big-under.json", -11),
+            ("over.json", 4),
+            ("parse.json", -4),
+            ("small-under.json", -1),
+        ]
+    );
 }
 
 #[test]
@@ -247,17 +352,19 @@ fn validator_manifest_pass_rate() {
         let parsed = String::from_utf8(bytes)
             .ok()
             .and_then(|text| parse(&text).ok());
-        let has_errors = match parsed {
-            Some(resource) => validate(&resource, &registry)
+        let actual = match &parsed {
+            Some(resource) => validate(resource, &registry)
                 .iter()
-                .any(|d| d.severity == Severity::Error),
+                .filter(|d| d.severity == Severity::Error)
+                .count() as u64,
             None => {
                 tally.parse_failures += 1;
-                true
+                1
             }
         };
         tally.cases += 1;
-        match (has_errors, expected > 0) {
+        tally.record_count(file, expected, actual, parsed.is_none());
+        match (actual > 0, expected > 0) {
             (true, true) | (false, false) => {
                 tally.passed += 1;
                 continue;
@@ -270,6 +377,8 @@ fn validator_manifest_pass_rate() {
 
     json.report("json");
     xml.report("xml");
+    json.report_counts("json");
+    xml.report_counts("xml");
     // Exact counts, so lost or newly skipped cases cannot shrink the denominator
     // and pass the floors with less coverage.
     assert_eq!(
@@ -286,5 +395,10 @@ fn validator_manifest_pass_rate() {
         xml.rate() >= MIN_XML_PASS_RATE,
         "XML pass rate {:.3} below floor {MIN_XML_PASS_RATE}",
         xml.rate(),
+    );
+    let matches = (json.count_matches, xml.count_matches);
+    assert!(
+        matches.0 >= MIN_ERROR_COUNT_MATCHES.0 && matches.1 >= MIN_ERROR_COUNT_MATCHES.1,
+        "(JSON, XML) error-count matches {matches:?} below floor {MIN_ERROR_COUNT_MATCHES:?}",
     );
 }
