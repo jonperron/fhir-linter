@@ -76,7 +76,12 @@ dollar_index = { "$index" }
 dollar_total = { "$total" }
 
 // func_call must be tried before ident because both start with an identifier
-func_call = { ident ~ "(" ~ (expression_inner ~ ("," ~ expression_inner)*)? ~ ")" }
+func_call = { ident ~ "(" ~ (func_arg ~ ("," ~ func_arg)*)? ~ ")" }
+// FHIRPath v3 sort(): `keySelector [asc | desc]`; the parser rejects it elsewhere.
+func_arg       = _{ expression_inner ~ sort_direction? }
+sort_direction =  { asc_kw | desc_kw }
+asc_kw         = @{ "asc"  ~ !(ASCII_ALPHANUMERIC | "_") }
+desc_kw        = @{ "desc" ~ !(ASCII_ALPHANUMERIC | "_") }
 
 // ── Keyword operators (atomic to prevent partial keyword matches) ────────────
 and_kw      = @{ "and"      ~ !(ASCII_ALPHANUMERIC | "_") }

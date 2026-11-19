@@ -303,6 +303,8 @@ impl Evaluator<'_> {
                     },
                 }
             }
+            // The parser only builds it inside sort(), which reads it directly.
+            Expr::Descending(_) => Err(EvalError::Type("'desc' outside sort()".into())),
             Expr::Concat(l, r) => {
                 let ls = self.eval(l, ctx)?;
                 let rs = self.eval(r, ctx)?;
