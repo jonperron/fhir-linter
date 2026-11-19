@@ -30,14 +30,24 @@ fn is_subtype(child: &str, ancestor: &str) -> bool {
     registry().type_ancestors(child).any(|a| a == ancestor)
 }
 
-fn observation() -> Result<Value, Box<dyn Error>> {
-    let resource = parse_json(
-        r#"{"resourceType":"Observation","status":"final",
-        "text":{"status":"generated","div":"<div xmlns=\"http://www.w3.org/1999/xhtml\">w</div>"},
-        "code":{"text":"weight"},
-        "valueQuantity":{"value":185,"unit":"lbs"},
-        "component":[{"code":{"text":"c"},"valueString":"x"}]}"#,
-    )?;
+const OBSERVATION: &str = r#"{"resourceType":"Observation","status":"final",
+    "text":{"status":"generated","div":"<div xmlns=\"http://www.w3.org/1999/xhtml\">w</div>"},
+    "code":{"text":"weight"},
+    "valueQuantity":{"value":185,"unit":"lbs"},
+    "component":[{"code":{"text":"c"},"valueString":"x"}]}"#;
+
+const PATIENT: &str = r#"{"resourceType":"Patient",
+    "contact":[{"name":{"family":"Doe"}}],
+    "contained":[{"resourceType":"Questionnaire","status":"draft",
+        "item":[{"linkId":"c1","type":"group"}]}]}"#;
+
+const QUESTIONNAIRE: &str = r#"{"resourceType":"Questionnaire","status":"draft",
+    "item":[{"linkId":"1","type":"group",
+        "item":[{"linkId":"1.1","type":"group",
+            "item":[{"linkId":"1.1.1","type":"string"}]}]}]}"#;
+
+fn typed(json: &str) -> Result<Value, Box<dyn Error>> {
+    let resource = parse_json(json)?;
     let registry = registry();
     Ok(resource_to_typed_value(&resource, &|parent, name| {
         registry.child_element(parent, name)
@@ -45,7 +55,11 @@ fn observation() -> Result<Value, Box<dyn Error>> {
 }
 
 fn eval(expression: &str, strict: bool) -> Result<Collection, EvalError> {
-    let input = [observation().expect("observation parses")];
+    eval_on(OBSERVATION, expression, strict)
+}
+
+fn eval_on(json: &str, expression: &str, strict: bool) -> Result<Collection, EvalError> {
+    let input = [typed(json).expect("resource parses")];
     let environment = Environment {
         is_subtype: Some(&is_subtype),
         strict: strict.then_some(&has_element as &HasElement<'_>),
@@ -60,7 +74,11 @@ fn eval(expression: &str, strict: bool) -> Result<Collection, EvalError> {
 }
 
 fn assert_unresolved(expression: &str, message: &str) {
-    match eval(expression, true) {
+    assert_unresolved_on(OBSERVATION, expression, message);
+}
+
+fn assert_unresolved_on(json: &str, expression: &str, message: &str) {
+    match eval_on(json, expression, true) {
         Err(EvalError::Type(got)) => assert_eq!(got, message),
         other => panic!("{expression}: expected a type error, got {other:?}"),
     }
@@ -102,18 +120,96 @@ fn strict_resolves_declared_elements_and_the_choice_name() -> TestResult {
 }
 
 #[test]
-fn strict_does_not_check_backbone_children() -> TestResult {
+fn strict_checks_backbone_children_at_their_definition_path() -> TestResult {
     // A BackboneElement's children are defined at its path, not under its type.
     assert_eq!(eval("Observation.component.value", true)?.len(), 1);
-    assert_eq!(eval("Observation.component.valueString", true)?.len(), 1);
+    assert_unresolved(
+        "Observation.component.valueString",
+        "valueString is not an element of Observation.component",
+    );
+    assert_unresolved_on(
+        PATIENT,
+        "Patient.contact.nmae",
+        "nmae is not an element of Patient.contact",
+    );
+    assert_eq!(
+        eval_on(PATIENT, "Patient.contact.name.family", true)?.len(),
+        1
+    );
+    // Reached through a function, the backbone still knows its path.
+    assert!(eval_on(PATIENT, "Patient.contact.first().nmae", true).is_err());
+    // A contained resource starts its own paths.
+    assert_eq!(
+        eval_on(PATIENT, "Patient.contained.item.linkId", true)?.len(),
+        1
+    );
+    assert!(eval_on(PATIENT, "Patient.contained.item.lnkId", true).is_err());
+    Ok(())
+}
+
+#[test]
+fn strict_checks_backbones_in_bundle_entries_and_complex_types() -> TestResult {
+    let bundle = r#"{"resourceType":"Bundle","type":"collection",
+        "entry":[{"resource":{"resourceType":"MedicationRequest","status":"active",
+            "intent":"order","subject":{"reference":"Patient/1"},
+            "dosageInstruction":[{"timing":{"repeat":{"frequency":2}}}]}}]}"#;
+    let repeat = "Bundle.entry.resource.dosageInstruction.timing.repeat";
+    assert_eq!(
+        eval_on(bundle, &format!("{repeat}.frequency"), true)?.len(),
+        1
+    );
+    // The entry is a backbone of Bundle; the resource in it restarts the path.
+    assert_unresolved_on(
+        bundle,
+        "Bundle.entry.fullUrl1",
+        "fullUrl1 is not an element of Bundle.entry",
+    );
+    assert_unresolved_on(
+        bundle,
+        &format!("{repeat}.frequency1"),
+        "frequency1 is not an element of MedicationRequest.dosageInstruction.timing.repeat",
+    );
+    Ok(())
+}
+
+#[test]
+fn strict_follows_content_references() -> TestResult {
+    let q = QUESTIONNAIRE;
+    assert_eq!(eval_on(q, "Questionnaire.item.item.linkId", true)?.len(), 1);
+    assert_eq!(
+        eval_on(q, "Questionnaire.item.item.item.linkId", true)?.len(),
+        1
+    );
+    assert_unresolved_on(
+        q,
+        "Questionnaire.item.item.lnkId",
+        "lnkId is not an element of Questionnaire.item.item",
+    );
+    Ok(())
+}
+
+#[test]
+fn lenient_navigation_leaves_backbone_children_unchanged() -> TestResult {
+    assert_eq!(eval("Observation.component.valueString", false)?.len(), 1);
+    assert_eq!(eval_on(PATIENT, "Patient.contact.nmae", false)?.len(), 0);
+    assert_eq!(
+        eval_on(PATIENT, "Patient.contact.name.family", false)?.len(),
+        1
+    );
+    let q = QUESTIONNAIRE;
+    assert_eq!(
+        eval_on(q, "Questionnaire.item.item.linkId", false)?.len(),
+        1
+    );
+    assert_eq!(eval_on(q, "Questionnaire.item.item.lnkId", false)?.len(), 0);
     Ok(())
 }
 
 #[test]
 fn strict_fails_only_when_no_item_can_resolve_the_name() -> TestResult {
-    // The CodeableConcept has no `valueString`, but the backbone may.
-    let mixed = "(Observation.code | Observation.component).valueString";
-    assert_eq!(eval(mixed, true)?.len(), 1);
+    // The CodeableConcept has no `text1`, but a primitive is not checked.
+    let mixed = "(Observation.code | Observation.status).text1";
+    assert_eq!(eval(mixed, true)?.len(), 0);
     assert!(eval("(Observation.code | Observation.value).text1", true).is_err());
     Ok(())
 }

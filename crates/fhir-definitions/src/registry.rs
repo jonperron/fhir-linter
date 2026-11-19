@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::Result;
 use crate::loader;
-use crate::model::{CodeSystem, Include, StructureDefinition, ValueSet};
+use crate::model::{CodeSystem, ElementDefinition, Include, StructureDefinition, ValueSet};
 use crate::type_code::capitalise;
 
 /// Canonical URL prefix of the core definitions; a type code appended gives its URL.
@@ -148,13 +148,33 @@ impl Registry {
     /// suffix (`valueQuantity`). `None` when the type is unknown, or its children
     /// are defined at the owning element's path (`BackboneElement`, `Element`;
     /// see [`Registry::child_element`]), so the type alone cannot tell.
+    ///
+    /// `type_name` may instead be the instance path of a backbone element from
+    /// its resource (`Patient.contact`, `Questionnaire.item.item`): each step is
+    /// resolved as [`Registry::child_element`] does, so through complex types and
+    /// `contentReference`. `None` when the path names no element.
     pub fn has_element(&self, type_name: &str, name: &str) -> Option<bool> {
-        if matches!(type_name, "BackboneElement" | "Element") {
-            return None;
-        }
-        let sd = self.core(type_name)?;
-        // A constraint (`SimpleQuantity`) lists its elements under the base type's path.
-        let root = &sd.snapshot.first()?.path;
+        let resolved = match type_name.split_once('.') {
+            Some((resource, steps)) => Some(
+                steps
+                    .split('.')
+                    .try_fold(Arc::from(resource), |parent, step| {
+                        Some(self.child_element(&parent, step)?.0)
+                    })?,
+            ),
+            None => None,
+        };
+        let parent = resolved.as_deref().unwrap_or(type_name);
+        let (sd, root) = match parent.split_once('.') {
+            // A backbone's children are listed under its definition path.
+            Some((owner, _)) => (self.core(owner)?, parent),
+            None if matches!(parent, "BackboneElement" | "Element") => return None,
+            None => {
+                let sd = self.core(parent)?;
+                // A constraint (`SimpleQuantity`) lists its elements under the base type's path.
+                (sd, &*sd.snapshot.first()?.path)
+            }
+        };
         // `value[x]` or `a.b` is a definition path, not an element name.
         let declared = !name.contains(['.', '[', ']'])
             && (sd.element(&format!("{root}.{name}")).is_some()
@@ -168,14 +188,21 @@ impl Registry {
     /// instance (a choice suffix picks the type: `valueDate` gives `date`).
     ///
     /// The definition path is the element's own path for `BackboneElement` and
-    /// `Element`, otherwise the type code. `None` when the element is unknown
-    /// or has no type (shortcut: `contentReference` elements are not followed;
-    /// read the reference when the loader keeps it).
+    /// `Element`, otherwise the type code. A `contentReference` element takes
+    /// its target's (`Questionnaire.item.item` gives `Questionnaire.item`).
+    /// `None` when the element, or the target of its reference, is unknown or
+    /// has no type.
     pub fn child_element(&self, parent: &str, name: &str) -> Option<(Arc<str>, Arc<str>)> {
         let type_name = parent.split('.').next()?;
         let sd = self.core(type_name)?;
         let (element, ty) = match sd.element(&format!("{parent}.{name}")) {
-            Some(element) => (element, element.types.first()?),
+            Some(element) => {
+                let element = match element.content_reference.as_deref() {
+                    Some(reference) => self.content_target(sd, reference)?,
+                    None => element,
+                };
+                (element, element.types.first()?)
+            }
             // A type suffix is capitalised, so a choice can only split before an uppercase letter.
             None => (1..name.len())
                 .filter(|&i| name.as_bytes()[i].is_ascii_uppercase())
@@ -191,6 +218,20 @@ impl Registry {
             _ => Arc::clone(ty),
         };
         Some((definition, Arc::clone(ty)))
+    }
+
+    /// The element a `contentReference` of `sd` names: a local `Questionnaire.item`
+    /// (the loader drops the `#`), or `http://.../StructureDefinition/X#X.path`.
+    fn content_target<'a>(
+        &'a self,
+        sd: &'a StructureDefinition,
+        reference: &str,
+    ) -> Option<&'a ElementDefinition> {
+        let (target, path) = match reference.split_once('#') {
+            Some((url, path)) => (self.structure_definition(url)?, path),
+            None => (sd, reference),
+        };
+        target.element(path)
     }
 
     /// Look up a `ValueSet` by its canonical URL.
@@ -418,6 +459,29 @@ mod tests {
     }
 
     #[test]
+    fn has_element_resolves_backbone_children_by_instance_path() {
+        let has = |path: &str, name: &str| REGISTRY.has_element(path, name);
+        assert_eq!(has("Patient.contact", "name"), Some(true));
+        assert_eq!(has("Patient.contact", "nmae"), Some(false));
+        // A backbone inside a complex type is defined under that type.
+        assert_eq!(
+            has(
+                "MedicationRequest.dosageInstruction.timing.repeat",
+                "frequency"
+            ),
+            Some(true),
+        );
+        // A contentReference element has the children of its target, at any depth.
+        assert_eq!(has("Questionnaire.item.item", "linkId"), Some(true));
+        assert_eq!(has("Questionnaire.item.item.item", "lnkId"), Some(false));
+        // No choice suffix, as for types.
+        assert_eq!(has("Observation.component", "value"), Some(true));
+        assert_eq!(has("Observation.component", "valueString"), Some(false));
+        // A path that names no element cannot tell.
+        assert_eq!(has("Patient.nosuch", "name"), None);
+    }
+
+    #[test]
     fn child_element_gives_definition_path_and_type() {
         let child = |parent: &str, name: &str| {
             REGISTRY
@@ -439,6 +503,11 @@ mod tests {
         // A choice variant takes the type its suffix names.
         assert_eq!(child("Observation", "valueTime"), pair("time", "time"));
         assert_eq!(child("Observation", "valueBogus"), None);
+        // A contentReference element takes its target's definition path and type.
+        assert_eq!(
+            child("Questionnaire.item", "item"),
+            pair("Questionnaire.item", "BackboneElement")
+        );
         assert_eq!(child("Patient", "unknown"), None);
         assert_eq!(child("NoSuchType", "id"), None);
     }

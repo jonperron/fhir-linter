@@ -21,6 +21,7 @@ mod math;
 mod misc;
 mod quantity;
 mod regex;
+mod strict;
 mod string_fns;
 mod temporal;
 mod type_conv;
@@ -51,6 +52,7 @@ pub fn eval(
         index: None,
         string_chars: &Cell::new(0),
         now: &OnceCell::new(),
+        instance_paths: &OnceCell::new(),
         variables: None,
     }
     .eval(expr, context)
@@ -85,7 +87,9 @@ pub struct Environment<'a> {
     /// Strict navigation (N1 §3: an identifier that cannot be resolved is an
     /// error): `has_element(type, name)` tells whether the FHIR type declares
     /// the element `name`, `None` when the type alone cannot tell (build it
-    /// from `Registry::has_element`). Set, a path step on a typed node that
+    /// from `Registry::has_element`). For a backbone, whose type cannot tell,
+    /// it is asked with the node's instance path from its resource instead
+    /// (`Patient.contact`). Set, a path step on a typed node that
     /// names neither an element nor (leading the expression) the node's type
     /// is an error, so `Observation.valueQuantity` fails. A leading supertype
     /// (`DomainResource.text`) is only known through `is_subtype`: set both.
@@ -132,6 +136,9 @@ pub(super) struct Evaluator<'a> {
     /// `now()` text, read once so every `now()` and `today()` of one
     /// evaluation agrees (N2 §5.10).
     now: &'a OnceCell<Arc<str>>,
+    /// Instance paths of the objects in the input and environment resources,
+    /// built on the first strict step on a backbone (see `strict.rs`).
+    instance_paths: &'a OnceCell<strict::InstancePaths>,
     environment: &'a Environment<'a>,
     /// `%context`: the input collection the evaluation started from.
     context: &'a [Value],
@@ -416,37 +423,6 @@ impl Evaluator<'_> {
             helpers::check_collection_len(result.len())?;
         }
         Ok(result)
-    }
-
-    /// Under [`Environment::strict`], fail when no item of `ctx` resolves
-    /// `name`: every item is a typed node that declares no such element and
-    /// (leading the expression) is not of that type or a subtype of it.
-    /// N1 §3: "If the identifier cannot be resolved, the evaluation will end
-    /// and signal an error". An item whose type cannot tell (a backbone, an
-    /// untyped node, a primitive) may resolve it, so a mixed collection such
-    /// as `descendants()` never fails.
-    fn check_strict_step(
-        &self,
-        ctx: &[Value],
-        name: &str,
-        allow_type_name: bool,
-    ) -> Result<(), EvalError> {
-        // shortcut: backbone children, primitives and untyped nodes are not checked;
-        // check them once a node carries its definition path, not only its type.
-        let Some(has_element) = self.environment.strict else {
-            return Ok(());
-        };
-        let unresolved = |item: &Value| {
-            matches!(item, Value::Object(_, Some(fhir_type))
-                if has_element(fhir_type, name) == Some(false)
-                    && !(allow_type_name && self.names_type(fhir_type, name)))
-        };
-        match ctx {
-            [Value::Object(_, Some(fhir_type)), ..] if ctx.iter().all(unresolved) => Err(
-                EvalError::Type(format!("{name} is not an element of {fhir_type}")),
-            ),
-            _ => Ok(()),
-        }
     }
 
     /// Whether `name` is the FHIR type `fhir_type` or one of its supertypes.
