@@ -143,9 +143,9 @@ impl Evaluator<'_> {
             Value::Primitive(code, _, Some(fhir_type)) if &**fhir_type == "code" => code
                 .as_string()
                 .and_then(|code| member_of(&url, None, &code)),
-            // shortcut: objects carry no type, so a CodeableConcept is told by its
-            // `coding` and a Coding by its `code` (a Quantity's system and code are
-            // looked up too); upgrade when objects carry their FHIR type.
+            // shortcut: a CodeableConcept is told by its `coding` and a Coding by its
+            // `code`, so untyped objects work too (a Quantity's system and code are
+            // looked up too); upgrade to the object's FHIR type once callers type them.
             Value::Object(fields, _) if fields.contains_key("coding") => {
                 // fhirpath.html: true if any code in the concept is a member.
                 let codings = fields.get("coding").into_iter().flatten();

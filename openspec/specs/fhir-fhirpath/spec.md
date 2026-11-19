@@ -136,7 +136,7 @@ Le système SHALL exposer un enum `Value` représentant les valeurs FHIRPath à 
 #### Scenario: Variantes couvertes
 
 - **WHEN** un résultat d'évaluation est produit
-- **THEN** `Value` SHALL avoir les variantes : `Null`, `Bool(bool)`, `Integer(i64)`, `Long(i64)`, `Decimal(f64)`, `String(Arc<str>)`, `Date(Arc<str>)`, `DateTime(Arc<str>)`, `Time(Arc<str>)`, `Quantity(f64, Arc<str>)`, `Object(Arc<IndexMap<Arc<str>, Collection>>)`, `Primitive(Box<Value>, Arc<IndexMap<Arc<str>, Collection>>, Option<Arc<str>>)` (valeur, enfants `id`/`extension`, code de type FHIR)
+- **THEN** `Value` SHALL avoir les variantes : `Null`, `Bool(bool)`, `Integer(i64)`, `Long(i64)`, `Decimal(f64)`, `String(Arc<str>)`, `Date(Arc<str>)`, `DateTime(Arc<str>)`, `Time(Arc<str>)`, `Quantity(f64, Arc<str>)`, `Object(Arc<IndexMap<Arc<str>, Collection>>, Option<Arc<str>>)` (enfants, type FHIR : le `resourceType` d'une ressource ou le code de type déclaré d'un élément complexe tel que `Quantity`, `HumanName`, `BackboneElement` ; `None` si non typé), `Primitive(Box<Value>, Arc<IndexMap<Arc<str>, Collection>>, Option<Arc<str>>)` (valeur, enfants `id`/`extension`, code de type FHIR)
 
 #### Scenario: Conversion depuis un Resource parser
 
@@ -197,7 +197,7 @@ Le système SHALL implémenter `empty()`, `exists()`, `exists(criteria)`, `all(c
 
 Le système SHALL implémenter `where(criteria)`, `select(projection)`, `repeat(projection)`, `ofType(type)`, `is(type)`, `as(type)`.
 
-L'argument de `ofType`, `is` et `as` est un identifiant de nom de type. La correspondance de type (partagée par `ofType`, les fonctions `is`/`as` et les opérateurs `is`/`as`) SHALL accepter les types primitifs FHIRPath ainsi qu'un objet ressource dont `resourceType` est exactement égal au nom de type et, lorsque `Environment::is_subtype` est fourni, dont n'importe quel type ancêtre correspond (ex. `Questionnaire.is(DomainResource)` et `Questionnaire is FHIR.Resource` valent `true`) ; sans ce crochet, seul le `resourceType` exact correspond. Les objets de type de données complexe ne correspondent à aucun nom de type. Elle SHALL accepter les noms qualifiés, comme les opérateurs : `System.X` ne correspond qu'à des valeurs System (littéraux, résultats de fonctions), jamais aux données FHIR (primitives typées, objets FHIR, résultats de `resolve()`) ; les noms System sont capitalisés, `System.Any` correspond à toute valeur, et un `System.X` inconnu (ex. `System.Patient`) vaut `false` sans erreur. `FHIR.X` (y compris `FHIR.``Patient```) ne correspond qu'à des données FHIR ; avec le crochet de types, un `FHIR.X` inconnu SHALL retourner `Err(EvalError::Type(...))` comme un nom non qualifié inconnu, sinon les règles non qualifiées (héritage via le Registry) s'appliquent. Lorsque `Environment::is_subtype` est fourni et que la valeur porte un type FHIR (`Value::Primitive` avec un code de type), `ofType`, `is` et `as` SHALL répondre par l'ancêtrie des types FHIR pour un nom de type FHIR (`code` est une `string`, `canonical` et `url` sont des `uri` ; `string` n'est pas un `code`, `uri` n'est pas un `url`). Les noms System (`String`, `Integer`, ...) et les valeurs sans type FHIR (littéraux) SHALL conserver les règles System. Avec le crochet, un nom non qualifié capitalisé qui n'est pas un type FHIR mais un type System (`Boolean`, `String`, `Integer`, ...) ou `Any` SHALL être résolu comme `System.<nom>` (N1 §10.1 : le modèle d'abord, puis System) : une donnée FHIR n'est donc jamais `is(String)` ni `is(Boolean)` (ex. `Patient.active.is(Boolean)` vaut `false`) et toute valeur est `is(Any)`. Avec le crochet, un autre nom non qualifié qui n'est ni un type System ni un type FHIR (ex. `string1`) SHALL retourner `Err(EvalError::Type(...))`. Sans ce crochet (défaut), tester une `String` contre un sous-type FHIR de `string` SHALL échouer avec `EvalError::Type`.
+L'argument de `ofType`, `is` et `as` est un identifiant de nom de type. La correspondance de type (partagée par `ofType`, les fonctions `is`/`as` et les opérateurs `is`/`as`) SHALL accepter les types primitifs FHIRPath ainsi qu'un objet (ressource ou élément complexe) dont le type FHIR porté est exactement égal au nom de type et, lorsque `Environment::is_subtype` est fourni, dont n'importe quel type ancêtre correspond (ex. `Questionnaire.is(DomainResource)` et `Questionnaire is FHIR.Resource` valent `true`, `Observation.value is Quantity` et `is Element` aussi, un `Age` est un `Quantity`, N1 §6.3) ; sans ce crochet, un objet ne correspond qu'à son propre type. Un objet non typé ne correspond à aucun nom de type. Elle SHALL accepter les noms qualifiés, comme les opérateurs : `System.X` ne correspond qu'à des valeurs System (littéraux, résultats de fonctions), jamais aux données FHIR (primitives typées, objets FHIR, résultats de `resolve()`) ; les noms System sont capitalisés, `System.Any` correspond à toute valeur, et un `System.X` inconnu (ex. `System.Patient`) vaut `false` sans erreur. `FHIR.X` (y compris `FHIR.``Patient```) ne correspond qu'à des données FHIR ; avec le crochet de types, un `FHIR.X` inconnu SHALL retourner `Err(EvalError::Type(...))` comme un nom non qualifié inconnu, sinon les règles non qualifiées (héritage via le Registry) s'appliquent. Lorsque `Environment::is_subtype` est fourni et que la valeur porte un type FHIR (`Value::Primitive` avec un code de type), `ofType`, `is` et `as` SHALL répondre par l'ancêtrie des types FHIR pour un nom de type FHIR (`code` est une `string`, `canonical` et `url` sont des `uri` ; `string` n'est pas un `code`, `uri` n'est pas un `url`). Les noms System (`String`, `Integer`, ...) et les valeurs sans type FHIR (littéraux) SHALL conserver les règles System. Avec le crochet, un nom non qualifié capitalisé qui n'est pas un type FHIR mais un type System (`Boolean`, `String`, `Integer`, ...) ou `Any` SHALL être résolu comme `System.<nom>` (N1 §10.1 : le modèle d'abord, puis System) : une donnée FHIR n'est donc jamais `is(String)` ni `is(Boolean)` (ex. `Patient.active.is(Boolean)` vaut `false`) et toute valeur est `is(Any)`. Avec le crochet, un autre nom non qualifié qui n'est ni un type System ni un type FHIR (ex. `string1`) SHALL retourner `Err(EvalError::Type(...))`. Sans ce crochet (défaut), tester une `String` contre un sous-type FHIR de `string` SHALL échouer avec `EvalError::Type`.
 
 L'opérateur `is` (`X is Type`) SHALL avoir exactement la même sémantique que la fonction `is(Type)` (N1 §6.3.1) : collection vide en entrée -> collection vide, un seul élément -> `[Bool(true)]` ou `[Bool(false)]`, plus d'un élément -> `Err(EvalError::Type(...))`.
 
@@ -224,6 +224,16 @@ Le critère de `where` SHALL produire pour chaque élément un booléen seul ou 
 
 - **WHEN** `ofType(String)` est évalué sur une collection mixte
 - **THEN** le résultat SHALL contenir uniquement les valeurs de type `String`
+
+#### Scenario: is, as et ofType sur un objet complexe typé
+
+- **WHEN** `Observation.value is Quantity`, `Observation.value is Element` (valeur `Age`, `is Quantity`) ou `name.ofType(HumanName)` est évalué avec le crochet `is_subtype`
+- **THEN** `is` SHALL valoir `true` et `ofType` SHALL conserver l'élément ; sans le crochet, l'objet ne correspond qu'à son propre type
+
+#### Scenario: type() sur un objet complexe typé
+
+- **WHEN** `name.type()` est évalué sur un `HumanName` typé
+- **THEN** le résultat SHALL porter `namespace` = `FHIR` et `name` = `HumanName` ; un objet non typé SHALL donner `Err(EvalError::Type(...))`
 
 #### Scenario: ofType filtre par resourceType
 
@@ -790,7 +800,7 @@ La condition de `iif` SHALL être un booléen seul ou une collection vide, sinon
 
 `hasValue()` SHALL retourner `[Bool(true)]` pour une seule primitive portant une valeur, une collection vide pour une seule valeur complexe, et `[Bool(false)]` pour une primitive sans valeur, plusieurs éléments ou aucun élément. Cela s'écarte du texte R5 (« otherwise empty ») parce que les contraintes R5 `exp-2`/`per-1` et la suite officielle attendent `false`.
 
-`type()` (N1 §10.2) SHALL retourner, pour chaque élément, un objet portant `namespace` et `name` : espace `FHIR` avec le code de type porté pour une primitive FHIR typée (ex. `code`, `boolean`), le `resourceType` pour une ressource, et le type de la référence pour un résultat `resolve()` non résolu ; espace `System` avec le nom du type System pour les valeurs simples (littéraux, résultats de fonctions). C'est une erreur pour un objet de type de données complexe (sans type porté) et pour une primitive dont le type FHIR est inconnu. `baseType` et l'`element` de ClassInfo ne sont pas fournis (le crochet de types ne répond qu'aux questions de sous-type).
+`type()` (N1 §10.2) SHALL retourner, pour chaque élément, un objet portant `namespace` et `name` : espace `FHIR` avec le code de type porté pour une primitive FHIR typée (ex. `code`, `boolean`), le `resourceType` pour une ressource, et le type de la référence pour un résultat `resolve()` non résolu ; espace `System` avec le nom du type System pour les valeurs simples (littéraux, résultats de fonctions). Un objet de type de données complexe typé retourne l'espace `FHIR` et le nom de son type (ex. `HumanName`). C'est une erreur pour un objet non typé et pour une primitive dont le type FHIR est inconnu. `baseType` et l'`element` de ClassInfo ne sont pas fournis (le crochet de types ne répond qu'aux questions de sous-type).
 
 Le système SHALL implémenter `today()` (Date, date UTC courante) et `now()` (DateTime avec millisecondes et fuseau `+00:00`, UTC). Elles SHALL ne prendre aucun argument (sinon `Err(EvalError::Arity(...))`) et SHALL donner une seule valeur par évaluation : tous les appels d'une même évaluation s'accordent. Une horloge système hors des années 1970-9999 SHALL donner `Err(EvalError::Type(...))`. `timeOfDay()` reste non implémentée. L'utilisation du fuseau UTC au lieu du fuseau local est une limitation connue. `now()` comparée à une `Date` reste vide (règle du fuseau d'un seul côté).
 
@@ -841,16 +851,26 @@ Le système SHALL implémenter `today()` (Date, date UTC courante) et `now()` (D
 
 ### Requirement: Préfixe du nom de type de ressource
 
-Le système SHALL permettre à une expression de commencer par le nom de type de la ressource de contexte.
+Le système SHALL permettre à une expression de commencer par le nom de type de la ressource de contexte ou par un supertype de celui-ci (N1 §3), le supertype étant résolu par le crochet `is_subtype`.
 
 #### Scenario: Nom de type correspondant
 
 - **WHEN** `CodeSystem.content` est évalué sur une `CodeSystem` sans champ nommé `CodeSystem`
 - **THEN** `evaluate` SHALL retourner la valeur de `content`
 
+#### Scenario: Supertype du contexte
+
+- **WHEN** `DomainResource.text` ou `Resource.id` est évalué sur une `Patient`
+- **THEN** `evaluate` SHALL naviguer vers `text` ou `id` de la ressource
+
 #### Scenario: Nom de type différent
 
 - **WHEN** `Patient.id` est évalué sur une `CodeSystem`
+- **THEN** `evaluate` SHALL retourner une collection vide
+
+#### Scenario: Type sans lien avec le contexte
+
+- **WHEN** `Observation.id` est évalué sur une `Patient`
 - **THEN** `evaluate` SHALL retourner une collection vide
 
 #### Scenario: Nom de type après le premier segment

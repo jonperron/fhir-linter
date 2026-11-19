@@ -743,6 +743,13 @@ pub(super) fn value_is_type(
         }
         return Ok(is_subtype(resource_type, type_name));
     }
+    // Without the type hook, an object is only its own FHIR type (N1 §10.1:
+    // the model is searched before System, so a FHIR Quantity is a Quantity).
+    if let Value::Object(_, Some(fhir_type)) = v
+        && **fhir_type == *type_name
+    {
+        return Ok(true);
+    }
     let v = v.primitive_value();
     if matches!(v, Value::String(_)) && FHIR_STRING_SUBTYPES.contains(&type_name) {
         return Err(EvalError::Type(format!(
@@ -759,8 +766,7 @@ pub(super) fn value_is_type(
     }) {
         return Err(EvalError::Type(format!("unknown type {type_name}")));
     }
-    // Without the type hook, an object is only its own FHIR type.
-    Ok(matches!(v, Value::Object(_, Some(fhir_type)) if **fhir_type == *type_name))
+    Ok(false)
 }
 
 /// Whether the plain value `v` has the System type `type_name` (or its FHIR

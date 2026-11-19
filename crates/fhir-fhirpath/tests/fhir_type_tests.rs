@@ -393,6 +393,24 @@ fn a_complex_datatype_is_its_fhir_type_and_its_ancestors() -> TestResult {
 }
 
 #[test]
+fn without_the_hook_a_complex_datatype_is_only_its_own_type() -> TestResult {
+    for (expression, expected) in [
+        ("Observation.value is Quantity", true),
+        ("Observation.code is CodeableConcept", true),
+        ("Observation.value is Element", false),
+        ("Observation.contained.is(Patient)", true),
+        ("Observation.contained.is(DomainResource)", false),
+    ] {
+        assert_eq!(
+            eval_on(observation()?, expression, false)?,
+            [Value::Bool(expected)],
+            "{expression}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn as_and_of_type_keep_a_matching_complex_datatype() -> TestResult {
     for (expression, expected) in [
         ("Observation.value.as(Quantity).unit", vec!["lbs"]),
