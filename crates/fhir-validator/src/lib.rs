@@ -125,6 +125,7 @@ fn validate_one<'a>(
     let member_of = |value_set: &str, system: Option<&str>, code: &str| {
         registry.value_set_contains(value_set, system, code)
     };
+    let conforms_to = |fhir_type: &str, url: &str| registry.conforms_to(fhir_type, url);
     // fhirpath.html: %rootResource is the container only for a contained resource.
     let environment = fhir_fhirpath::Environment {
         resource: Some(root),
@@ -133,6 +134,7 @@ fn validate_one<'a>(
         member_of: Some(&member_of),
         // Not strict: `Registry::has_element` does not follow `contentReference`.
         strict: None,
+        conforms_to: Some(&conforms_to),
     };
     let embedded = nested::validate(
         resource,

@@ -90,6 +90,12 @@ pub struct Environment<'a> {
     /// (`DomainResource.text`) is only known through `is_subtype`: set both.
     /// Unset, an unknown name yields empty.
     pub strict: Option<&'a HasElement<'a>>,
+    /// Profiles for `conformsTo()`: `conforms_to(fhir_type, url)` is `None` when
+    /// `url` names no known StructureDefinition (the result is empty, per
+    /// fhirpath.html), `Some(None)` when an instance of `fhir_type` cannot be
+    /// checked against it (an error), else whether it conforms (build it from
+    /// `Registry::conforms_to`). Unset, `conformsTo()` is an error.
+    pub conforms_to: Option<&'a ConformsTo<'a>>,
 }
 
 impl std::fmt::Debug for Environment<'_> {
@@ -100,9 +106,13 @@ impl std::fmt::Debug for Environment<'_> {
             .field("is_subtype", &self.is_subtype.map(|_| "Fn"))
             .field("member_of", &self.member_of.map(|_| "Fn"))
             .field("strict", &self.strict.map(|_| "Fn"))
+            .field("conforms_to", &self.conforms_to.map(|_| "Fn"))
             .finish()
     }
 }
+
+/// Conformance to a StructureDefinition, see [`Environment::conforms_to`].
+pub type ConformsTo<'a> = dyn Fn(&str, &str) -> Option<Option<bool>> + 'a;
 
 /// Element declarations for strict navigation, see [`Environment::strict`].
 pub type HasElement<'a> = dyn Fn(&str, &str) -> Option<bool> + 'a;

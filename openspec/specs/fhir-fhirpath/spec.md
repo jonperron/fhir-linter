@@ -1079,7 +1079,7 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 #### Scenario: Fonctions non implémentées retournent UndefinedFunction
 
-- **WHEN** `conformsTo()` ou `timeOfDay()` est évalué
+- **WHEN** `timeOfDay()` est évalué
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::UndefinedFunction(name))` où `name` est le nom de la fonction
 - **AND** il SHALL NOT retourner de résultat deviné (collection vide, booléen), afin que le validateur signale la contrainte comme non vérifiée (`INVARIANT_SKIPPED`)
 
@@ -1105,6 +1105,17 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 - **WHEN** `memberOf(valueset)` est évalué avec le crochet `member_of`
 - **THEN** un élément de type `code` SHALL être cherché sans système ; un Coding requiert système et code ; un CodeableConcept est `true` si un coding est dans le ValueSet, `false` si chaque coding en est prouvé hors, sinon erreur (indécidable) ; une `String` simple donne vide
 - **AND** l'absence de crochet, un ValueSet inconnu ou indécidable SHALL donner une `EvalError` (le validateur émet `INVARIANT_SKIPPED`, jamais une fausse violation) ; une entrée vide ou un argument vide SHALL donner une collection vide ; plusieurs items en entrée SHALL donner une erreur, même si l'argument est vide
+
+#### Scenario: conformsTo() par le crochet d'environnement
+
+- **WHEN** `conformsTo(structure)` est évalué avec le crochet `Environment::conforms_to` (`Fn(fhir_type, url) -> Option<Option<bool>>`, construit depuis `Registry::conforms_to`)
+- **THEN** une entrée qui n'est pas un seul item, un argument vide ou une URL non résolue SHALL donner une collection vide (fhirpath.html)
+- **AND** une définition de base (spécialisation) SHALL donner `true` si et seulement si elle définit exactement le type FHIR de l'entrée (Patient conforme à Patient, pas à Person ni DomainResource) ; le contenu n'est pas validé, seul le type (raccourci)
+
+#### Scenario: conformsTo() non décidable
+
+- **WHEN** `conformsTo()` vise un profil de contrainte (vitalsigns, SimpleQuantity), l'entrée n'a pas de type FHIR, ou le crochet est absent
+- **THEN** l'évaluateur SHALL retourner une `EvalError::Type` (jamais un résultat deviné), de sorte que le validateur émette `INVARIANT_SKIPPED`
 
 #### Scenario: Invariants resolve()/memberOf() évalués
 
