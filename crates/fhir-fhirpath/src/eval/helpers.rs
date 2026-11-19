@@ -573,11 +573,15 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
             Ok(x.as_decimal().cmp(&y.as_decimal()))
         }
         (Value::String(x), Value::String(y)) => Ok(x.cmp(y)),
-        // shortcut: sort/min/max order date-times by text (total, but zones are not
-        // normalised); operators use `operator_order`. Upgrade when sort needs zones.
-        (Value::Date(x), Value::Date(y))
-        | (Value::DateTime(x), Value::DateTime(y))
-        | (Value::Time(x), Value::Time(y)) => Ok(x.cmp(y)),
+        // Operator semantics (zones normalised); an unknown order cannot be sorted.
+        (x @ (Value::Date(_) | Value::DateTime(_)), y @ (Value::Date(_) | Value::DateTime(_)))
+        | (x @ Value::Time(_), y @ Value::Time(_)) => temporal_order(x, y).ok_or_else(|| {
+            EvalError::Type(format!(
+                "cannot order {} and {}: different precision or zone",
+                x.type_name(),
+                y.type_name()
+            ))
+        }),
         (lhs @ Value::Quantity(_, xu), rhs @ Value::Quantity(_, yu)) => {
             match quantity_values(lhs, rhs, false) {
                 Some(Some((x, y))) => Ok(x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal)),
