@@ -14,7 +14,7 @@
 //! the validator, with the validator's choice navigation (`Observation.value`
 //! finds `valueQuantity`); the input resource is `%resource`.
 //! The test fails when the pass count drops below `MIN_PASSED`.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -574,6 +574,7 @@ fn official_fhirpath_suite_pass_rate() {
     let mut inputs = HashMap::new();
     let (mut run, mut passed, mut skipped) = (0u32, 0u32, 0u32);
     let mut failing = Vec::new();
+    let mut passing = HashSet::new();
     for case in &cases {
         if case
             .modes
@@ -587,7 +588,10 @@ fn official_fhirpath_suite_pass_rate() {
         let outcome = catch_unwind(AssertUnwindSafe(|| run_case(case, &mut inputs)))
             .unwrap_or_else(|_| Err("panic".to_owned()));
         match outcome {
-            Ok(()) => passed += 1,
+            Ok(()) => {
+                passed += 1;
+                passing.insert(case.name.as_str());
+            }
             Err(detail) => failing.push(format!(
                 "FAIL {}/{} {:?}: {}",
                 case.group,
@@ -615,7 +619,13 @@ fn official_fhirpath_suite_pass_rate() {
     );
     let regressed: Vec<&str> = REQUIRED_PASSING
         .into_iter()
-        .filter(|name| failing.iter().any(|f| f.contains(&format!("/{name} "))))
+        // A duplicated name must pass everywhere, not only once.
+        .filter(|name| {
+            !passing.contains(name) || failing.iter().any(|f| f.contains(&format!("/{name} ")))
+        })
         .collect();
-    assert!(regressed.is_empty(), "required cases failed: {regressed:?}");
+    assert!(
+        regressed.is_empty(),
+        "required cases failed or did not run: {regressed:?}"
+    );
 }
