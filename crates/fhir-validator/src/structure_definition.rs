@@ -16,6 +16,9 @@
 //! ElementDefinition.orderMeaning: "if absent in the base type, a profile cannot assert
 //! meaning".
 //!
+//! ElementDefinition.isModifier: "Once set, it cannot be changed in derived profiles (except
+//! in the special case of the defining a new extension)."
+//!
 //! references.html, Canonical URLs: only the resources that have canonical URLs "are allowed
 //! to be the target of references to a canonical URLs".
 use fhir_definitions::{ElementDefinition, Registry, StructureDefinition};
@@ -51,6 +54,9 @@ pub(crate) fn validate(
         .collect();
     if is_profile(resource, registry) {
         meaning_when_missing(&differential, path, diagnostics);
+        if let Some(base) = base_definition(resource, registry) {
+            modifiers(base, &differential, path, diagnostics);
+        }
     }
     slice_cardinality(resource, registry, &differential, path, diagnostics);
     // Constraints only: the R5 core specialization NutritionIntake itself lists the
@@ -92,6 +98,45 @@ fn order_meanings(
                     element.path
                 ),
                 format!("{path}.differential.element[{index}].orderMeaning"),
+            )
+            .with_location(node.span),
+        );
+    }
+}
+
+/// isModifier changed by a profile (DEFINITION_008). ElementDefinition.isModifier: "Only the
+/// definition of an element can set IsModifier true - either the specification itself or
+/// where an extension is originally defined. Once set, it cannot be changed in derived
+/// profiles (except in the special case of the defining a new extension)."
+fn modifiers(
+    base: &StructureDefinition,
+    differential: &[(usize, &Fields)],
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for &(index, fields) in differential {
+        let (Some(node), Some(element)) = (fields.get("isModifier"), base_element(base, fields))
+        else {
+            continue;
+        };
+        // A boolean in JSON; XML text the reshape could not type stays a string.
+        let stated = match &node.value {
+            Value::Bool(stated) => *stated,
+            Value::Str(text) if matches!(&**text, "true" | "false") => &**text == "true",
+            _ => continue,
+        };
+        if stated == element.is_modifier {
+            continue;
+        }
+        diagnostics.push(
+            Diagnostic::error(
+                "DEFINITION_008",
+                format!(
+                    "The element definition for {} sets isModifier to {stated} but its base \
+                     has {}: once set, isModifier cannot be changed in derived profiles",
+                    element.path, element.is_modifier
+                ),
+                format!("{path}.differential.element[{index}].isModifier"),
             )
             .with_location(node.span),
         );

@@ -146,3 +146,43 @@ fn profile_may_refine_an_order_meaning_and_specializations_may_introduce_one() {
     );
     assert!(paths(&specialization, "DEFINITION_007").is_empty());
 }
+
+#[test]
+fn profile_may_not_change_is_modifier() {
+    assert_eq!(
+        paths(&fixture("sd-root-profile.xml"), "DEFINITION_008"),
+        ["StructureDefinition.differential.element[0].isModifier"]
+    );
+    // Patient.active is a modifier in the base; a profile cannot turn that off.
+    let active = definition(
+        "constraint",
+        "Patient",
+        "resource",
+        r#""id":"Patient.active","path":"Patient.active","isModifier":false"#,
+    );
+    assert_eq!(
+        paths(&active, "DEFINITION_008"),
+        ["StructureDefinition.differential.element[1].isModifier"]
+    );
+}
+
+#[test]
+fn restating_is_modifier_or_defining_a_modifier_extension_is_allowed() {
+    let same = definition(
+        "constraint",
+        "Patient",
+        "resource",
+        r#""id":"Patient.active","path":"Patient.active","isModifier":true,
+        "isModifierReason":"inactive records""#,
+    );
+    assert!(paths(&same, "DEFINITION_008").is_empty());
+    // "except in the special case of the defining a new extension".
+    let extension = definition(
+        "constraint",
+        "Extension",
+        "complex-type",
+        r#""id":"Extension.url","path":"Extension.url","isModifier":true,
+        "isModifierReason":"test""#,
+    );
+    assert!(paths(&extension, "DEFINITION_008").is_empty());
+}
