@@ -35,31 +35,80 @@ pub(crate) fn check_value(
     }
     for (item, item_path) in occurrences(node, path) {
         let values = fhir_fhirpath::from_parser_value(&item.value);
-        let checks = [
-            (elem.fixed.as_deref(), true, "PROFILE_004", "is not exactly"),
-            (
-                elem.pattern.as_deref(),
-                false,
-                "PROFILE_005",
-                "does not match",
-            ),
-        ];
-        for (expected, exact, code, verb) in checks {
-            let Some(expected) = expected.filter(|e| !matches_all(&values, &e.value, exact)) else {
-                continue;
-            };
+        if let Some(fixed) = elem.fixed.as_deref() {
+            let mut parts = Vec::new();
+            fixed_differences(&values, &fixed.value, &item_path, &mut parts);
+            for (part_path, expected) in parts {
+                diagnostics.push(
+                    Diagnostic::error(
+                        "PROFILE_004",
+                        format!(
+                            "Value at '{part_path}' is not exactly {expected} from the {} {} \
+                             required by '{}'",
+                            fixed.key, fixed.value, elem.path
+                        ),
+                        part_path,
+                    )
+                    .with_location(item.span),
+                );
+            }
+        }
+        if let Some(pattern) = elem
+            .pattern
+            .as_deref()
+            .filter(|p| !matches_all(&values, &p.value, false))
+        {
             diagnostics.push(
                 Diagnostic::error(
-                    code,
+                    "PROFILE_005",
                     format!(
-                        "Value at '{item_path}' {verb} the {} {} required by '{}'",
-                        expected.key, expected.value, elem.path
+                        "Value at '{item_path}' does not match the {} {} required by '{}'",
+                        pattern.key, pattern.value, elem.path
                     ),
                     item_path.clone(),
                 )
                 .with_location(item.span),
             );
         }
+    }
+}
+
+/// The parts of `values` (instance `path`) that are not exactly `expected`, each with what
+/// was expected there. fixed[x]: "all values must be an exact match [...] Missing
+/// elements/attributes must also be missing", so objects compare property by property and
+/// each wrong, missing or extra property is its own part; repetitions compare item by item,
+/// and a different number of them is one part on the collection.
+fn fixed_differences(
+    values: &[FhirPathValue],
+    expected: &Json,
+    path: &str,
+    parts: &mut Vec<(String, String)>,
+) {
+    match (values, expected) {
+        (values, Json::Array(items)) if values.len() == items.len() => {
+            for (index, (value, item)) in values.iter().zip(items).enumerate() {
+                fixed_differences(
+                    std::slice::from_ref(value),
+                    item,
+                    &format!("{path}[{index}]"),
+                    parts,
+                );
+            }
+        }
+        ([FhirPathValue::Object(fields, _)], Json::Object(map)) => {
+            for (key, item) in map {
+                let child = format!("{path}.{key}");
+                match fields.get(key.as_str()) {
+                    Some(values) => fixed_differences(values, item, &child, parts),
+                    None => parts.push((child, item.to_string())),
+                }
+            }
+            for key in fields.keys().filter(|key| !map.contains_key(&***key)) {
+                parts.push((format!("{path}.{key}"), "absent".to_owned()));
+            }
+        }
+        (values, expected) if matches_all(values, expected, true) => {}
+        _ => parts.push((path.to_owned(), expected.to_string())),
     }
 }
 
