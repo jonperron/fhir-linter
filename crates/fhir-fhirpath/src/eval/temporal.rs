@@ -12,13 +12,15 @@ use crate::value::Value;
 
 /// Components from year (or hour for a Time) down to seconds, and the
 /// zone offset in minutes.
+#[derive(Clone)]
 struct Parts {
     fields: Vec<f64>,
     offset: Option<i64>,
 }
 
 /// Order of two date/time texts; `None` when they share every common
-/// precision but one is more precise, or when only one has a zone.
+/// precision but one is more precise, when only one has a zone (a date
+/// against a zoned date-time answers when every possible offset agrees).
 /// Unparseable text compares as `None` too.
 pub(super) fn compare(a: &str, b: &str, is_time: bool) -> Option<Ordering> {
     let (mut a, mut b) = (parse(a, is_time)?, parse(b, is_time)?);
@@ -34,14 +36,28 @@ pub(super) fn compare(a: &str, b: &str, is_time: bool) -> Option<Ordering> {
             // The official suite expects empty when only one side has a zone.
             _ => return None,
         }
-    } else if a.offset.is_some() != b.offset.is_some() {
-        // A zoned date-time against a date: N1 does not say which zone the date
-        // is in, so this follows the one-sided zone rule above (pending a
-        // maintainer decision).
+    } else if is_time && a.offset.is_some() != b.offset.is_some() {
+        // A Time takes no zone, so a zoned one is malformed.
         return None;
+    } else if let (Some(zone), None) | (None, Some(zone)) = (a.offset, b.offset) {
+        // A zoned date-time against a date: N1 §6.1.1 makes the date's zone
+        // "an implementation decision", so none is assumed. The local date of
+        // the date-time only moves forward as the offset grows, so the two
+        // extremes agreeing means every offset agrees.
+        let order_at = |date_offset: i64| {
+            let (mut a, mut b) = (a.clone(), b.clone());
+            let zoned = if a.offset.is_some() { &mut a } else { &mut b };
+            to_utc(zoned, zone - date_offset);
+            order(&a.fields, &b.fields)
+        };
+        let (west, east) = (order_at(-MAX_OFFSET), order_at(MAX_OFFSET));
+        return (west == east).then_some(west).flatten();
     }
     order(&a.fields, &b.fields)
 }
+
+/// The widest zone offset FHIR allows, in minutes (dateTime regex: 14:00).
+const MAX_OFFSET: i64 = 14 * 60;
 
 /// Precision-by-precision order of two field lists.
 fn order(a: &[f64], b: &[f64]) -> Option<Ordering> {

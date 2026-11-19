@@ -293,6 +293,36 @@ fn member_of_checks_codings_and_concepts() -> TestResult {
     Ok(())
 }
 
+/// fhirpath.html defines memberOf for code, Coding and CodeableConcept: a
+/// typed object of another type is empty, whatever fields it has.
+#[test]
+fn member_of_dispatches_on_the_fhir_type_of_an_object() -> TestResult {
+    let json = r#"{"resourceType":"Observation","status":"final","code":{"text":"t"},
+        "component":[{"code":{"coding":[{"system":"http://hl7.org/fhir/fhir-types",
+            "code":"Patient"}]},
+            "valueQuantity":{"value":1,"system":"http://hl7.org/fhir/fhir-types",
+                "code":"Patient"}}]}"#;
+    for target in ["component", "component.valueQuantity", "component.value"] {
+        let expression = format!("{target}.memberOf('{RESOURCE_TYPES}')");
+        assert_eq!(eval_member_of(&expression, json)?, vec![], "{target}");
+    }
+    let concept = format!("component.code.memberOf('{RESOURCE_TYPES}')");
+    assert_eq!(bools(&eval_member_of(&concept, json)?), [true]);
+    // Without a terminology hook, a type memberOf ignores is still empty.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5");
+    let registry = Registry::from_definitions_dir(dir)?;
+    let typed = resource_to_typed_value(&parse_json(json)?, &|parent, name| {
+        registry.child_element(parent, name)
+    });
+    let expression = format!("component.valueQuantity.memberOf('{RESOURCE_TYPES}')");
+    let context = [typed];
+    let no_hook = eval_env(&expression, &context, &Environment::default())?;
+    assert_eq!(no_hook, vec![]);
+    let concept_without_hook = eval_env(&concept, &context, &Environment::default());
+    assert!(concept_without_hook.is_err());
+    Ok(())
+}
+
 #[test]
 fn member_of_a_concept_is_false_only_when_every_coding_is_out() -> TestResult {
     let concept =
@@ -331,9 +361,16 @@ fn member_of_is_an_error_when_membership_cannot_be_decided() -> TestResult {
     let json = r#"{"resourceType":"OperationDefinition","parameter":[{"type":"Patient"}]}"#;
     let unknown = "parameter.type.memberOf('http://example.org/ValueSet/unknown')";
     assert!(eval_member_of(unknown, json).is_err());
-    // No terminology in the environment.
+    // No terminology in the environment: a typed code cannot be decided, while a
+    // plain String is empty as it is never looked up.
     let without = format!("parameter.type.memberOf('{RESOURCE_TYPES}')");
-    assert!(evaluate(&without, &[resource(json)?]).is_err());
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5");
+    let registry = Registry::from_definitions_dir(dir)?;
+    let typed = resource_to_typed_value(&parse_json(json)?, &|parent, name| {
+        registry.child_element(parent, name)
+    });
+    assert!(eval_env(&without, &[typed], &Environment::default()).is_err());
+    assert_eq!(evaluate(&without, &[resource(json)?])?, vec![]);
     assert_eq!(
         eval_member_of(&format!("{{}}.memberOf('{RESOURCE_TYPES}')"), json)?,
         vec![]

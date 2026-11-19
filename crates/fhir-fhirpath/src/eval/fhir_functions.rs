@@ -131,24 +131,35 @@ impl Evaluator<'_> {
                  or does not cover it",
             ))
         };
-        let member_of = self.environment.member_of.ok_or_else(undecided)?;
+        // Without the hook every lookup is undecided, but a type memberOf
+        // is not defined on stays empty: it never reaches a lookup.
+        let member_of = |system: Option<&str>, code: &str| {
+            self.environment
+                .member_of
+                .and_then(|member_of| member_of(&url, system, code))
+        };
         // The item itself: `singleton` gives a primitive's value, without its FHIR type.
         let item = &focus[0];
         let coding_member = |coding: &Value| {
             let system = field_string(coding, "system")?;
-            member_of(&url, Some(&system), &field_string(coding, "code")?)
+            member_of(Some(&system), &field_string(coding, "code")?)
         };
-        let member = match item {
+        // An object's FHIR type decides; an untyped one is told by its fields,
+        // `coding` for a CodeableConcept and `code` for a Coding.
+        let object_type = match item {
+            Value::Object(_, Some(fhir_type)) => Some(&**fhir_type),
+            Value::Object(fields, None) if fields.contains_key("coding") => Some("CodeableConcept"),
+            Value::Object(fields, None) if fields.contains_key("code") => Some("Coding"),
+            _ => None,
+        };
+        let member = match (item, object_type) {
             // shortcut: only a `code` element is looked up without a system; a
             // plain String is empty, as fhirpath.html answers it only for a
             // ValueSet of one code system, which `member_of` cannot tell.
-            Value::Primitive(code, _, Some(fhir_type)) if &**fhir_type == "code" => code
-                .as_string()
-                .and_then(|code| member_of(&url, None, &code)),
-            // shortcut: a CodeableConcept is told by its `coding` and a Coding by its
-            // `code`, so untyped objects work too (a Quantity's system and code are
-            // looked up too); upgrade to the object's FHIR type once callers type them.
-            Value::Object(fields, _) if fields.contains_key("coding") => {
+            (Value::Primitive(code, _, Some(fhir_type)), _) if &**fhir_type == "code" => {
+                code.as_string().and_then(|code| member_of(None, &code))
+            }
+            (Value::Object(fields, _), Some("CodeableConcept")) => {
                 // fhirpath.html: true if any code in the concept is a member.
                 let codings = fields.get("coding").into_iter().flatten();
                 let answers: Vec<_> = codings.map(coding_member).collect();
@@ -160,8 +171,9 @@ impl Evaluator<'_> {
                     None
                 }
             }
-            Value::Object(fields, _) if fields.contains_key("code") => coding_member(item),
-            // A plain String is empty (see the shortcut above): not a lookup that failed.
+            (_, Some("Coding")) => coding_member(item),
+            // A plain String, or a type memberOf is not defined on, is empty
+            // (see the shortcut above): not a lookup that failed.
             _ => return Ok(vec![]),
         };
         // Empty would fail an invariant on membership this evaluator merely cannot decide.

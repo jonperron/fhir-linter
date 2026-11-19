@@ -76,16 +76,20 @@ use quick_xml::events::{BytesStart, Event};
 /// negate/abs/convert and type() reflection (PRs #154-#156), then to 1197
 /// by small function gaps (#158), complex values keeping their FHIR type
 /// (#162), opt-in strict navigation (#163), conformsTo() (#164) and exact
-/// decimals that keep their written scale (#165).
-const MIN_PASSED: u32 = 1197;
+/// decimals that keep their written scale (#165), then to 1199 by a Date
+/// against a zoned DateTime answering when every offset agrees (testNow1,
+/// testDateTimeGreaterThanDate1).
+const MIN_PASSED: u32 = 1199;
 
 /// Cases that must pass whatever the total: the boundary functions behind
 /// the FHIR per-1, rng-2 and ratrng-2 invariants, exact decimals (#165),
 /// FHIR types on complex values (#162), strict navigation (#163) and
-/// conformsTo() (#164). Not listed: `@2014` as a dateTime (N2 returns a Date
-/// for a Date), HighBoundaryDecimal16 (unary minus keeps the sign of zero)
-/// and Comparable1 (no UCUM conversion).
-const REQUIRED_PASSING: [&str; 85] = [
+/// conformsTo() (#164), UCUM in comparable() (Comparable1), the sign of a
+/// negated zero (HighBoundaryDecimal16) and a Date against a zoned DateTime
+/// (testNow1, testDateTimeGreaterThanDate1). Not listed: `@2014` as a
+/// dateTime (N2 returns a Date for a Date).
+const REQUIRED_PASSING: [&str; 89] = [
+    "Comparable1",
     "Comparable2",
     "Comparable3",
     "HighBoundaryDateTimeMillisecond1",
@@ -99,6 +103,7 @@ const REQUIRED_PASSING: [&str; 85] = [
     "HighBoundaryDecimal13",
     "HighBoundaryDecimal14",
     "HighBoundaryDecimal15",
+    "HighBoundaryDecimal16",
     "HighBoundaryDecimal2",
     "HighBoundaryDecimal3",
     "HighBoundaryDecimal4",
@@ -158,9 +163,11 @@ const REQUIRED_PASSING: [&str; 85] = [
     "PrecisionDecimal",
     "testConformsTo1",
     "testConformsTo2",
+    "testDateTimeGreaterThanDate1",
     "testFHIRPathAsFunction22",
     "testFHIRPathIsFunction8",
     "testFHIRPathIsFunction9",
+    "testNow1",
     "testPeriodInvariantNew",
     "testPeriodInvariantOld",
     "testPolymorphicsB",

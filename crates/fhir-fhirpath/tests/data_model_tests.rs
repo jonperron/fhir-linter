@@ -102,11 +102,16 @@ fn string_functions_accept_typed_string_fields() {
 }
 
 #[test]
-fn date_against_zoned_date_time_is_empty() {
-    // User decision (PLAN 11.7): a Date against a zoned DateTime is empty.
+fn date_against_zoned_date_time_needs_every_offset_to_agree() {
+    // N1 §6.1.1: the date's zone is an implementation decision, so the
+    // answer stands only when the offsets -14:00 and +14:00 agree.
     let ctx = typed(r#"{"resourceType":"Patient","birthDate":"2020-01-01"}"#);
+    assert_eq!(
+        bools(&evaluate("birthDate < @2020-06-01T00:00:00Z", &ctx).unwrap()),
+        [true]
+    );
     assert!(
-        evaluate("birthDate < @2020-06-01T00:00:00Z", &ctx)
+        evaluate("birthDate < @2020-01-01T12:00:00Z", &ctx)
             .unwrap()
             .is_empty()
     );
