@@ -129,7 +129,7 @@ fn sort_later_keys_run_only_on_ties() {
 
 #[test]
 fn sort_direction_is_only_allowed_in_sort() {
-    assert!(evaluate("(1 | 2).where($this desc)", &[]).is_err());
+    assert!(fhir_fhirpath::parse("(1 | 2).where($this desc)").is_err());
 }
 
 #[test]
@@ -167,4 +167,59 @@ fn min_of_a_date_and_a_date_time_is_an_error() {
 #[test]
 fn sort_all_keys_tied_keeps_input_order() {
     is_true("(3 | 1 | 2).sort(1, 'a', {}) = (3 | 1 | 2)");
+}
+
+/// A single item still has its key checked: a collection key is an error.
+#[test]
+fn sort_single_item_with_collection_key_is_an_error() {
+    assert!(evaluate("(1).sort($this | 5)", &[]).is_err());
+}
+
+/// An undecided pair must not hide a later type error.
+#[test]
+fn min_and_max_undecided_pair_does_not_hide_type_error() {
+    assert!(evaluate("(@2020 | @2020-06 | 'a').min()", &[]).is_err());
+    assert!(evaluate("(@2020 | @2020-06 | 'a').max()", &[]).is_err());
+}
+
+/// N1 grammar: `asc` and `desc` are ordinary identifiers outside sort().
+#[test]
+fn asc_and_desc_parse_as_identifiers_outside_sort() {
+    for expr in [
+        "Patient.desc",
+        "desc",
+        "%resource.asc",
+        "`desc`",
+        "Patient.`asc`",
+    ] {
+        assert!(fhir_fhirpath::parse(expr).is_ok(), "{expr}");
+    }
+}
+
+/// They also navigate: members called `asc` and `desc` resolve as usual.
+#[test]
+fn asc_and_desc_navigate_outside_sort() {
+    let resource = fhir_parser::parse_json(r#"{"resourceType":"Patient","desc":"d","asc":"a"}"#)
+        .expect("patient parses");
+    let input = [fhir_fhirpath::resource_to_typed_value(
+        &resource,
+        &|_, _| None,
+    )];
+    for (expr, want) in [
+        ("Patient.desc", "d"),
+        ("desc", "d"),
+        ("%resource.asc", "a"),
+        ("`desc`", "d"),
+        ("Patient.`asc`", "a"),
+    ] {
+        let parsed = fhir_fhirpath::parse(expr).expect(expr);
+        let env = fhir_fhirpath::Environment {
+            resource: Some(&input[0]),
+            ..fhir_fhirpath::Environment::default()
+        };
+        let got =
+            fhir_fhirpath::evaluate_parsed_with_environment(&parsed, &input, &|_, _| false, &env)
+                .expect(expr);
+        assert_eq!(got, vec![Value::String(want.into())], "{expr}");
+    }
 }

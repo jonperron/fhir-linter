@@ -348,14 +348,16 @@ impl Evaluator<'_> {
                     return Ok(Some(vec![]));
                 }
                 let mut min = focus[0].clone();
+                // Keep scanning after an undecided pair: a later type error still surfaces.
+                let mut undecided = false;
                 for v in &focus[1..] {
                     match min_max_order(v, &min)? {
                         Some(Ordering::Less) => min = v.clone(),
                         Some(_) => {}
-                        None => return Ok(Some(vec![])),
+                        None => undecided = true,
                     }
                 }
-                vec![min]
+                if undecided { vec![] } else { vec![min] }
             }
             "max" => {
                 check_arity(name, args, 0)?;
@@ -363,14 +365,16 @@ impl Evaluator<'_> {
                     return Ok(Some(vec![]));
                 }
                 let mut max = focus[0].clone();
+                // Keep scanning after an undecided pair: a later type error still surfaces.
+                let mut undecided = false;
                 for v in &focus[1..] {
                     match min_max_order(v, &max)? {
                         Some(Ordering::Greater) => max = v.clone(),
                         Some(_) => {}
-                        None => return Ok(Some(vec![])),
+                        None => undecided = true,
                     }
                 }
-                vec![max]
+                if undecided { vec![] } else { vec![max] }
             }
             "avg" => {
                 check_arity(name, args, 0)?;
@@ -458,9 +462,6 @@ impl Evaluator<'_> {
         let Some((&(selector, negated, descending), rest)) = selectors.split_first() else {
             return Ok(indices);
         };
-        if indices.len() <= 1 {
-            return Ok(indices);
-        }
         let mut keyed = Vec::with_capacity(indices.len());
         for index in indices {
             let col = match selector {
@@ -494,7 +495,11 @@ impl Evaluator<'_> {
         drop(keyed);
         let mut sorted = Vec::new();
         for run in runs {
-            sorted.extend(self.sort_by_keys(run, focus, rest)?);
+            if run.len() > 1 {
+                sorted.extend(self.sort_by_keys(run, focus, rest)?);
+            } else {
+                sorted.extend(run);
+            }
         }
         Ok(sorted)
     }
