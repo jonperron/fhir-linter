@@ -407,10 +407,11 @@ fn equality_semantics() {
         ("@2013-03-01T01:00:00+02:00 = @2013-02-28T23:00:00Z", t()),
         ("@2012-04-15 = @2012-04-15T10:00:00", vec![]),
         ("@2012-04-14 < @2012-04-15T10:00", t()),
-        // N1 is silent on a date against a zoned date-time: empty, like any
-        // comparison where only one side has a zone.
+        // N1 §6.1.1 leaves a date's zone to the implementation: the answer
+        // stands only when the offsets -14:00 and +14:00 agree.
         ("@2012-04-16 = @2012-04-15T23:00:00-05:00", vec![]),
-        ("@2012-04-10 < @2012-04-15T23:00:00-05:00", vec![]),
+        ("@2012-04-10 < @2012-04-15T23:00:00-05:00", t()),
+        ("@2012-04-15T23:00:00-05:00 > @2012-04-10", t()),
     ];
     for (expr, expected) in cases {
         assert_eq!(eval(expr), expected, "{expr}");
