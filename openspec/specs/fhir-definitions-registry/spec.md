@@ -310,6 +310,15 @@ Chaque `ElementDefinition` SHALL exposer un champ `xml_attr: bool`, vrai lorsque
 - **WHEN** l'élément `Patient.name` est chargé
 - **THEN** son `xml_attr` SHALL être faux
 
+### Requirement: Déclaration d'élément
+
+Le `Registry` SHALL exposer `has_element(type: &str, name: &str) -> Option<bool>` : `Some(true)` si le type déclare `{racine}.{name}` ou `{racine}.{name}[x]`, `Some(false)` sinon (sans recherche de suffixe de choix : `valueQuantity` vaut `Some(false)` ; un nom contenant `.`, `[` ou `]` vaut `Some(false)`), et `None` pour `BackboneElement`, `Element` et les types inconnus.
+
+#### Scenario: Déclaration
+
+- **WHEN** `has_element("Patient", "birthDate")`, `has_element("Observation", "valueQuantity")` et `has_element("Bogus", "x")` sont appelés
+- **THEN** les résultats SHALL être `Some(true)`, `Some(false)` et `None`
+
 ### Requirement: Élément enfant typé
 
 Le `Registry` SHALL exposer `child_element(parent: &str, name: &str) -> Option<(Arc<str>, Arc<str>)>`, où `parent` est un chemin de définition (nom de type comme `Patient` ou `HumanName`, ou chemin d'élément backbone comme `Patient.contact`). Il SHALL retourner le chemin de définition de l'enfant et son code de type : le chemin de l'élément lui-même pour `BackboneElement` et `Element`, sinon le code de type. Pour un élément choix, le suffixe capitalisé SHALL choisir le type parmi les types déclarés de `base[x]`. Il SHALL retourner `None` pour un parent, un élément ou un suffixe inconnu, et pour un élément sans type ; les éléments `contentReference` ne sont pas suivis (raccourci documenté).
