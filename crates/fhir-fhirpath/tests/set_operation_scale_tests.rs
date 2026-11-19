@@ -3,7 +3,7 @@
 /// 32k references take 46 s to validate.
 use std::time::{Duration, Instant};
 
-use fhir_fhirpath::{Value, evaluate};
+use fhir_fhirpath::{Decimal, Value, evaluate};
 
 const COUNT: usize = 50_000;
 
@@ -54,8 +54,54 @@ fn set_operations_on_many_strings_are_linear() -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
+// N1 §6.1.1: "Decimal: values must be equal, trailing zeroes after the
+// decimal are ignored", and an Integer converts implicitly to a Decimal, so
+// `i.0`, `i.00` and `i` are one value; they share a key instead of a scan.
+#[test]
+fn set_operations_on_many_decimals_are_linear() -> Result<(), Box<dyn std::error::Error>> {
+    let context: Vec<Value> = (0..COUNT as i128)
+        .map(|i| Value::Decimal(Decimal::new(i * 10, 1)))
+        .collect();
+    let started = Instant::now();
+    assert_eq!(count("distinct()", &context)?, COUNT);
+    assert_eq!(count("union(select($this * 1.0))", &context)?, COUNT);
+    assert_eq!(
+        count("combine(select(toInteger())).distinct()", &context)?,
+        COUNT
+    );
+    assert_eq!(count("exclude(select($this * 1.0))", &context)?, 0);
+    assert_eq!(evaluate("isDistinct()", &context)?, vec![Value::Bool(true)]);
+    let elapsed = started.elapsed();
+    assert!(elapsed < Duration::from_secs(20), "took {elapsed:?}");
+    Ok(())
+}
+
+#[test]
+fn decimals_ignore_trailing_zeros_and_equal_integers() -> Result<(), Box<dyn std::error::Error>> {
+    let cases: [(&str, &str); 10] = [
+        ("1.0 | 1.00", "1.0"),
+        ("1.00 | 1.0", "1.00"),
+        ("(1.0).combine(1.00).isDistinct()", "false"),
+        ("(1.1).combine(1.10).combine(1.2).distinct()", "1.10 | 1.2"),
+        ("0.0 | 0 | -0.0 | 0.00", "0.0"),
+        ("(1.0 | 2.00 | 3.5).intersect(2 | 1.000)", "1.0 | 2.00"),
+        ("(10 | 10.5).exclude(10.0)", "10.5"),
+        ("1L | 1.0", "1L"),
+        ("(1.5).subsetOf(1.50 | 2)", "true"),
+        ("1.1 | 1.01 | 1.10", "1.1 | 1.01"),
+    ];
+    for (expr, expected) in cases {
+        let (got, want) = (evaluate(expr, &[])?, evaluate(expected, &[])?);
+        // Value equality ignores scale, so compare the written forms too.
+        let text = |values: &[Value]| values.iter().map(Value::to_string).collect::<Vec<_>>();
+        assert_eq!(text(&got), text(&want), "{expr}");
+    }
+    Ok(())
+}
+
 // The hash path keeps FHIRPath equality and order where keyed values
-// (strings, integers, booleans) meet unkeyed ones (decimals).
+// (strings, numbers, booleans) meet unkeyed ones (dates) and Integer meets
+// Decimal.
 #[test]
 fn keyed_and_unkeyed_values_keep_fhirpath_equality() -> Result<(), Box<dyn std::error::Error>> {
     let cases: [(&str, &str); 18] = [
