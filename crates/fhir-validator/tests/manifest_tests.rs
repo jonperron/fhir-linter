@@ -25,7 +25,9 @@ use serde_json::Value;
 // "Practitioner/2", so REFERENCE_005 is a correct error.
 // 0.70 -> 0.79 (main 78/111 -> 88/111): validator fixes of PRs #123-#145.
 // 0.79 -> 0.81 (main 88/111 -> 91/111): validator fixes of PRs #148-#152.
-const MIN_JSON_PASS_RATE: f64 = 0.81;
+// 0.81 -> 0.87 (main 91/111 -> 94/108): PRs #158-#165; the denominator drops by the
+// three cases the manifest marks out of scope.
+const MIN_JSON_PASS_RATE: f64 = 0.87;
 // 0.58 -> 0.56: primitive-good.xml and primitive-bad-empty.xml only passed through a false
 // TYPE_004 on the valid code "asd asd"; their real errors (decimal regex) are not caught yet.
 // 0.56 -> 0.68 (main 64/108 -> 74/108): the XML conformance checks (namespaces, mixed text,
@@ -35,7 +37,14 @@ const MIN_JSON_PASS_RATE: f64 = 0.81;
 // base64Binary placeholder `MEKH....SD/Z` is invalid under the R5 regex (user decision).
 // 0.71 -> 0.83 (main 77/108 -> 90/108): validator fixes of PRs #123-#145.
 // 0.83 -> 0.85 (main 90/108 -> 92/108): validator fixes of PRs #148-#152.
-const MIN_XML_PASS_RATE: f64 = 0.85;
+// 0.85 -> 0.88 (main 92/108 -> 95/107): PRs #158-#165; the denominator drops by the
+// case the manifest marks out of scope.
+const MIN_XML_PASS_RATE: f64 = 0.88;
+
+/// (judged, skipped without expected result, out of scope) case counts per format on
+/// the pinned fixtures, so the rates cannot rise by losing cases.
+const EXPECTED_JSON_COUNTS: (u32, u32, u32) = (108, 1, 3);
+const EXPECTED_XML_COUNTS: (u32, u32, u32) = (107, 1, 1);
 
 fn fixtures_dir() -> PathBuf {
     std::env::var_os("FHIR_FIXTURES_DIR").map_or_else(
@@ -102,6 +111,11 @@ struct Tally {
 }
 
 impl Tally {
+    /// (judged, skipped without expected result, out of scope) case counts.
+    fn counts(&self) -> (u32, u32, u32) {
+        (self.cases, self.skipped, self.out_of_scope)
+    }
+
     fn rate(&self) -> f64 {
         if self.cases == 0 {
             1.0
@@ -256,18 +270,12 @@ fn validator_manifest_pass_rate() {
 
     json.report("json");
     xml.report("xml");
-    assert!(
-        json.cases > 0 && xml.cases > 0,
-        "no eligible manifest cases (json {}, xml {}): floors would pass vacuously",
-        json.cases,
-        xml.cases,
-    );
-    // The pinned manifest marks R5 cases of both formats as out of scope.
-    assert!(
-        json.out_of_scope > 0 && xml.out_of_scope > 0,
-        "out-of-scope skip not applied (json {}, xml {})",
-        json.out_of_scope,
-        xml.out_of_scope,
+    // Exact counts, so lost or newly skipped cases cannot shrink the denominator
+    // and pass the floors with less coverage.
+    assert_eq!(
+        (json.counts(), xml.counts()),
+        (EXPECTED_JSON_COUNTS, EXPECTED_XML_COUNTS),
+        "manifest case counts drifted (fixture bump or filter change): update the counts and floors"
     );
     assert!(
         json.rate() >= MIN_JSON_PASS_RATE,
