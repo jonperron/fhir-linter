@@ -32,7 +32,9 @@ fn is_subtype(child: &str, ancestor: &str) -> bool {
 
 fn observation() -> Result<Value, Box<dyn Error>> {
     let resource = parse_json(
-        r#"{"resourceType":"Observation","status":"final","code":{"text":"weight"},
+        r#"{"resourceType":"Observation","status":"final",
+        "text":{"status":"generated","div":"<div xmlns=\"http://www.w3.org/1999/xhtml\">w</div>"},
+        "code":{"text":"weight"},
         "valueQuantity":{"value":185,"unit":"lbs"},
         "component":[{"code":{"text":"c"},"valueString":"x"}]}"#,
     )?;
@@ -57,25 +59,41 @@ fn eval(expression: &str, strict: bool) -> Result<Collection, EvalError> {
     )
 }
 
+fn assert_unresolved(expression: &str, message: &str) {
+    match eval(expression, true) {
+        Err(EvalError::Type(got)) => assert_eq!(got, message),
+        other => panic!("{expression}: expected a type error, got {other:?}"),
+    }
+}
+
 #[test]
 fn strict_rejects_a_choice_type_suffix() {
-    assert!(eval("Observation.valueQuantity.unit", true).is_err());
+    assert_unresolved(
+        "Observation.valueQuantity.unit",
+        "valueQuantity is not an element of Observation",
+    );
 }
 
 #[test]
 fn strict_rejects_an_unknown_element() {
-    assert!(eval("Observation.code.text1", true).is_err());
+    assert_unresolved(
+        "Observation.code.text1",
+        "text1 is not an element of CodeableConcept",
+    );
 }
 
 #[test]
 fn strict_rejects_a_leading_name_that_is_not_the_type() {
-    assert!(eval("Encounter.status", true).is_err());
+    assert_unresolved(
+        "Encounter.status",
+        "Encounter is not an element of Observation",
+    );
 }
 
 #[test]
 fn strict_resolves_declared_elements_and_the_choice_name() -> TestResult {
     assert_eq!(eval("Observation.value.unit", true)?.len(), 1);
-    assert_eq!(eval("DomainResource.text", true)?.len(), 0);
+    assert_eq!(eval("DomainResource.text", true)?.len(), 1);
     // A declared element that is absent is empty, not an error.
     assert_eq!(eval("Observation.subject", true)?.len(), 0);
     // An empty input resolves nothing and fails nothing.

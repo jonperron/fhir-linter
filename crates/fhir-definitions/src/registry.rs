@@ -400,6 +400,8 @@ mod tests {
     fn has_element_names_declared_elements_without_choice_suffix() {
         assert_eq!(REGISTRY.has_element("Patient", "name"), Some(true));
         assert_eq!(REGISTRY.has_element("Patient", "id"), Some(true));
+        // `resourceType` is a JSON property, not an element of the model.
+        assert_eq!(REGISTRY.has_element("Patient", "resourceType"), Some(false));
         assert_eq!(REGISTRY.has_element("HumanName", "given1"), Some(false));
         // A choice element is named without its `[x]` and never with a type suffix.
         assert_eq!(REGISTRY.has_element("Observation", "value"), Some(true));

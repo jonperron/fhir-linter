@@ -86,8 +86,9 @@ pub struct Environment<'a> {
     /// the element `name`, `None` when the type alone cannot tell (build it
     /// from `Registry::has_element`). Set, a path step on a typed node that
     /// names neither an element nor (leading the expression) the node's type
-    /// is an error, so `Observation.valueQuantity` fails. Unset, an unknown
-    /// name yields empty.
+    /// is an error, so `Observation.valueQuantity` fails. A leading supertype
+    /// (`DomainResource.text`) is only known through `is_subtype`: set both.
+    /// Unset, an unknown name yields empty.
     pub strict: Option<&'a HasElement<'a>>,
 }
 
