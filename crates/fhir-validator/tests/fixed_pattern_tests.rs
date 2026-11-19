@@ -152,12 +152,18 @@ fn ldl(high: &str) -> String {
 }
 
 #[test]
-fn fixed_quantity_at_depth_compares_numbers_as_decimals() {
-    // ldlcholesterol fixes Observation.referenceRange.high to {"value": 3.0}.
-    for equal in [r#"{"value":3}"#, r#"{"value":3.0}"#, r#"{"value":3.00}"#] {
-        assert!(paths(&ldl(equal), "PROFILE_004").is_empty(), "{equal}");
-    }
-    for different in [r#"{"value":3.1}"#, r#"{"value":3.0,"unit":"mmol/L"}"#] {
+fn fixed_quantity_at_depth_compares_decimals_with_their_precision() {
+    // ldlcholesterol fixes Observation.referenceRange.high to {"value": 3.0}. A fixed value
+    // "SHALL be exactly the value" (elementdefinition.html), and "0.010 is regarded as
+    // different to 0.01" (datatypes.html, decimal): `3` and `3.00` are not `3.0`.
+    assert!(paths(&ldl(r#"{"value":3.0}"#), "PROFILE_004").is_empty());
+    for different in [
+        r#"{"value":3}"#,
+        r#"{"value":3.00}"#,
+        r#"{"value":3.0000000000000000001}"#,
+        r#"{"value":3.1}"#,
+        r#"{"value":3.0,"unit":"mmol/L"}"#,
+    ] {
         assert_eq!(
             paths(&ldl(different), "PROFILE_004"),
             ["Observation.referenceRange[0].high"],
