@@ -598,6 +598,25 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
     }
 }
 
+/// min() / max() order (v3: "Comparison semantics are defined by the
+/// Comparison Operators"); `None` when date/time precision leaves it
+/// unknown. §min1: items of different types (a Date and a DateTime too)
+/// are an error.
+pub(super) fn min_max_order(a: &Value, b: &Value) -> Result<Option<std::cmp::Ordering>, EvalError> {
+    match (a.primitive_value(), b.primitive_value()) {
+        (x @ Value::Date(_), y @ Value::DateTime(_))
+        | (x @ Value::DateTime(_), y @ Value::Date(_)) => Err(EvalError::Type(format!(
+            "min() and max() need items of one type, got {} and {}",
+            x.type_name(),
+            y.type_name()
+        ))),
+        (x @ Value::Date(_), y @ Value::Date(_))
+        | (x @ Value::DateTime(_), y @ Value::DateTime(_))
+        | (x @ Value::Time(_), y @ Value::Time(_)) => Ok(temporal_order(x, y)),
+        _ => compare_values(a, b).map(Some),
+    }
+}
+
 /// Stable merge sort that stops at the first comparison error. `sort_by`
 /// cannot: it needs a total order and may panic without one (Rust 1.81+).
 pub(super) fn try_sort_by<T>(

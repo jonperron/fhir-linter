@@ -137,6 +137,32 @@ fn sort_key_named_desc_is_still_a_path() {
     is_true("(2 | 1).sort(desc) = (2 | 1)");
 }
 
+/// v3 min()/max(): "Comparison semantics are defined by the Comparison
+/// Operators": zones are normalised.
+#[test]
+fn min_and_max_normalise_zones() {
+    is_true(
+        "(@2020-01-01T09:00:00Z | @2020-01-01T10:00:00+02:00).min() = @2020-01-01T10:00:00+02:00",
+    );
+    is_true("(@2020-01-01T10:00:00+02:00 | @2020-01-01T09:00:00Z).max() = @2020-01-01T09:00:00Z");
+}
+
+/// The operators give empty for @2020 vs @2020-06, and the spec names no
+/// error for it, so min() and max() give empty too.
+#[test]
+fn min_and_max_of_undecided_dates_are_empty() {
+    assert_eq!(evaluate("(@2020-06 | @2020).min()", &[]).unwrap(), vec![]);
+    assert_eq!(evaluate("(@2020 | @2020-06).max()", &[]).unwrap(), vec![]);
+}
+
+/// §min1: "All items in the input collection SHALL be the same type,
+/// otherwise an exception is thrown."
+#[test]
+fn min_of_a_date_and_a_date_time_is_an_error() {
+    assert!(evaluate("(@2019-01-01 | @2020-06-01T10:00:00Z).min()", &[]).is_err());
+    assert!(evaluate("(@2019-01-01 | @2020-06-01T10:00:00Z).max()", &[]).is_err());
+}
+
 /// Several keys tied on every level stay in input order (stable sort).
 #[test]
 fn sort_all_keys_tied_keeps_input_order() {

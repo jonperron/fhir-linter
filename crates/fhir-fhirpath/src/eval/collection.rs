@@ -7,8 +7,8 @@ use super::Evaluator;
 use super::helpers::{
     as_type, check_arity, check_arity_range, check_collection_len, check_known_content,
     check_type_name, collect_descendants, compare_values, criteria_bool, distinct, distinct_last,
-    eval_type_name, is_distinct, is_type, optional_integer, primitive_values, singleton,
-    try_sort_by, value_is_type,
+    eval_type_name, is_distinct, is_type, min_max_order, optional_integer, primitive_values,
+    singleton, try_sort_by, value_is_type,
 };
 use super::value_set::ValueSet;
 use std::cmp::Ordering;
@@ -349,8 +349,10 @@ impl Evaluator<'_> {
                 }
                 let mut min = focus[0].clone();
                 for v in &focus[1..] {
-                    if compare_values(v, &min)? == std::cmp::Ordering::Less {
-                        min = v.clone();
+                    match min_max_order(v, &min)? {
+                        Some(Ordering::Less) => min = v.clone(),
+                        Some(_) => {}
+                        None => return Ok(Some(vec![])),
                     }
                 }
                 vec![min]
@@ -362,8 +364,10 @@ impl Evaluator<'_> {
                 }
                 let mut max = focus[0].clone();
                 for v in &focus[1..] {
-                    if compare_values(v, &max)? == std::cmp::Ordering::Greater {
-                        max = v.clone();
+                    match min_max_order(v, &max)? {
+                        Some(Ordering::Greater) => max = v.clone(),
+                        Some(_) => {}
+                        None => return Ok(Some(vec![])),
                     }
                 }
                 vec![max]
