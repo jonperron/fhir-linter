@@ -1052,16 +1052,26 @@ Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` 
 
 ### Requirement: Navigation stricte opt-in
 
-`Environment::strict: Option<&HasElement>` (défaut `None`), où `pub type HasElement = dyn Fn(&str, &str) -> Option<bool>` (type, nom ; `None` = indécidable) est exporté et construit par l'appelant à partir de `Registry::has_element`, SHALL activer l'erreur de navigation (N1 §3 : « If the identifier cannot be resolved, the evaluation will end and signal an error »). Lorsqu'il est fourni, une étape de chemin SHALL retourner `Err(EvalError::Type("<nom> is not an element of <type>"))` si et seulement si l'entrée est non vide et que chaque élément est un objet typé dont le type ne déclare pas l'élément et, pour un identifiant initial, n'est ni ce type ni un sous-type. Les éléments dont le type ne peut pas trancher (backbone, non typé, primitive) SHALL NOT provoquer d'erreur, de sorte que les collections mixtes (ex. `descendants()`) n'échouent pas. Sans `strict`, un nom inconnu SHALL donner une collection vide. Le validateur SHALL rester non strict (`strict: None`).
+`Environment::strict: Option<&HasElement>` (défaut `None`), où `pub type HasElement = dyn Fn(&str, &str) -> Option<bool>` (type, nom ; `None` = indécidable) est exporté et construit par l'appelant à partir de `Registry::has_element`, SHALL activer l'erreur de navigation (N1 §3 : « If the identifier cannot be resolved, the evaluation will end and signal an error »). Lorsqu'il est fourni, une étape de chemin SHALL retourner `Err(EvalError::Type("<nom> is not an element of <type>"))` si et seulement si l'entrée est non vide et que chaque élément est un objet typé dont le type ne déclare pas l'élément et, pour un identifiant initial, n'est ni ce type ni un sous-type. Un objet typé dont le type ne peut pas trancher (`has_element(type) == None` : `BackboneElement`, `Element`) SHALL être interrogé par son chemin d'instance depuis sa ressource (ex. `Patient.contact`, `Questionnaire.item.item`, `MedicationRequest.dosageInstruction.timing.repeat`) ; le message est alors `<nom> is not an element of <chemin d'instance>`. Ce chemin SHALL provenir d'un index des arbres de l'entrée (`%context`), de `%resource` et de `%rootResource`, construit une seule fois par évaluation à la première étape qui en a besoin ; une ressource (racine, `contained`, entrée de Bundle) SHALL redémarrer le chemin à son `resourceType`. Il n'y a pas de recherche de suffixe de choix : `Observation.component.valueString` SHALL donner une erreur en mode strict. Les backbones hors de ces arbres, les primitives et les nœuds non typés SHALL NOT provoquer d'erreur, de sorte que les collections mixtes (ex. `descendants()`) n'échouent pas. Sans `strict`, un nom inconnu SHALL donner une collection vide. Le validateur SHALL rester non strict (`strict: None`).
 
 #### Scenario: Élément inconnu en mode strict
 
 - **WHEN** `Patient.bogus` est évalué avec `strict` fourni sur un `Patient`
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))`
 
+#### Scenario: Enfant de backbone inconnu
+
+- **WHEN** `Patient.contact.bogus` ou `Observation.component.valueString` est évalué avec `strict` sur la ressource correspondante
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type("<nom> is not an element of <chemin d'instance>"))`
+
+#### Scenario: Backbone imbriqué
+
+- **WHEN** `Questionnaire.item.item.linkId` est évalué avec `strict` sur un Questionnaire
+- **THEN** aucune erreur SHALL être retournée
+
 #### Scenario: Collection mixte
 
-- **WHEN** `descendants().bogus` est évalué avec `strict` sur une collection mêlant objets typés et éléments backbone ou primitives
+- **WHEN** `descendants().bogus` est évalué avec `strict` sur une collection mêlant objets typés et éléments backbone, primitives ou nœuds hors des arbres indexés
 - **THEN** aucune erreur SHALL être retournée
 
 #### Scenario: Défaut non strict

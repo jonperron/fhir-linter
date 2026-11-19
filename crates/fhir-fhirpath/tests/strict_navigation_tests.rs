@@ -181,6 +181,40 @@ fn strict_checks_backbones_in_bundle_entries_and_complex_types() -> TestResult {
 }
 
 #[test]
+fn strict_finds_a_context_backbone_through_the_environment_resources() -> TestResult {
+    let patient = typed(PATIENT)?;
+    let Value::Object(fields, _) = &patient else {
+        return Err("the patient is not an object".into());
+    };
+    let contact = fields.get("contact").and_then(|c| c.first()).ok_or("no contact")?;
+    let eval_contact = |resource: Option<&Value>, root_resource: Option<&Value>| {
+        let environment = Environment {
+            resource,
+            root_resource,
+            is_subtype: Some(&is_subtype),
+            strict: Some(&has_element as &HasElement<'_>),
+            ..Environment::default()
+        };
+        evaluate_parsed_with_environment(
+            &parse("nmae")?,
+            std::slice::from_ref(contact),
+            &|base, suffix| registry().is_choice_variant(base, suffix),
+            &environment,
+        )
+    };
+    let message = "nmae is not an element of Patient.contact";
+    for (resource, root_resource) in [(Some(&patient), None), (None, Some(&patient))] {
+        match eval_contact(resource, root_resource) {
+            Err(EvalError::Type(got)) => assert_eq!(got, message),
+            other => panic!("expected a type error, got {other:?}"),
+        }
+    }
+    // Outside any resource, the backbone's path is unknown: not checked.
+    assert_eq!(eval_contact(None, None)?.len(), 0);
+    Ok(())
+}
+
+#[test]
 fn strict_follows_content_references() -> TestResult {
     let q = QUESTIONNAIRE;
     assert_eq!(eval_on(q, "Questionnaire.item.item.linkId", true)?.len(), 1);
