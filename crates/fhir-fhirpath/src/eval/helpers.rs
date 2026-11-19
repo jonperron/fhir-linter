@@ -220,7 +220,7 @@ pub(super) fn as_quantity(v: &Value) -> Option<(f64, Option<&str>)> {
         [Value::Primitive(value, _, Some(ty))] if &**ty == "decimal" => match &**value {
             // XML primitives are text, typed by their element.
             Value::String(text) => text.parse().ok().filter(|v: &f64| v.is_finite())?,
-            other => other.as_decimal()?.to_f64(),
+            other => Some(other.as_decimal()?.to_f64()).filter(|v| v.is_finite())?,
         },
         _ => return None,
     };

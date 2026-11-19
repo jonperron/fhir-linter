@@ -26,10 +26,16 @@ pub fn typed_xml_text(text: &Arc<str>, ty: &str) -> Value {
                 _ => keep(),
             }
         }
-        // Exact with its written scale; beyond f64 it stays text, as in JSON.
-        "decimal" if is_decimal(text) && text.parse::<f64>().is_ok_and(f64::is_finite) => {
-            text.parse().map_or_else(|_| keep(), Value::Decimal)
-        }
+        // Exact with its written scale, or the f64 value beyond 38 digits, as
+        // in JSON; beyond f64 it stays text.
+        "decimal" if is_decimal(text) => match text.parse::<f64>() {
+            Ok(float) if float.is_finite() => text
+                .parse()
+                .ok()
+                .or_else(|| fhir_parser::Decimal::from_f64(float))
+                .map_or_else(keep, Value::Decimal),
+            _ => keep(),
+        },
         _ => keep(),
     }
 }

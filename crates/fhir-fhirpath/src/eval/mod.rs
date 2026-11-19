@@ -632,11 +632,8 @@ impl Evaluator<'_> {
                 if b.is_zero() {
                     return Ok(vec![]);
                 }
-                // `a - a mod b` is a whole multiple of `b`, so the quotient is exact.
                 let quotient = a
-                    .checked_rem(b)
-                    .and_then(|rem| a.checked_sub(rem))
-                    .and_then(|whole| whole.checked_div(b))
+                    .checked_div_integer(b)
                     .and_then(|q| q.to_i64(crate::Rounding::TowardZero))
                     .ok_or_else(|| EvalError::Type("integer overflow in div".into()))?;
                 Ok(vec![Value::Integer(quotient)])

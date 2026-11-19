@@ -157,7 +157,7 @@ fn to_quantity(item: &Value) -> Option<Value> {
     let (value, unit) = match item {
         Value::Quantity(..) => return Some(item.clone()),
         Value::Integer(n) => (*n as f64, "1"),
-        Value::Decimal(d) => (d.to_f64(), "1"),
+        Value::Decimal(d) if d.to_f64().is_finite() => (d.to_f64(), "1"),
         Value::Bool(b) => (f64::from(u8::from(*b)), "1"),
         Value::String(s) => {
             let captures = QUANTITY.as_ref()?.captures(s)?;

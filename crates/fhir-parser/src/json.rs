@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
+use crate::Decimal;
 use crate::line_index::LineIndex;
 use crate::types::{Node, ParseError, Resource, ResourceId, Span, Value};
 
@@ -410,13 +411,18 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
                 return Ok(Value::Integer(i));
             }
         }
-        // The exact decimal keeps the written scale; the f64 keeps the range
-        // check of every JSON number ("number out of range", never infinity).
-        let finite = num_str.parse::<f64>().is_ok_and(f64::is_finite);
-        match num_str.parse() {
-            Ok(decimal) if finite => Ok(Value::Decimal(decimal)),
-            _ => Err(self.error_at(start, format!("number out of range: {}", num_str))),
-        }
+        // Beyond f64 is "number out of range", never infinity.
+        let float = num_str
+            .parse::<f64>()
+            .ok()
+            .filter(|f| f.is_finite())
+            .ok_or_else(|| self.error_at(start, format!("number out of range: {}", num_str)))?;
+        // shortcut: beyond the exact 38 digits (wider than the R5 regex allows)
+        // keep the f64 value, as before exact decimals, rather than fail the parse.
+        let decimal = num_str.parse().ok().or_else(|| Decimal::from_f64(float));
+        decimal
+            .map(Value::Decimal)
+            .ok_or_else(|| self.error_at(start, format!("number out of range: {}", num_str)))
     }
 
     // ── Object scanning ───────────────────────────────────────────────────
@@ -637,11 +643,16 @@ mod tests {
             exponent.fields.get("x").unwrap().value,
             Value::Decimal(d) if d.scale() == -1 && d.to_string() == "950"
         ));
-        let wide = parse_json(&format!(
-            r#"{{"resourceType": "Basic", "x": {}}}"#,
-            "9".repeat(40)
+        let wide = format!(
+            r#"{{"resourceType": "Basic", "x": 1{}, "y": 1e-99999999999}}"#,
+            "0".repeat(40)
+        );
+        let wide = parse_json(&wide).unwrap();
+        assert!(matches!(
+            wide.fields.get("x").unwrap().value,
+            Value::Decimal(d) if d.to_f64() == 1e40
         ));
-        assert!(wide.is_err(), "beyond 38 digits is out of range");
+        assert!(matches!(wide.fields.get("y").unwrap().value, Value::Decimal(d) if d.is_zero()));
     }
 
     #[test]

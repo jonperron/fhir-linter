@@ -119,6 +119,13 @@ impl Decimal {
     }
 
     /// Truncated remainder with the sign of `self`; `None` for a zero divisor.
+    /// The quotient truncated to a whole number (FHIRPath `div`); `None` for a
+    /// zero divisor.
+    pub fn checked_div_integer(self, other: Self) -> Option<Self> {
+        let (a, b, _) = self.aligned(other)?;
+        Some(Self::new(a.checked_div(b)?, 0))
+    }
+
     pub fn checked_rem(self, other: Self) -> Option<Self> {
         let (a, b, scale) = self.aligned(other)?;
         Some(Self::new(a.checked_rem(b)?, scale))
@@ -148,6 +155,11 @@ impl Decimal {
 
     /// The same value without trailing zeros after the point.
     pub fn trim(self) -> Self {
+        // A zero would loop once per place: `0e-2000000000` is valid FHIR.
+        if self.mantissa == 0 {
+            return Self::new(0, self.scale.min(0));
+        }
+        // A non-zero i128 has at most 38 trailing zeros.
         let mut trimmed = self;
         while trimmed.scale > 0 && trimmed.mantissa % 10 == 0 {
             trimmed = Self::new(trimmed.mantissa / 10, trimmed.scale - 1);
@@ -351,6 +363,31 @@ mod tests {
         assert!(dec("1e-999999999") < dec("1e-999999998"));
         assert!(dec("-1e999999999") < dec("1"));
         assert!(dec("1e-999999999") > Decimal::from(0));
+    }
+
+    #[test]
+    fn zero_with_a_huge_scale_trims_and_divides_at_once() {
+        // Valid FHIR (exponent of up to 9 digits); must not loop per place.
+        let zero = dec("0e-2000000000");
+        let started = std::time::Instant::now();
+        assert_eq!(zero.trim().scale(), 0);
+        assert!(zero.checked_div(dec("1")).unwrap().is_zero());
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    }
+
+    #[test]
+    fn integer_division_truncates_without_rounding_overflow() {
+        let big = dec("123456789012345678901234567890");
+        let quotient = big.checked_div_integer(dec("1e25")).unwrap();
+        assert_eq!(quotient.to_string(), "12345");
+        assert_eq!(
+            dec("-7.5")
+                .checked_div_integer(dec("2"))
+                .unwrap()
+                .to_string(),
+            "-3"
+        );
+        assert!(dec("1").checked_div_integer(dec("0")).is_none());
     }
 
     #[test]
