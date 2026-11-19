@@ -577,7 +577,7 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 
 #### Scenario: Expression non analysable signalée INVARIANT_SKIPPED
 
-- **WHEN** l'expression FHIRPath d'une contrainte ne peut pas être analysée (par ex. une fonction non implémentée comme `conformsTo`)
+- **WHEN** l'expression FHIRPath d'une contrainte ne peut pas être analysée (par ex. une fonction non implémentée comme `timeOfDay`)
 - **THEN** la contrainte SHALL être ignorée tant que cette fonction n'est pas implémentée
 - **AND** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` nommant la `key` et la raison SHALL être émis, afin qu'un résultat sans erreur ne masque jamais une contrainte non vérifiée
 

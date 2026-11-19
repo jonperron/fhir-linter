@@ -4,7 +4,7 @@
 //!
 //! FHIR R5 uses FHIRPath release 2 (2.0.0). This crate implements a subset
 //! of it, plus a few later additions; functions it does not implement
-//! (for example `conformsTo()`) return
+//! (for example `timeOfDay()`) return
 //! [`EvalError::UndefinedFunction`] rather than a guessed result.
 
 mod ast;
@@ -17,7 +17,7 @@ mod xml_text;
 
 pub use ast::Expr;
 pub use error::{EvalError, ParseError};
-pub use eval::{Environment, HasElement, IsSubtype, MemberOf};
+pub use eval::{ConformsTo, Environment, HasElement, IsSubtype, MemberOf};
 pub use value::{
     ChildElement, Collection, Value, from_parser_value, is_primitive_type, node_to_typed_value,
     resource_to_typed_value, resource_to_value,

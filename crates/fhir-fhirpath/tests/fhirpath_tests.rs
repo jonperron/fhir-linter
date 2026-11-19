@@ -1482,18 +1482,10 @@ fn html_checks_on_strings_empty_and_other_types() {
 // Unimplemented functions must error, never return a plausible-looking answer.
 #[test]
 fn unimplemented_functions_are_undefined() {
-    for expr in [
-        "conformsTo('http://hl7.org/fhir/StructureDefinition/Patient')",
-        "timeOfDay()",
-    ] {
-        assert!(
-            matches!(
-                evaluate(expr, &[]),
-                Err(fhir_fhirpath::EvalError::UndefinedFunction(_))
-            ),
-            "{expr}"
-        );
-    }
+    assert!(matches!(
+        evaluate("timeOfDay()", &[]),
+        Err(fhir_fhirpath::EvalError::UndefinedFunction(_))
+    ));
 }
 
 #[test]

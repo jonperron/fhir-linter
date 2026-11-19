@@ -4,6 +4,7 @@
 //! Loads and indexes StructureDefinitions, ValueSets, and CodeSystems from
 //! the bundled FHIR R5 artifact files.
 
+mod conformance;
 #[cfg(test)]
 mod loaded_fields_tests;
 mod loader;

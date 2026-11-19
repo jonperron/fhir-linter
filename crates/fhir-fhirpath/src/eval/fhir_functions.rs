@@ -1,6 +1,7 @@
 //! FHIR additions to FHIRPath (R5 fhirpath.html §2.1.9.1): `resolve()`,
-//! `memberOf()` and `htmlChecks()`. None guesses: a reference `resolve()` cannot find is an
-//! error, and `memberOf()` is empty when membership cannot be decided.
+//! `memberOf()`, `conformsTo()` and `htmlChecks()`. None guesses: a reference `resolve()`
+//! cannot find, membership `memberOf()` cannot decide and a profile `conformsTo()` cannot
+//! check are errors.
 use std::sync::{Arc, LazyLock};
 
 use regex_lite::Regex;
@@ -25,7 +26,7 @@ static TYPED_REFERENCE: LazyLock<Option<Regex>> = LazyLock::new(|| {
 });
 
 impl Evaluator<'_> {
-    /// Handle `resolve()`, `memberOf()` and `htmlChecks()`.
+    /// Handle `resolve()`, `memberOf()`, `conformsTo()` and `htmlChecks()`.
     /// Returns `None` if the function name is not in this category.
     pub(super) fn call_fhir_function(
         &self,
@@ -37,6 +38,7 @@ impl Evaluator<'_> {
         match name {
             "resolve" => Some(check_arity(name, args, 0).and_then(|()| self.resolve(focus))),
             "memberOf" => Some(self.member_of(args, focus, ctx)),
+            "conformsTo" => Some(self.conforms_to(args, focus, ctx)),
             "htmlChecks" => Some(check_arity(name, args, 0).and_then(|()| html_checks(focus))),
             _ => None,
         }
@@ -164,6 +166,45 @@ impl Evaluator<'_> {
         };
         // Empty would fail an invariant on membership this evaluator merely cannot decide.
         Ok(vec![Value::Bool(member.ok_or_else(undecided)?)])
+    }
+
+    /// `conformsTo(structure)`: whether the single input conforms to the
+    /// StructureDefinition at `structure`, through
+    /// [`super::Environment::conforms_to`]. fhirpath.html: "If the input is not a
+    /// single item, the structure is empty, or the structure cannot be resolved to
+    /// a valid profile, the result is empty." An error when it cannot be checked.
+    fn conforms_to(
+        &self,
+        args: &[Expr],
+        focus: &[Value],
+        ctx: &[Value],
+    ) -> Result<Collection, EvalError> {
+        check_arity("conformsTo", args, 1)?;
+        let url = self.eval(&args[0], ctx)?;
+        let url = singleton(&url, "conformsTo")?.and_then(Value::as_string);
+        let (Some(url), [item]) = (url, focus) else {
+            return Ok(vec![]);
+        };
+        let unchecked =
+            |reason: &str| EvalError::Type(format!("conformsTo() cannot check '{url}': {reason}"));
+        let conforms_to = self
+            .environment
+            .conforms_to
+            .ok_or_else(|| unchecked("no StructureDefinitions are loaded"))?;
+        let fhir_type = match item {
+            Value::Object(_, fhir_type) | Value::Primitive(_, _, fhir_type) => fhir_type.as_deref(),
+            Value::UnresolvedResource { resource_type, .. } => Some(&**resource_type),
+            _ => None,
+        }
+        .ok_or_else(|| unchecked("the input's FHIR type is unknown"))?;
+        match conforms_to(fhir_type, &url) {
+            None => Ok(vec![]),
+            Some(conforms) => Ok(vec![Value::Bool(conforms.ok_or_else(|| {
+                unchecked(&format!(
+                    "{fhir_type} is not checked against a constraint profile"
+                ))
+            })?)]),
+        }
     }
 }
 

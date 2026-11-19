@@ -207,6 +207,20 @@ Le type `ValueSet` SHALL exposer `includes: Vec<Include>` (chaque `Include` : `s
 - **WHEN** un concept porte une `property` `abstract` avec `valueBoolean: true` et que `abstract` n'est pas déclaré dans `CodeSystem.property` avec l'URI notSelectable
 - **THEN** son code SHALL NOT figurer dans `not_selectable`
 
+### Requirement: Conformité d'un type à une structure
+
+Le système SHALL fournir `Registry::conforms_to(fhir_type, url) -> Option<Option<bool>>`. `None` SHALL signaler une URL inconnue ; `Some(Some(bool))` une définition de base, `true` si et seulement si elle définit exactement `fhir_type` ; `Some(None)` un profil de contrainte, non vérifié.
+
+#### Scenario: Définition de base
+
+- **WHEN** `conforms_to("Patient", url_Patient)` est appelé
+- **THEN** le résultat SHALL être `Some(Some(true))`, et `Some(Some(false))` pour `Person` ou `DomainResource`
+
+#### Scenario: Profil ou URL inconnue
+
+- **WHEN** l'URL désigne un profil de contrainte ou n'est pas connue
+- **THEN** le résultat SHALL être respectivement `Some(None)` et `None`
+
 ### Requirement: Appartenance d'un code à un ValueSet
 
 Le système SHALL fournir `Registry::value_set_contains(url, system: Option<&str>, code) -> Option<bool>`. Le résultat SHALL être `Some(true)` / `Some(false)` lorsque l'appartenance est décidable depuis les définitions chargées, et `None` sinon : ValueSet ou CodeSystem inconnu, `filter`, `exclude`, CodeSystem incomplet, imports de ValueSets cycliques (profondeur limitée), ou code correspondant à un concept de `CodeSystem.not_selectable`. Avec `system == None`, le système du code est inconnu : `Some(false)` reste valable si aucun système ne contient le code, mais `Some(true)` SHALL être donné seulement si les codes du ValueSet (imports compris) viennent d'un seul système, sinon `None`. Un include dont la `version` est renseignée, différente de `"*"` et de `CodeSystem.version` SHALL NOT utiliser le CodeSystem chargé, qui est alors traité comme non chargé : un include sur le système entier SHALL donner `None`, un include énumérant ses codes SHALL décider d'après sa liste.
