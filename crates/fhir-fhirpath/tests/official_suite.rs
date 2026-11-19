@@ -73,14 +73,19 @@ use quick_xml::events::{BytesStart, Event};
 /// (testQuantity1-8, testLessThan31, testLessOrEqual29, testNEquality24,
 /// Comparable1, testStringQuantityDay/WeekLiteralToQuantity), then to 1155 by
 /// qualified type names, Quantity multiplication and division, Quantity
-/// negate/abs/convert and type() reflection (PRs #154-#156).
-const MIN_PASSED: u32 = 1155;
+/// negate/abs/convert and type() reflection (PRs #154-#156), then to 1197
+/// by small function gaps (#158), complex values keeping their FHIR type
+/// (#162), opt-in strict navigation (#163), conformsTo() (#164) and exact
+/// decimals that keep their written scale (#165).
+const MIN_PASSED: u32 = 1197;
 
 /// Cases that must pass whatever the total: the boundary functions behind
-/// the FHIR per-1, rng-2 and ratrng-2 invariants. Not listed: `@2014` as a
-/// dateTime (N2 returns a Date for a Date), HighBoundaryDecimal16 (unary
-/// minus keeps the sign of zero) and Comparable1 (no UCUM conversion).
-const REQUIRED_PASSING: [&str; 62] = [
+/// the FHIR per-1, rng-2 and ratrng-2 invariants, exact decimals (#165),
+/// FHIR types on complex values (#162), strict navigation (#163) and
+/// conformsTo() (#164). Not listed: `@2014` as a dateTime (N2 returns a Date
+/// for a Date), HighBoundaryDecimal16 (unary minus keeps the sign of zero)
+/// and Comparable1 (no UCUM conversion).
+const REQUIRED_PASSING: [&str; 85] = [
     "Comparable2",
     "Comparable3",
     "HighBoundaryDateTimeMillisecond1",
@@ -90,6 +95,7 @@ const REQUIRED_PASSING: [&str; 62] = [
     "HighBoundaryDecimal1",
     "HighBoundaryDecimal10",
     "HighBoundaryDecimal11",
+    "HighBoundaryDecimal12",
     "HighBoundaryDecimal13",
     "HighBoundaryDecimal14",
     "HighBoundaryDecimal15",
@@ -106,7 +112,11 @@ const REQUIRED_PASSING: [&str; 62] = [
     "HighBoundaryDecimalCarry3",
     "HighBoundaryDecimalCarry4",
     "HighBoundaryDecimalDefault",
+    "HighBoundaryDecimalExponent1",
+    "HighBoundaryDecimalExponent2",
     "HighBoundaryDecimalExponent3",
+    "HighBoundaryDecimalExponent4",
+    "HighBoundaryDecimalExponent5",
     "HighBoundaryQuantity",
     "HighBoundaryTimeMillisecond",
     "LowBoundaryDateTimeMillisecond1",
@@ -114,6 +124,7 @@ const REQUIRED_PASSING: [&str; 62] = [
     "LowBoundaryDateTimeMillisecond3",
     "LowBoundaryDecimal1",
     "LowBoundaryDecimal10",
+    "LowBoundaryDecimal11",
     "LowBoundaryDecimal12",
     "LowBoundaryDecimal13",
     "LowBoundaryDecimal14",
@@ -132,7 +143,10 @@ const REQUIRED_PASSING: [&str; 62] = [
     "LowBoundaryDecimalCarry2",
     "LowBoundaryDecimalCarry3",
     "LowBoundaryDecimalDefault",
+    "LowBoundaryDecimalExponent1",
     "LowBoundaryDecimalExponent2",
+    "LowBoundaryDecimalExponent3",
+    "LowBoundaryDecimalExponent4",
     "LowBoundaryNegDecimal1",
     "LowBoundaryNegDecimal2",
     "LowBoundaryNegDecimal3",
@@ -141,8 +155,22 @@ const REQUIRED_PASSING: [&str; 62] = [
     "LowBoundaryNegDecimalDefault",
     "LowBoundaryQuantity",
     "LowBoundaryTimeMillisecond",
+    "PrecisionDecimal",
+    "testConformsTo1",
+    "testConformsTo2",
+    "testFHIRPathAsFunction22",
+    "testFHIRPathIsFunction8",
+    "testFHIRPathIsFunction9",
     "testPeriodInvariantNew",
     "testPeriodInvariantOld",
+    "testPolymorphicsB",
+    "testPolymorphismAsA",
+    "testPolymorphismAsAFunction",
+    "testPolymorphismB",
+    "testPolymorphismIsA1",
+    "testPolymorphismIsA2",
+    "testSimpleFail",
+    "testSimpleWithWrongContext",
 ];
 
 /// (run, skipped) case counts on the pinned fixtures, so loader drift or a
