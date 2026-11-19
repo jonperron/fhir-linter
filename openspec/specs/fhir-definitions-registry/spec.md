@@ -326,21 +326,31 @@ Chaque `ElementDefinition` SHALL exposer un champ `xml_attr: bool`, vrai lorsque
 
 ### Requirement: Déclaration d'élément
 
-Le `Registry` SHALL exposer `has_element(type: &str, name: &str) -> Option<bool>` : `Some(true)` si le type déclare `{racine}.{name}` ou `{racine}.{name}[x]`, `Some(false)` sinon (sans recherche de suffixe de choix : `valueQuantity` vaut `Some(false)` ; un nom contenant `.`, `[` ou `]` vaut `Some(false)`), et `None` pour `BackboneElement`, `Element` et les types inconnus.
+Le `Registry` SHALL exposer `has_element(type_or_path: &str, name: &str) -> Option<bool>` : `Some(true)` si le type déclare `{racine}.{name}` ou `{racine}.{name}[x]`, `Some(false)` sinon (sans recherche de suffixe de choix : `valueQuantity` vaut `Some(false)` ; un nom contenant `.`, `[` ou `]` vaut `Some(false)`), et `None` pour `BackboneElement`, `Element` et les types inconnus. `type_or_path` peut aussi être un chemin d'instance (ex. `Patient.contact`, `Questionnaire.item.item`), résolu étape par étape avec `child_element` (à travers les types complexes et les `contentReference`) ; il vaut `None` si le chemin ne désigne aucun élément.
 
 #### Scenario: Déclaration
 
 - **WHEN** `has_element("Patient", "birthDate")`, `has_element("Observation", "valueQuantity")` et `has_element("Bogus", "x")` sont appelés
 - **THEN** les résultats SHALL être `Some(true)`, `Some(false)` et `None`
 
+#### Scenario: Chemin d'instance
+
+- **WHEN** `has_element("Patient.contact", "name")`, `has_element("Questionnaire.item.item", "linkId")` et `has_element("Patient.bogus", "x")` sont appelés
+- **THEN** les résultats SHALL être `Some(true)`, `Some(true)` et `None`
+
 ### Requirement: Élément enfant typé
 
-Le `Registry` SHALL exposer `child_element(parent: &str, name: &str) -> Option<(Arc<str>, Arc<str>)>`, où `parent` est un chemin de définition (nom de type comme `Patient` ou `HumanName`, ou chemin d'élément backbone comme `Patient.contact`). Il SHALL retourner le chemin de définition de l'enfant et son code de type : le chemin de l'élément lui-même pour `BackboneElement` et `Element`, sinon le code de type. Pour un élément choix, le suffixe capitalisé SHALL choisir le type parmi les types déclarés de `base[x]`. Il SHALL retourner `None` pour un parent, un élément ou un suffixe inconnu, et pour un élément sans type ; les éléments `contentReference` ne sont pas suivis (raccourci documenté).
+Le `Registry` SHALL exposer `child_element(parent: &str, name: &str) -> Option<(Arc<str>, Arc<str>)>`, où `parent` est un chemin de définition (nom de type comme `Patient` ou `HumanName`, ou chemin d'élément backbone comme `Patient.contact`). Il SHALL retourner le chemin de définition de l'enfant et son code de type : le chemin de l'élément lui-même pour `BackboneElement` et `Element`, sinon le code de type. Pour un élément choix, le suffixe capitalisé SHALL choisir le type parmi les types déclarés de `base[x]`. Il SHALL retourner `None` pour un parent, un élément ou un suffixe inconnu, et pour un élément sans type ; les éléments `contentReference` (local `Questionnaire.item` ou `url#chemin`) SHALL être suivis vers l'élément cible.
 
 #### Scenario: Primitive et backbone
 
 - **WHEN** `child_element("Patient", "birthDate")` puis `child_element("Patient", "contact")` sont appelés
 - **THEN** les résultats SHALL être `("date", "date")` puis `("Patient.contact", "BackboneElement")`
+
+#### Scenario: contentReference suivi
+
+- **WHEN** `child_element("Questionnaire.item", "item")` est appelé
+- **THEN** le résultat SHALL être `("Questionnaire.item", "BackboneElement")`
 
 #### Scenario: Variante d'un élément choix
 

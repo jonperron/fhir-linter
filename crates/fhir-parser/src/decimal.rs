@@ -89,6 +89,11 @@ fn pow10_mod(mut k: u64, m: u128) -> u128 {
 /// `n × 10^k / d` truncated, digit by digit so the product never has to fit;
 /// `None` only when the quotient itself exceeds u128. `d` is not zero.
 fn scaled_quotient(n: u128, k: u64, d: u128) -> Option<u128> {
+    scaled_quotient_rem(n, k, d).map(|(quotient, _)| quotient)
+}
+
+/// [`scaled_quotient`] and the remainder `n × 10^k mod d`.
+fn scaled_quotient_rem(n: u128, k: u64, d: u128) -> Option<(u128, u128)> {
     let (mut quotient, mut rest) = (n / d, n % d);
     let mut left = k;
     // Each step brings down one digit; a non-zero quotient overflows within
@@ -108,10 +113,12 @@ fn scaled_quotient(n: u128, k: u64, d: u128) -> Option<u128> {
         rest = next;
         left -= 1;
     }
+    // The loop stops at `left == 0` or at a zero remainder.
     if quotient == 0 || left == 0 {
-        return Some(quotient);
+        return Some((quotient, rest));
     }
-    quotient.checked_mul(10u128.checked_pow(u32::try_from(left).ok()?)?)
+    let quotient = quotient.checked_mul(10u128.checked_pow(u32::try_from(left).ok()?)?)?;
+    Some((quotient, 0))
 }
 
 impl Decimal {
@@ -254,8 +261,8 @@ impl Decimal {
         self.quotient_at(other, target).or_else(|| {
             let whole = self.checked_div_integer(other)?.mantissa.unsigned_abs();
             let digits = whole.checked_ilog10().map_or(0, |log| log as i32 + 1);
-            // Integer digits, the places and one guard digit stay within 38 digits.
-            let fitting = (37 - digits).max(0);
+            // Integer digits and the places stay within 38 digits.
+            let fitting = (38 - digits).max(0);
             (fitting < target)
                 .then(|| self.quotient_at(other, fitting))
                 .flatten()
@@ -265,27 +272,33 @@ impl Decimal {
     /// `self / other` rounded half away from zero to `target` places, trailing
     /// zeros dropped; `None` when it overflows. `other` is not zero.
     fn quotient_at(self, other: Self, target: i32) -> Option<Self> {
-        // One guard digit past `target`; truncation keeps it below the exact digit.
-        let shift = i64::from(target) + 1 + i64::from(other.scale) - i64::from(self.scale);
-        let quotient = if shift >= 0 {
-            let magnitude = scaled_quotient(
-                self.mantissa.unsigned_abs(),
-                u64::try_from(shift).ok()?,
-                other.mantissa.unsigned_abs(),
-            )?;
-            signed_quotient(self.mantissa, other.mantissa, magnitude)?
+        // Rounded from the remainder, not a guard digit: a guard digit would
+        // overflow for a quotient that itself fits (`1e38 / 1`).
+        let shift = i64::from(target) + i64::from(other.scale) - i64::from(self.scale);
+        let (numerator, divisor) = (self.mantissa.unsigned_abs(), other.mantissa.unsigned_abs());
+        let (magnitude, remainder, divisor) = if shift >= 0 {
+            let (magnitude, remainder) =
+                scaled_quotient_rem(numerator, u64::try_from(shift).ok()?, divisor)?;
+            (magnitude, remainder, divisor)
         } else {
-            // A denominator beyond i128 leaves a quotient below the guard digit.
-            match pow10(-shift).and_then(|p| other.mantissa.checked_mul(p)) {
-                Some(wide) => self.mantissa.checked_div(wide)?,
-                None => 0,
+            // A divisor beyond u128 exceeds twice any mantissa: 0, rounded down.
+            let wide = u32::try_from(-shift)
+                .ok()
+                .and_then(|e| 10u128.checked_pow(e))
+                .and_then(|p| divisor.checked_mul(p));
+            match wide {
+                Some(wide) => (numerator / wide, numerator % wide, wide),
+                None => (0, 0, 1),
             }
         };
-        Some(
-            Self::new(quotient, target.checked_add(1)?)
-                .rescale(target, Rounding::HalfAwayFromZero)?
-                .trim(),
-        )
+        // Half away from zero: round up when 2 x remainder >= divisor.
+        let magnitude = if remainder >= divisor - remainder {
+            magnitude.checked_add(1)?
+        } else {
+            magnitude
+        };
+        let quotient = signed_quotient(self.mantissa, other.mantissa, magnitude)?;
+        Some(Self::new(quotient, target).trim())
     }
 
     /// The same value without trailing zeros after the point.
@@ -641,24 +654,75 @@ mod tests {
 
     #[test]
     fn a_wide_quotient_keeps_the_places_that_fit() {
-        // N1 §6.6 `/`: the result is always a Decimal. 1e30 / 3 has 30 integer
+        // N1 §6.6 `/`: the result is always a Decimal. 1e31 / 3 has 31 integer
         // digits, so 7 places fit beside them in 38 digits, not 8.
         assert_eq!(
-            dec("1e30").checked_div(dec("3")).unwrap().to_string(),
-            "333333333333333333333333333333.3333333"
+            dec("1e31").checked_div(dec("3")).unwrap().to_string(),
+            "3333333333333333333333333333333.3333333"
         );
         assert_eq!(
-            dec("-2e30").checked_div(dec("3")).unwrap().to_string(),
-            "-666666666666666666666666666666.6666667"
+            dec("-2e31").checked_div(dec("3")).unwrap().to_string(),
+            "-6666666666666666666666666666666.6666667"
         );
-        // A divisor written with 38 places asks for 38 places: 36 fit beside `3`.
+        // 1e30 / 3 has 30 integer digits: all 8 places fit.
+        assert_eq!(
+            dec("1e30").checked_div(dec("3")).unwrap().to_string(),
+            "333333333333333333333333333333.33333333"
+        );
+        // A divisor written with 38 places asks for 38 places: 37 fit beside `3`.
         let fine = Decimal::new(3 * 10i128.pow(37), 38);
         assert_eq!(
             dec("1").checked_div(fine).unwrap().to_string(),
-            format!("3.{}", "3".repeat(36))
+            format!("3.{}", "3".repeat(37))
         );
         // A hostile scale on the divisor stays a short computation.
         assert!(dec("1").checked_div(dec("1e-2000000000")).is_none());
+    }
+
+    #[test]
+    fn a_quotient_of_39_digits_divides_without_a_guard_digit() {
+        // 10^38 fits an i128, but 10^39 (one guard digit more) does not.
+        assert_eq!(dec("1e38").checked_div(dec("1")).unwrap(), dec("1e38"));
+        assert_eq!(dec("-1e38").checked_div(dec("1")).unwrap(), dec("-1e38"));
+        assert_eq!(
+            dec("1.5e38").checked_div(dec("1.0")).unwrap(),
+            dec("1.5e38")
+        );
+        // Rounding comes from the remainder: 1.7e38 / 3 is 5.666..e37.
+        assert_eq!(
+            dec("1.7e38").checked_div(dec("3")).unwrap().to_string(),
+            "56666666666666666666666666666666666667"
+        );
+        let max = Decimal::new(i128::MAX, 0);
+        assert_eq!(max.checked_div(dec("1")).unwrap(), max);
+        // Half a unit rounds away from zero: i128::MAX / 2 ends in .5.
+        assert_eq!(
+            max.checked_div(dec("2")).unwrap(),
+            Decimal::new(i128::MAX / 2 + 1, 0)
+        );
+        assert_eq!(
+            max.checked_div(dec("-2")).unwrap(),
+            Decimal::new(-(i128::MAX / 2 + 1), 0)
+        );
+        // The quotient itself beyond i128 still overflows.
+        assert!(dec("1e38").checked_div(dec("0.1")).is_none());
+    }
+
+    #[test]
+    fn a_divisor_with_a_negative_scale_rounds_from_the_remainder() {
+        // 5e-9 lies half way between 0 and 1e-8 at 8 places.
+        let cases = [
+            ("5", "1e9", "0.00000001"),
+            ("-5", "1e9", "-0.00000001"),
+            ("5", "-1e9", "-0.00000001"),
+            ("4", "1e9", "0"),
+            ("-1", "8", "-0.125"),
+            ("1", "1e2000000000", "0"),
+        ];
+        for (a, b, quotient) in cases {
+            let result = dec(a).checked_div(dec(b)).unwrap().to_string();
+            assert_eq!(result, quotient, "{a} / {b}");
+        }
     }
 
     #[test]
