@@ -6,10 +6,10 @@ use crate::{Decimal, Rounding};
 use super::Evaluator;
 use super::helpers::{
     as_type, check_arity, check_arity_range, check_collection_len, check_known_content,
-    check_type_name, collect_descendants, compare_values, contains_value, criteria_bool, distinct,
-    distinct_last, eval_type_name, is_distinct, is_type, optional_integer, primitive_values,
-    value_is_type,
+    check_type_name, collect_descendants, compare_values, criteria_bool, distinct, distinct_last,
+    eval_type_name, is_distinct, is_type, optional_integer, primitive_values, value_is_type,
 };
+use super::value_set::ValueSet;
 
 impl Evaluator<'_> {
     /// Handle collection, existence, filtering, aggregation, and navigation functions.
@@ -122,7 +122,7 @@ impl Evaluator<'_> {
             "repeat" => {
                 check_arity(name, args, 1)?;
                 // Only projected items are returned, never the input items themselves.
-                let mut seen: Collection = Vec::new();
+                let mut seen = ValueSet::default();
                 let mut frontier = focus.to_vec();
                 loop {
                     let mut next = Vec::new();
@@ -132,8 +132,7 @@ impl Evaluator<'_> {
                         let projected = self.eval_item(&args[0], item, index)?;
                         check_known_content(&projected)?;
                         for v in projected {
-                            if !contains_value(&seen, &v) {
-                                seen.push(v.clone());
+                            if seen.insert(v.clone()) {
                                 next.push(v);
                             }
                         }
@@ -144,7 +143,7 @@ impl Evaluator<'_> {
                     }
                     frontier = next;
                 }
-                seen
+                seen.into_values()
             }
             "ofType" => {
                 check_arity(name, args, 1)?;
@@ -237,30 +236,34 @@ impl Evaluator<'_> {
                 let other = self.eval(&args[0], ctx)?;
                 check_known_content(focus)?;
                 check_known_content(&other)?;
-                vec![Value::Bool(focus.iter().all(|v| contains_value(&other, v)))]
+                let other: ValueSet = other.into_iter().collect();
+                vec![Value::Bool(focus.iter().all(|v| other.contains(v)))]
             }
             "supersetOf" => {
                 check_arity(name, args, 1)?;
                 let other = self.eval(&args[0], ctx)?;
                 check_known_content(focus)?;
                 check_known_content(&other)?;
-                vec![Value::Bool(other.iter().all(|v| contains_value(focus, v)))]
+                let focus: ValueSet = focus.iter().cloned().collect();
+                vec![Value::Bool(other.iter().all(|v| focus.contains(v)))]
             }
             "intersect" => {
                 check_arity(name, args, 1)?;
                 let other = self.eval(&args[0], ctx)?;
                 check_known_content(focus)?;
                 check_known_content(&other)?;
-                distinct(focus.iter().filter(|v| contains_value(&other, v)).cloned())
+                let other: ValueSet = other.into_iter().collect();
+                distinct(focus.iter().filter(|v| other.contains(v)).cloned())
             }
             "exclude" => {
                 check_arity(name, args, 1)?;
                 let other = self.eval(&args[0], ctx)?;
                 check_known_content(focus)?;
                 check_known_content(&other)?;
+                let other: ValueSet = other.into_iter().collect();
                 focus
                     .iter()
-                    .filter(|v| !contains_value(&other, v))
+                    .filter(|v| !other.contains(v))
                     .cloned()
                     .collect()
             }
