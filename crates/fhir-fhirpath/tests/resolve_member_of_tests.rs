@@ -293,6 +293,24 @@ fn member_of_checks_codings_and_concepts() -> TestResult {
     Ok(())
 }
 
+/// fhirpath.html defines memberOf for code, Coding and CodeableConcept: a
+/// typed object of another type is empty, whatever fields it has.
+#[test]
+fn member_of_dispatches_on_the_fhir_type_of_an_object() -> TestResult {
+    let json = r#"{"resourceType":"Observation","status":"final","code":{"text":"t"},
+        "component":[{"code":{"coding":[{"system":"http://hl7.org/fhir/fhir-types",
+            "code":"Patient"}]},
+            "valueQuantity":{"value":1,"system":"http://hl7.org/fhir/fhir-types",
+                "code":"Patient"}}]}"#;
+    for target in ["component", "component.valueQuantity", "component.value"] {
+        let expression = format!("{target}.memberOf('{RESOURCE_TYPES}')");
+        assert_eq!(eval_member_of(&expression, json)?, vec![], "{target}");
+    }
+    let concept = format!("component.code.memberOf('{RESOURCE_TYPES}')");
+    assert_eq!(bools(&eval_member_of(&concept, json)?), [true]);
+    Ok(())
+}
+
 #[test]
 fn member_of_a_concept_is_false_only_when_every_coding_is_out() -> TestResult {
     let concept =
