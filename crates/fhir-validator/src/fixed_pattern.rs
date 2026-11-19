@@ -2,7 +2,7 @@
 //! match `value`/`pattern` slice discriminators.
 use fhir_definitions::ElementDefinition;
 use fhir_fhirpath::Value as FhirPathValue;
-use fhir_parser::{Node, Value};
+use fhir_parser::{Decimal, Node, Value};
 use serde_json::Value as Json;
 
 use crate::diagnostic::Diagnostic;
@@ -85,10 +85,9 @@ pub(crate) fn matches_all(values: &[FhirPathValue], expected: &Json, exact: bool
 
 /// Whether `value` equals `expected` (`exact`: same properties, no extra extension or id on a
 /// primitive) or follows it as a pattern (every pattern property present and matching).
-/// Numbers compare by value, as FHIR decimals.
-///
-/// shortcut: both sides arrive as `f64` (parser and serde_json), so decimals beyond 15-17
-/// significant digits can compare equal; upgrade when the parser keeps decimal text.
+/// Numbers compare as written decimals, digits and precision both: a fixed value "SHALL be
+/// exactly the value" (elementdefinition.html) and "0.010 is regarded as different to 0.01"
+/// (datatypes.html), so `3` and `3.00` are not `3.0`.
 fn matches(value: &FhirPathValue, expected: &Json, exact: bool) -> bool {
     if let (FhirPathValue::Primitive(_, children, _), true) = (value, exact)
         && !children.is_empty()
@@ -105,13 +104,21 @@ fn matches(value: &FhirPathValue, expected: &Json, exact: bool) -> bool {
                 })
         }
         (FhirPathValue::Bool(b), Json::Bool(e)) => b == e,
-        (FhirPathValue::Integer(i) | FhirPathValue::Long(i), Json::Number(e)) => match e.as_i64() {
-            Some(e) => *i == e,
-            None => e.as_f64() == Some(*i as f64),
-        },
-        // serde_json holds the definition's number as an f64.
-        (FhirPathValue::Decimal(d), Json::Number(e)) => e.as_f64() == Some(d.to_f64()),
+        (FhirPathValue::Integer(i) | FhirPathValue::Long(i), Json::Number(e)) => {
+            same_decimal(Decimal::from(*i), e)
+        }
+        (FhirPathValue::Decimal(d), Json::Number(e)) => same_decimal(*d, e),
         (_, Json::String(e)) => value.as_string().is_some_and(|s| *s == **e),
         _ => false,
     }
+}
+
+/// Whether `value` is `expected` as written: same digits at the same scale, so `1e2`
+/// (precise to hundreds) is not `100`. serde_json's `arbitrary_precision` keeps the
+/// definition's number text.
+fn same_decimal(value: Decimal, expected: &serde_json::Number) -> bool {
+    expected
+        .to_string()
+        .parse::<Decimal>()
+        .is_ok_and(|e| (e.mantissa(), e.scale()) == (value.mantissa(), value.scale()))
 }

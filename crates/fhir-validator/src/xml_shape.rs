@@ -91,6 +91,7 @@ pub(crate) fn to_json_shape(
         from_xml: false,
         trimmed_attributes: Vec::new(),
         schema_instance: Vec::new(),
+        number_texts: Default::default(),
     };
     (reshaped, shaper.diagnostics)
 }

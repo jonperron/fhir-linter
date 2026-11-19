@@ -26,6 +26,9 @@ const REGEX_CHECKED: [&str; 8] = [
 /// warning for a control character in a string, and the `TYPE_008` warning for a
 /// whitespace-only string. The `REGEX_CHECKED` types are matched against their R5 regex
 /// and `maxLength` from `registry`. `extension` is the value's `_name` element, if any.
+/// A JSON number in a `decimal` is matched against the R5 regex as written, its text
+/// from `number_texts` (see `Resource::number_texts`); `None` skips that check (XML).
+#[allow(clippy::too_many_arguments)] // the value, its type, its place and its source text
 pub(crate) fn check_type(
     value: &Value,
     extension: Option<&Value>,
@@ -33,6 +36,7 @@ pub(crate) fn check_type(
     path: &str,
     span: Span,
     registry: &Registry,
+    number_texts: Option<&HashMap<u32, Box<str>>>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     // Recurse into arrays.
@@ -61,6 +65,7 @@ pub(crate) fn check_type(
                 &item_path,
                 item.span,
                 registry,
+                number_texts,
                 diagnostics,
             );
         }
@@ -75,6 +80,14 @@ pub(crate) fn check_type(
             format!("Invalid {fhir_type} format at '{path}': '{s}'"),
         )),
         _ => Some(expected(&format!("{fhir_type} string"))),
+    };
+    let decimal_format = |written: String| {
+        (!is_r5_decimal(&written, registry)).then(|| {
+            (
+                "TYPE_003",
+                format!("Invalid decimal format at '{path}': '{written}'"),
+            )
+        })
     };
 
     let error: Option<(&str, String)> = match fhir_type {
@@ -96,9 +109,16 @@ pub(crate) fn check_type(
             }
             _ => Some(expected("integer")),
         },
-        "decimal" if !matches!(value, Value::Decimal(_) | Value::Integer(_)) => {
-            Some(expected("decimal number"))
-        }
+        "decimal" => match (value, number_texts) {
+            (Value::Decimal(_) | Value::Integer(_), None) => None,
+            (Value::Decimal(d), Some(texts)) => decimal_format(
+                texts
+                    .get(&span.offset)
+                    .map_or_else(|| d.to_string(), |text| text.to_string()),
+            ),
+            (Value::Integer(n), Some(_)) => decimal_format(n.to_string()),
+            _ => Some(expected("decimal number")),
+        },
         "date" => string_format(is_valid_date),
         "dateTime" => string_format(is_valid_datetime),
         "instant" => string_format(is_valid_instant),
@@ -409,6 +429,7 @@ mod tests {
             "X.f",
             Span::default(),
             registry(),
+            Some(&HashMap::new()),
             &mut d,
         );
         d

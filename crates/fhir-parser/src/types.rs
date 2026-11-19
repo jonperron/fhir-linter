@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -60,6 +61,10 @@ pub struct Resource {
     /// XML elements that declare or use the schema instance namespace, which xml.html
     /// 2.1.6.3.4 forbids; the validator reports each one. Empty for JSON.
     pub schema_instance: Vec<Span>,
+    /// The source text of each JSON number whose value does not print back as written
+    /// (`1E-22`, `-0`), by the byte offset of its node: the R5 decimal regex bounds the
+    /// digits as written. Empty for XML, whose values stay text.
+    pub number_texts: HashMap<u32, Box<str>>,
 }
 
 /// The root resource id with the span of its element (the XML `<id>` element, the JSON

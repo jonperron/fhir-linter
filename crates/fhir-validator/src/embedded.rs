@@ -210,6 +210,7 @@ pub(crate) fn queue<'a>(
                 fields,
                 trimmed_attributes: Vec::new(),
                 schema_instance: Vec::new(),
+                number_texts: Default::default(),
             },
             typed,
             sd,

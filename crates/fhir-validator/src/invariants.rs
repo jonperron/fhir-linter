@@ -186,6 +186,7 @@ mod tests {
             fields: IndexMap::new(),
             trimmed_attributes: Vec::new(),
             schema_instance: Vec::new(),
+            number_texts: Default::default(),
         }
     }
 
