@@ -91,9 +91,11 @@ fn profile_may_repeat_the_base_content_reference() {
         "constraint",
         "Observation",
         "resource",
-        r#""id":"Observation.component.referenceRange",
-        "path":"Observation.component.referenceRange",
-        "contentReference":"http://hl7.org/fhir/StructureDefinition/Observation#Observation.referenceRange""#,
+        concat!(
+            r#""id":"Observation.component.referenceRange","#,
+            r#""path":"Observation.component.referenceRange","contentReference":"#,
+            r#""http://hl7.org/fhir/StructureDefinition/Observation#Observation.referenceRange""#,
+        ),
     );
     assert!(paths(&canonical, "DEFINITION_006").is_empty());
 }
