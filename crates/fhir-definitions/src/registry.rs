@@ -8,6 +8,8 @@ use crate::loader;
 use crate::model::{CodeSystem, Include, StructureDefinition, ValueSet};
 use crate::type_code::capitalise;
 
+mod navigation;
+
 /// Canonical URL prefix of the core definitions; a type code appended gives its URL.
 pub const CORE_PREFIX: &str = "http://hl7.org/fhir/StructureDefinition/";
 
@@ -141,56 +143,6 @@ impl Registry {
         self.choice_suffixes
             .get(base)
             .is_some_and(|suffixes| suffixes.contains(suffix))
-    }
-
-    /// Whether the FHIR type `type_name` declares an element `name`, as FHIRPath
-    /// names it: a choice element without its `[x]` (`value`), never with a type
-    /// suffix (`valueQuantity`). `None` when the type is unknown, or its children
-    /// are defined at the owning element's path (`BackboneElement`, `Element`;
-    /// see [`Registry::child_element`]), so the type alone cannot tell.
-    pub fn has_element(&self, type_name: &str, name: &str) -> Option<bool> {
-        if matches!(type_name, "BackboneElement" | "Element") {
-            return None;
-        }
-        let sd = self.core(type_name)?;
-        // A constraint (`SimpleQuantity`) lists its elements under the base type's path.
-        let root = &sd.snapshot.first()?.path;
-        // `value[x]` or `a.b` is a definition path, not an element name.
-        let declared = !name.contains(['.', '[', ']'])
-            && (sd.element(&format!("{root}.{name}")).is_some()
-                || sd.element(&format!("{root}.{name}[x]")).is_some());
-        Some(declared)
-    }
-
-    /// The child `name` of the element at definition path `parent` (a type name
-    /// such as `Patient` or `HumanName`, or a backbone path such as
-    /// `Patient.contact`), as its definition path and its type code for this
-    /// instance (a choice suffix picks the type: `valueDate` gives `date`).
-    ///
-    /// The definition path is the element's own path for `BackboneElement` and
-    /// `Element`, otherwise the type code. `None` when the element is unknown
-    /// or has no type (shortcut: `contentReference` elements are not followed;
-    /// read the reference when the loader keeps it).
-    pub fn child_element(&self, parent: &str, name: &str) -> Option<(Arc<str>, Arc<str>)> {
-        let type_name = parent.split('.').next()?;
-        let sd = self.core(type_name)?;
-        let (element, ty) = match sd.element(&format!("{parent}.{name}")) {
-            Some(element) => (element, element.types.first()?),
-            // A type suffix is capitalised, so a choice can only split before an uppercase letter.
-            None => (1..name.len())
-                .filter(|&i| name.as_bytes()[i].is_ascii_uppercase())
-                .find_map(|i| {
-                    let (base, suffix) = name.split_at(i);
-                    let element = sd.element(&format!("{parent}.{base}[x]"))?;
-                    let ty = element.types.iter().find(|t| capitalise(t) == suffix)?;
-                    Some((element, ty))
-                })?,
-        };
-        let definition = match ty.as_ref() {
-            "BackboneElement" | "Element" => Arc::clone(&element.path),
-            _ => Arc::clone(ty),
-        };
-        Some((definition, Arc::clone(ty)))
     }
 
     /// Look up a `ValueSet` by its canonical URL.
@@ -418,6 +370,29 @@ mod tests {
     }
 
     #[test]
+    fn has_element_resolves_backbone_children_by_instance_path() {
+        let has = |path: &str, name: &str| REGISTRY.has_element(path, name);
+        assert_eq!(has("Patient.contact", "name"), Some(true));
+        assert_eq!(has("Patient.contact", "nmae"), Some(false));
+        // A backbone inside a complex type is defined under that type.
+        assert_eq!(
+            has(
+                "MedicationRequest.dosageInstruction.timing.repeat",
+                "frequency"
+            ),
+            Some(true),
+        );
+        // A contentReference element has the children of its target, at any depth.
+        assert_eq!(has("Questionnaire.item.item", "linkId"), Some(true));
+        assert_eq!(has("Questionnaire.item.item.item", "lnkId"), Some(false));
+        // No choice suffix, as for types.
+        assert_eq!(has("Observation.component", "value"), Some(true));
+        assert_eq!(has("Observation.component", "valueString"), Some(false));
+        // A path that names no element cannot tell.
+        assert_eq!(has("Patient.nosuch", "name"), None);
+    }
+
+    #[test]
     fn child_element_gives_definition_path_and_type() {
         let child = |parent: &str, name: &str| {
             REGISTRY
@@ -439,6 +414,11 @@ mod tests {
         // A choice variant takes the type its suffix names.
         assert_eq!(child("Observation", "valueTime"), pair("time", "time"));
         assert_eq!(child("Observation", "valueBogus"), None);
+        // A contentReference element takes its target's definition path and type.
+        assert_eq!(
+            child("Questionnaire.item", "item"),
+            pair("Questionnaire.item", "BackboneElement")
+        );
         assert_eq!(child("Patient", "unknown"), None);
         assert_eq!(child("NoSuchType", "id"), None);
     }
