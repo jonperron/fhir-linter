@@ -1,6 +1,8 @@
 //! Runs the official `fhir-test-cases/validator` manifest (R5, self-contained cases).
 //!
-//! Cases with supporting profiles/packages are skipped. The expected result
+//! Cases with supporting profiles/packages are skipped. Cases the manifest
+//! marks as out of scope (`supporting5`, `for-publication`) are skipped and
+//! reported apart, outside the pass-rate denominator. The expected result
 //! comes from the inline `java` entry (`errorCount` or `outcome`) or from the
 //! OperationOutcome file it names under `outcomes/`; expected errors are its
 //! `error` + `fatal` issues. Each case is judged on "has errors" vs "expected
@@ -77,6 +79,14 @@ fn expected_errors(java: &Value, dir: &Path) -> Option<u64> {
     outcome_error_count(&java["outcome"])
 }
 
+/// Whether the manifest marks a case as outside this validator's scope:
+/// `supporting5` names extra definitions we do not load, and
+/// `for-publication` (bool or string `"true"`) turns on HL7 publishing rules.
+fn out_of_scope(case: &Value) -> bool {
+    let publication = &case["for-publication"];
+    case.get("supporting5").is_some() || *publication == true || *publication == "true"
+}
+
 #[derive(Default)]
 struct Tally {
     cases: u32,
@@ -86,6 +96,8 @@ struct Tally {
     parse_failures: u32,
     /// Cases with no expected result (no outcome file).
     skipped: u32,
+    /// Cases the manifest marks as out of scope (see `out_of_scope`).
+    out_of_scope: u32,
     failing: Vec<String>,
 }
 
@@ -101,7 +113,8 @@ impl Tally {
     fn report(&self, format: &str) {
         eprintln!(
             "manifest {format}: {}/{} passed ({:.1}%), false errors {}, missed errors {}, \
-             parse failures {}, skipped (no expected result) {}\nfailing {format}: {:?}",
+             parse failures {}, skipped (no expected result) {}, skipped (out of scope) {}\n\
+             failing {format}: {:?}",
             self.passed,
             self.cases,
             self.rate() * 100.0,
@@ -109,6 +122,7 @@ impl Tally {
             self.missed_errors,
             self.parse_failures,
             self.skipped,
+            self.out_of_scope,
             self.failing,
         );
     }
@@ -150,6 +164,27 @@ fn absent_outcome_file_is_skipped_but_corrupt_one_fails() {
 }
 
 #[test]
+fn out_of_scope_follows_manifest_flags() {
+    use serde_json::json;
+    assert!(!out_of_scope(&json!({"name": "c", "file": "c.json"})));
+    assert!(out_of_scope(
+        &json!({"file": "c.json", "supporting5": ["sd.xml"]})
+    ));
+    assert!(out_of_scope(
+        &json!({"file": "c.xml", "for-publication": true})
+    ));
+    assert!(out_of_scope(
+        &json!({"file": "c.json", "for-publication": "true"})
+    ));
+    assert!(!out_of_scope(
+        &json!({"file": "c.json", "for-publication": false})
+    ));
+    assert!(!out_of_scope(
+        &json!({"file": "c.json", "for-publication": "false"})
+    ));
+}
+
+#[test]
 fn validator_manifest_pass_rate() {
     let dir = fixtures_dir().join("validator");
     let Ok(manifest) = std::fs::read_to_string(dir.join("manifest.json")) else {
@@ -185,6 +220,10 @@ fn validator_manifest_pass_rate() {
         } else {
             continue;
         };
+        if out_of_scope(case) {
+            tally.out_of_scope += 1;
+            continue;
+        }
         let Some(expected) = expected_errors(&case["java"], &dir) else {
             tally.skipped += 1;
             continue;
@@ -222,6 +261,13 @@ fn validator_manifest_pass_rate() {
         "no eligible manifest cases (json {}, xml {}): floors would pass vacuously",
         json.cases,
         xml.cases,
+    );
+    // The pinned manifest marks R5 cases of both formats as out of scope.
+    assert!(
+        json.out_of_scope > 0 && xml.out_of_scope > 0,
+        "out-of-scope skip not applied (json {}, xml {})",
+        json.out_of_scope,
+        xml.out_of_scope,
     );
     assert!(
         json.rate() >= MIN_JSON_PASS_RATE,
