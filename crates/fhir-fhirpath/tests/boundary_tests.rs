@@ -145,6 +145,18 @@ fn decimal_precision_and_boundaries_keep_the_written_scale() {
 }
 
 #[test]
+fn decimal_operators_compare_by_value_and_report_overflow() {
+    assert_eq!(eval("1.0 = 1.00"), [Value::Bool(true)]);
+    assert_eq!(eval("1.0 ~ 1.04"), [Value::Bool(true)]);
+    assert_eq!(eval("1.10 ~ 1.2"), [Value::Bool(false)]);
+    assert_eq!(eval("1.0 / 0.0"), []);
+    assert_eq!(eval("(-7.5) div 2"), [Value::Integer(-3)]);
+    // Beyond the 38-digit mantissa the result is an error, never a panic.
+    let wide = format!("{}.0 * 10", "9".repeat(37));
+    assert!(evaluate(&wide, &[]).is_err(), "{wide}");
+}
+
+#[test]
 fn exponent_decimals_take_their_precision_from_the_mantissa() {
     // FHIR R5 decimals may carry an exponent; 9.5e2 is precise to the tens.
     let json = r#"{"resourceType":"Basic","a":9.5e2,"b":-9.5e2,"c":1.5e-3,"d":1.5E2}"#;

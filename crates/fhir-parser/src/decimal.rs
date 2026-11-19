@@ -118,7 +118,6 @@ impl Decimal {
         ))
     }
 
-    /// Truncated remainder with the sign of `self`; `None` for a zero divisor.
     /// The quotient truncated to a whole number (FHIRPath `div`); `None` for a
     /// zero divisor.
     pub fn checked_div_integer(self, other: Self) -> Option<Self> {
@@ -126,6 +125,7 @@ impl Decimal {
         Some(Self::new(a.checked_div(b)?, 0))
     }
 
+    /// Truncated remainder with the sign of `self`; `None` for a zero divisor.
     pub fn checked_rem(self, other: Self) -> Option<Self> {
         let (a, b, scale) = self.aligned(other)?;
         Some(Self::new(a.checked_rem(b)?, scale))

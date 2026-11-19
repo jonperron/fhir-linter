@@ -17,7 +17,11 @@ pub(super) fn quantity_product(lv: &Value, rv: &Value, op: &ArithOp) -> Option<C
     if left.is_none() && right.is_none() {
         return None;
     }
-    let number = |v: &Value| v.as_decimal().map(|amount| (amount.to_f64(), Some("1")));
+    let number = |v: &Value| {
+        v.as_decimal()
+            .map(|amount| (amount.to_f64(), Some("1")))
+            .filter(|(x, _)| x.is_finite())
+    };
     let ((x, x_unit), (y, y_unit)) = (left.or_else(|| number(lv))?, right.or_else(|| number(rv))?);
     let (Some(x_unit), Some(y_unit)) = (x_unit, y_unit) else {
         return Some(vec![]);
