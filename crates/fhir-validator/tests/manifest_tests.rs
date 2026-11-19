@@ -262,6 +262,13 @@ fn validator_manifest_pass_rate() {
         json.cases,
         xml.cases,
     );
+    // The pinned manifest marks R5 cases of both formats as out of scope.
+    assert!(
+        json.out_of_scope > 0 && xml.out_of_scope > 0,
+        "out-of-scope skip not applied (json {}, xml {})",
+        json.out_of_scope,
+        xml.out_of_scope,
+    );
     assert!(
         json.rate() >= MIN_JSON_PASS_RATE,
         "JSON pass rate {:.3} below floor {MIN_JSON_PASS_RATE}",
