@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
+use crate::Decimal;
 use crate::line_index::LineIndex;
 use crate::types::{Node, ParseError, Resource, ResourceId, Span, Value};
 
@@ -406,19 +407,22 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
         if !is_float && num_str != "-0" {
             // The grammar above guarantees digits, so a failure here means
             // i64 overflow: fall back to a decimal like any other JSON number.
-            // shortcut: f64 rounds beyond ~17 significant digits, switch to an
-            // arbitrary-precision decimal if exact FHIR decimals are required.
             if let Ok(i) = num_str.parse::<i64>() {
                 return Ok(Value::Integer(i));
             }
         }
-        let f: f64 = num_str
-            .parse()
-            .map_err(|_| self.error_at(start, format!("invalid number: {}", num_str)))?;
-        if !f.is_finite() {
-            return Err(self.error_at(start, format!("number out of range: {}", num_str)));
-        }
-        Ok(Value::Decimal(f))
+        // Beyond f64 is "number out of range", never infinity.
+        let float = num_str
+            .parse::<f64>()
+            .ok()
+            .filter(|f| f.is_finite())
+            .ok_or_else(|| self.error_at(start, format!("number out of range: {}", num_str)))?;
+        // shortcut: beyond the exact 38 digits (wider than the R5 regex allows)
+        // keep the f64 value, as before exact decimals, rather than fail the parse.
+        let decimal = num_str.parse().ok().or_else(|| Decimal::from_f64(float));
+        decimal
+            .map(Value::Decimal)
+            .ok_or_else(|| self.error_at(start, format!("number out of range: {}", num_str)))
     }
 
     // ── Object scanning ───────────────────────────────────────────────────
@@ -622,18 +626,33 @@ mod tests {
         let resource = parse_json(source).unwrap();
         assert!(matches!(
             resource.fields.get("big").unwrap().value,
-            Value::Decimal(f) if f == 12345678901234567890.0
+            Value::Decimal(d) if d.to_string() == "12345678901234567890"
         ));
         // R5 integer regex `[0]|[-+]?[1-9][0-9]*` rejects `-0`: keep it a decimal.
         assert!(matches!(
             resource.fields.get("neg").unwrap().value,
-            Value::Decimal(f) if f == 0.0 && f.is_sign_negative()
+            Value::Decimal(d) if d.is_zero()
         ));
         let tiny = parse_json(r#"{"resourceType": "Basic", "x": 1e-400}"#).unwrap();
         assert!(matches!(
             tiny.fields.get("x").unwrap().value,
-            Value::Decimal(f) if f == 0.0
+            Value::Decimal(d) if d.mantissa() == 1 && d.scale() == 400
         ));
+        let exponent = parse_json(r#"{"resourceType": "Basic", "x": 9.5e2}"#).unwrap();
+        assert!(matches!(
+            exponent.fields.get("x").unwrap().value,
+            Value::Decimal(d) if d.scale() == -1 && d.to_string() == "950"
+        ));
+        let wide = format!(
+            r#"{{"resourceType": "Basic", "x": 1{}, "y": 1e-99999999999}}"#,
+            "0".repeat(40)
+        );
+        let wide = parse_json(&wide).unwrap();
+        assert!(matches!(
+            wide.fields.get("x").unwrap().value,
+            Value::Decimal(d) if d.to_f64() == 1e40
+        ));
+        assert!(matches!(wide.fields.get("y").unwrap().value, Value::Decimal(d) if d.is_zero()));
     }
 
     #[test]

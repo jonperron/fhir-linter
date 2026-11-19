@@ -6,6 +6,7 @@
 use std::fmt;
 use std::sync::{Arc, LazyLock};
 
+use fhir_parser::Decimal;
 use indexmap::IndexMap;
 
 use crate::ucum::Ratio;
@@ -18,7 +19,8 @@ pub enum Value {
     Integer(i64),
     /// FHIRPath 3.0 64-bit integer (distinct from Integer for type-system purposes).
     Long(i64),
-    Decimal(f64),
+    /// Exact, with the scale it was written with (N1: `1.50` has 2 places).
+    Decimal(Decimal),
     String(Arc<str>),
     /// ISO date/time/dateTime text, without the literal's `@` or `@T`.
     Date(Arc<str>),
@@ -117,10 +119,10 @@ impl Value {
         }
     }
 
-    /// Coerce to `f64` (Integer, Long, or Decimal).
-    pub fn as_decimal(&self) -> Option<f64> {
+    /// Coerce to an exact Decimal (Integer, Long, or Decimal).
+    pub fn as_decimal(&self) -> Option<Decimal> {
         match self.primitive_value() {
-            Value::Integer(n) | Value::Long(n) => Some(*n as f64),
+            Value::Integer(n) | Value::Long(n) => Some(Decimal::from(*n)),
             Value::Decimal(d) => Some(*d),
             _ => None,
         }

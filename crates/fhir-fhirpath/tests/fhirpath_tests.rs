@@ -93,7 +93,10 @@ fn literal_integer() {
 #[test]
 #[allow(clippy::approx_constant)] // Testing FHIRPath literal parsing of "3.14", not π
 fn literal_decimal() {
-    assert_eq!(evaluate("3.14", &[]).unwrap(), vec![Value::Decimal(3.14)]);
+    assert_eq!(
+        evaluate("3.14", &[]).unwrap(),
+        vec![Value::Decimal(dec("3.14"))]
+    );
 }
 
 #[test]
@@ -293,7 +296,7 @@ fn arith_multiplication() {
 #[test]
 fn arith_division_decimal() {
     match evaluate("7 / 2", &[]).unwrap().as_slice() {
-        [Value::Decimal(d)] => assert!((d - 3.5).abs() < 1e-10),
+        [Value::Decimal(d)] => assert!((d.to_f64() - 3.5).abs() < 1e-10),
         other => panic!("expected Decimal, got: {other:?}"),
     }
 }
@@ -542,7 +545,7 @@ fn to_integer_from_string() {
 fn to_decimal_from_integer() {
     assert_eq!(
         evaluate("'3.14'.toDecimal()", &[]).unwrap(),
-        vec![Value::Decimal(3.14)],
+        vec![Value::Decimal(dec("3.14"))],
     );
 }
 
@@ -586,14 +589,14 @@ fn math_floor() {
 fn math_round() {
     assert_eq!(
         evaluate("3.567.round(2)", &[]).unwrap(),
-        vec![Value::Decimal(3.57)]
+        vec![Value::Decimal(dec("3.57"))]
     );
 }
 
 #[test]
 fn math_sqrt() {
     match evaluate("4.sqrt()", &[]).unwrap().as_slice() {
-        [Value::Decimal(d)] => assert!((d - 2.0).abs() < 1e-10),
+        [Value::Decimal(d)] => assert!((d.to_f64() - 2.0).abs() < 1e-10),
         other => panic!("expected Decimal(2.0), got: {other:?}"),
     }
 }
@@ -1108,7 +1111,7 @@ fn string_replace_substitutes_all_occurrences() {
 #[test]
 fn math_exp_integer() {
     match evaluate("1.exp()", &[]).unwrap().as_slice() {
-        [Value::Decimal(d)] => assert!((d - std::f64::consts::E).abs() < 1e-10),
+        [Value::Decimal(d)] => assert!((d.to_f64() - std::f64::consts::E).abs() < 1e-10),
         other => panic!("expected Decimal(e), got: {other:?}"),
     }
 }
@@ -1116,7 +1119,7 @@ fn math_exp_integer() {
 #[test]
 fn math_ln_of_one_returns_zero() {
     match evaluate("1.ln()", &[]).unwrap().as_slice() {
-        [Value::Decimal(d)] => assert!(d.abs() < 1e-10),
+        [Value::Decimal(d)] => assert!(d.to_f64().abs() < 1e-10),
         other => panic!("expected Decimal(0.0), got: {other:?}"),
     }
 }
@@ -1124,7 +1127,7 @@ fn math_ln_of_one_returns_zero() {
 #[test]
 fn math_log_base_ten() {
     match evaluate("100.log(10)", &[]).unwrap().as_slice() {
-        [Value::Decimal(d)] => assert!((d - 2.0).abs() < 1e-10),
+        [Value::Decimal(d)] => assert!((d.to_f64() - 2.0).abs() < 1e-10),
         other => panic!("expected Decimal(2.0), got: {other:?}"),
     }
 }
@@ -1132,7 +1135,7 @@ fn math_log_base_ten() {
 #[test]
 fn math_power_two_to_ten() {
     match evaluate("2.power(10)", &[]).unwrap().as_slice() {
-        [Value::Decimal(d)] => assert!((d - 1024.0).abs() < 1e-10),
+        [Value::Decimal(d)] => assert!((d.to_f64() - 1024.0).abs() < 1e-10),
         other => panic!("expected Decimal(1024.0), got: {other:?}"),
     }
 }
@@ -1156,7 +1159,7 @@ fn math_truncate_integer_is_identity() {
 #[test]
 fn math_sqrt_on_decimal_input() {
     match evaluate("2.0.sqrt()", &[]).unwrap().as_slice() {
-        [Value::Decimal(d)] => assert!((d - std::f64::consts::SQRT_2).abs() < 1e-10),
+        [Value::Decimal(d)] => assert!((d.to_f64() - std::f64::consts::SQRT_2).abs() < 1e-10),
         other => panic!("expected Decimal(sqrt(2)), got: {other:?}"),
     }
 }
@@ -1182,7 +1185,7 @@ fn math_unrepresentable_result_is_empty() {
 #[test]
 fn math_abs_decimal_value() {
     match evaluate("(-3.5).abs()", &[]).unwrap().as_slice() {
-        [Value::Decimal(d)] => assert!((d - 3.5).abs() < 1e-10),
+        [Value::Decimal(d)] => assert!((d.to_f64() - 3.5).abs() < 1e-10),
         other => panic!("expected Decimal(3.5), got: {other:?}"),
     }
 }
@@ -1334,7 +1337,7 @@ fn to_integer_from_invalid_string_yields_empty() {
 fn to_decimal_from_bool_true_returns_one() {
     assert_eq!(
         evaluate("true.toDecimal()", &[]).unwrap(),
-        vec![Value::Decimal(1.0)]
+        vec![Value::Decimal(dec("1.0"))]
     );
 }
 
@@ -1700,7 +1703,7 @@ fn display_integer() {
 
 #[test]
 fn display_decimal() {
-    assert_eq!(Value::Decimal(1.5).to_string(), "1.5");
+    assert_eq!(Value::Decimal(dec("1.5")).to_string(), "1.5");
 }
 
 #[test]
@@ -1757,7 +1760,7 @@ fn type_name_bool() {
 
 #[test]
 fn type_name_decimal() {
-    assert_eq!(Value::Decimal(1.0).type_name(), "Decimal");
+    assert_eq!(Value::Decimal(dec("1.0")).type_name(), "Decimal");
 }
 
 #[test]
@@ -1824,12 +1827,12 @@ fn as_string_returns_none_for_non_string() {
 
 #[test]
 fn as_decimal_from_integer() {
-    assert_eq!(Value::Integer(3).as_decimal(), Some(3.0));
+    assert_eq!(Value::Integer(3).as_decimal(), Some(dec("3")));
 }
 
 #[test]
 fn as_decimal_from_decimal() {
-    assert_eq!(Value::Decimal(1.5).as_decimal(), Some(1.5));
+    assert_eq!(Value::Decimal(dec("1.5")).as_decimal(), Some(dec("1.5")));
 }
 
 #[test]
@@ -1844,7 +1847,7 @@ fn as_integer_returns_value() {
 
 #[test]
 fn as_integer_returns_none_for_decimal() {
-    assert!(Value::Decimal(1.5).as_integer().is_none());
+    assert!(Value::Decimal(dec("1.5")).as_integer().is_none());
 }
 
 #[test]
@@ -1883,8 +1886,8 @@ fn from_parser_value_integer() {
 #[test]
 fn from_parser_value_decimal() {
     use fhir_fhirpath::from_parser_value;
-    let result = from_parser_value(&fhir_parser::Value::Decimal(3.0));
-    assert_eq!(result, vec![Value::Decimal(3.0)]);
+    let result = from_parser_value(&fhir_parser::Value::Decimal(dec("3.0")));
+    assert_eq!(result, vec![Value::Decimal(dec("3.0"))]);
 }
 
 #[test]
@@ -2042,7 +2045,7 @@ fn literal_quantity_evaluates_correctly() {
 #[test]
 fn negate_decimal_value() {
     let result = evaluate("-1.5", &[]).unwrap();
-    assert_eq!(result, vec![Value::Decimal(-1.5)]);
+    assert_eq!(result, vec![Value::Decimal(dec("-1.5"))]);
 }
 
 #[test]
@@ -2118,7 +2121,7 @@ fn floor_on_integer_returns_same() {
 #[test]
 fn abs_on_decimal() {
     let result = evaluate("(-2.5).abs()", &[]).unwrap();
-    assert_eq!(result, vec![Value::Decimal(2.5)]);
+    assert_eq!(result, vec![Value::Decimal(dec("2.5"))]);
 }
 
 #[test]
@@ -2410,7 +2413,7 @@ fn coalesce_first_non_empty() {
 #[test]
 fn avg_integers() {
     let result = evaluate("(1 | 3 | 5).avg()", &[]).unwrap();
-    assert_eq!(result, vec![Value::Decimal(3.0)]);
+    assert_eq!(result, vec![Value::Decimal(dec("3.0"))]);
 }
 
 #[test]
@@ -2699,4 +2702,35 @@ fn choice_element_is_navigable_by_its_base_name() {
     let ctx = vec![Value::Object(Arc::new(fields), None)];
     let found = fhir_fhirpath::evaluate_parsed_with_choices(&expr, &ctx, &is_type).unwrap();
     assert_eq!(found, vec![Value::String(Arc::from("v"))]);
+}
+
+fn dec(text: &str) -> fhir_fhirpath::Decimal {
+    text.parse().expect("decimal literal")
+}
+
+/// N1 §6.6: `div` truncates and `/` rounds exactly, so a quotient far below
+/// the operands' scales is 0, not an error.
+#[test]
+fn extreme_scale_division_and_to_string() {
+    let (tiny, huge) = (
+        "0.000000000000000000000000000001",
+        "1000000000000000000000000000000.0",
+    );
+    assert_eq!(
+        evaluate(&format!("{tiny} div {huge}"), &[]).unwrap(),
+        vec![Value::Integer(0)]
+    );
+    assert_eq!(evaluate(&format!("{tiny} / {huge}"), &[]).unwrap().len(), 1);
+    assert_eq!(
+        evaluate(&format!("{tiny} mod {huge}"), &[]).unwrap().len(),
+        1
+    );
+    // Display switches to an exponent past 1000 places, which the String
+    // grammar has no form for.
+    let long = format!("0.{}1", "0".repeat(1001));
+    assert!(
+        evaluate(&format!("{long}.toString()"), &[])
+            .unwrap()
+            .is_empty()
+    );
 }

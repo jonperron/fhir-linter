@@ -291,8 +291,10 @@ impl Evaluator<'_> {
                         .checked_neg()
                         .map(|r| vec![Value::Long(r)])
                         .ok_or_else(|| EvalError::Type("integer overflow in negation".into())),
-                    // `+ 0.0` turns -0.0 into 0.0: a Decimal has no negative zero.
-                    Value::Decimal(d) => Ok(vec![Value::Decimal(-d + 0.0)]),
+                    Value::Decimal(d) => d
+                        .checked_neg()
+                        .map(|r| vec![Value::Decimal(r)])
+                        .ok_or_else(|| EvalError::Type("decimal overflow in negation".into())),
                     Value::Quantity(d, unit) => Ok(vec![Value::Quantity(-d, Arc::clone(unit))]),
                     v => match helpers::object_quantity(v) {
                         Some(Value::Quantity(d, unit)) => Ok(vec![Value::Quantity(-d, unit)]),
@@ -627,10 +629,14 @@ impl Evaluator<'_> {
                 let b = rv
                     .as_decimal()
                     .ok_or_else(|| EvalError::Type("div requires numbers".into()))?;
-                if b == 0.0 {
+                if b.is_zero() {
                     return Ok(vec![]);
                 }
-                Ok(vec![Value::Integer((a / b).trunc() as i64)])
+                let quotient = a
+                    .checked_div_integer(b)
+                    .and_then(|q| q.to_i64(crate::Rounding::TowardZero))
+                    .ok_or_else(|| EvalError::Type("integer overflow in div".into()))?;
+                Ok(vec![Value::Integer(quotient)])
             }
         }
     }

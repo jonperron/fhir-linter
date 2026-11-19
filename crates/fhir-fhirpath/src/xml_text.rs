@@ -26,8 +26,14 @@ pub fn typed_xml_text(text: &Arc<str>, ty: &str) -> Value {
                 _ => keep(),
             }
         }
+        // Exact with its written scale, or the f64 value beyond 38 digits, as
+        // in JSON; beyond f64 it stays text.
         "decimal" if is_decimal(text) => match text.parse::<f64>() {
-            Ok(n) if n.is_finite() => Value::Decimal(n),
+            Ok(float) if float.is_finite() => text
+                .parse()
+                .ok()
+                .or_else(|| fhir_parser::Decimal::from_f64(float))
+                .map_or_else(keep, Value::Decimal),
             _ => keep(),
         },
         _ => keep(),

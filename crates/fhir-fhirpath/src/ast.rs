@@ -11,7 +11,8 @@ pub enum Expr {
     Integer(i64),
     /// FHIRPath 3.0 Long literal (e.g. `45L`).
     Long(i64),
-    Decimal(f64),
+    /// Exact, with its written scale (`1.50`).
+    Decimal(crate::Decimal),
     /// String literal (single-quoted in FHIRPath).
     String(String),
     /// Temporal literals: stored as raw ISO string + kind.

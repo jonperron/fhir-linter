@@ -136,7 +136,7 @@ Le système SHALL exposer un enum `Value` représentant les valeurs FHIRPath à 
 #### Scenario: Variantes couvertes
 
 - **WHEN** un résultat d'évaluation est produit
-- **THEN** `Value` SHALL avoir les variantes : `Null`, `Bool(bool)`, `Integer(i64)`, `Long(i64)`, `Decimal(f64)`, `String(Arc<str>)`, `Date(Arc<str>)`, `DateTime(Arc<str>)`, `Time(Arc<str>)`, `Quantity(f64, Arc<str>)`, `Object(Arc<IndexMap<Arc<str>, Collection>>, Option<Arc<str>>)` (enfants, type FHIR : le `resourceType` d'une ressource ou le code de type déclaré d'un élément complexe tel que `Quantity`, `HumanName`, `BackboneElement` ; `None` si non typé), `Primitive(Box<Value>, Arc<IndexMap<Arc<str>, Collection>>, Option<Arc<str>>)` (valeur, enfants `id`/`extension`, code de type FHIR)
+- **THEN** `Value` SHALL avoir les variantes : `Null`, `Bool(bool)`, `Integer(i64)`, `Long(i64)`, `Decimal(Decimal)`, `String(Arc<str>)`, `Date(Arc<str>)`, `DateTime(Arc<str>)`, `Time(Arc<str>)`, `Quantity(f64, Arc<str>)`, `Object(Arc<IndexMap<Arc<str>, Collection>>, Option<Arc<str>>)` (enfants, type FHIR : le `resourceType` d'une ressource ou le code de type déclaré d'un élément complexe tel que `Quantity`, `HumanName`, `BackboneElement` ; `None` si non typé), `Primitive(Box<Value>, Arc<IndexMap<Arc<str>, Collection>>, Option<Arc<str>>)` (valeur, enfants `id`/`extension`, code de type FHIR)
 
 #### Scenario: Conversion depuis un Resource parser
 
@@ -481,7 +481,7 @@ Les fonctions de chaînes de N1 §5.6 (`indexOf`, `lastIndexOf`, `substring`, `s
 
 ### Requirement: Fonctions mathématiques
 
-Le système SHALL implémenter `abs()`, `ceiling()`, `floor()`, `round()`, `round(precision)`, `sqrt()`, `exp()`, `ln()`, `log(base)`, `power(exponent)`, `truncate()`. Conformément à FHIRPath N2, `sqrt()` et `power(exponent)` SHALL retourner une collection vide lorsque le résultat n'est pas représentable (NaN ou infini).
+Le système SHALL implémenter `abs()`, `ceiling()`, `floor()`, `round()`, `round(precision)`, `sqrt()`, `exp()`, `ln()`, `log(base)`, `power(exponent)`, `truncate()`. Conformément à FHIRPath N2, `sqrt()`, `exp()`, `ln()`, `log(base)` et `power(exponent)` SHALL retourner une collection vide lorsque le résultat n'est pas représentable (NaN ou infini).
 
 #### Scenario: abs sur valeur négative
 
@@ -496,17 +496,17 @@ Le système SHALL implémenter `abs()`, `ceiling()`, `floor()`, `round()`, `roun
 #### Scenario: Arithmétique entière exacte
 
 - **WHEN** `+`, `-`, `*` ou `mod` est appliqué à deux `Integer`/`Long` (Integer/Long mixte donne `Long`)
-- **THEN** le calcul SHALL être fait en `i64` (exact au-delà de 2^53), et un dépassement SHALL retourner `Err(EvalError::Type(...))`; `f64` n'est utilisé que si un `Decimal` est impliqué
+- **THEN** le calcul SHALL être fait en `i64` (exact au-delà de 2^53), et un dépassement SHALL retourner `Err(EvalError::Type(...))`; un `Decimal` impliqué passe par l'arithmétique décimale exacte
 
 #### Scenario: Négation d'un Decimal nul
 
 - **WHEN** la négation unaire est appliquée à un Decimal zéro (`-0.0`)
 - **THEN** le résultat SHALL être `0.0`, jamais `-0.0`
 
-#### Scenario: Arrondi des Decimal à l'échelle
+#### Scenario: Arithmétique décimale exacte
 
-- **WHEN** `+`, `-` ou `mod` est appliqué à des Decimal (`1.2 mod 0.1`, `1.8 - 1.2`)
-- **THEN** le calcul SHALL porter sur les opérandes mis à l'échelle en entiers par 10^(la plus grande échelle des opérandes) lorsque les deux valeurs mises à l'échelle sont inférieures à 4,5e15, de sorte que le résultat soit exact (`0.0` et `0.6`) ; sinon il SHALL être calculé en `f64` simple (shortcut tant que Decimal ne conserve pas son échelle)
+- **WHEN** `+`, `-`, `*` ou `mod` est appliqué à des Decimal (`1.2 mod 0.1`, `1.8 - 1.2`), ou `div`, `/`, `sum()` et `avg()` sur des Decimal
+- **THEN** le calcul SHALL être exact sur `fhir_parser::Decimal` (`0.0` et `0.6`) ; `div` SHALL tronquer exactement ; `/` SHALL arrondir à la moitié en s'éloignant de zéro à au moins 8 décimales (ou l'échelle des opérandes) puis retirer les zéros finaux ; `mod` ne SHALL jamais dépasser, quelles que soient les échelles des opérandes (`|a mod b| < |b|`, calculé par arithmétique modulaire ; `i128::MIN mod -1` donne `0`) ; `div` et `/` SHALL rester définis quand les échelles sont très éloignées (`1e-30 div 1e30` donne `0`) et ne SHALL retourner le dépassement que si le quotient exact dépasse la mantisse `i128` de 38 chiffres (`1e20 div 1e-18` donne le résultat exact même si l'intermédiaire de mise à l'échelle dépasse, `1e30 div 1e-30` est un dépassement) ; un autre dépassement SHALL retourner `Err(EvalError::Type(...))` sans paniquer, y compris le dépassement d'un `sum()` d'entiers
 
 #### Scenario: sqrt sur entier positif
 
@@ -533,7 +533,7 @@ Pour `toX()` et `convertsToX()` avec X parmi `Boolean`, `Integer`, `Decimal`, `D
 - `toDateTime` : `DateTime`, `Date`, `String` `YYYY[-MM[-DD]][Thh[:mm[:ss[.fff]]][Z|(+|-)hh:mm]]` avec un décalage d'au plus `14:00`.
 - `toTime` : `Time`, `String` `hh[:mm[:ss[.fff]]]`.
 
-Une date en `String` SHALL être une date calendaire réelle (année `0001` à `9999`, jour valide pour son mois, années bissextiles comprises). `toLong`/`convertsToLong` (absents de N1, FHIRPath 3.0 STU) suivent le modèle de `toInteger` : entrée singleton, sources `Integer`, `Long`, `Boolean` et `String` `(\+|-)?\d+` dans les bornes `i64`, sinon collection vide (`toLong`) ou `false` (`convertsToLong`). Une chaîne de chiffres au-delà de `f64` ne SHALL pas être convertie en infini par `toDecimal` ni `toQuantity`. De même, `toQuantity` ne SHALL pas convertir un `Decimal` non fini (littéral décimal au-delà de `f64`) : il donne une collection vide.
+Une date en `String` SHALL être une date calendaire réelle (année `0001` à `9999`, jour valide pour son mois, années bissextiles comprises). `toLong`/`convertsToLong` (absents de N1, FHIRPath 3.0 STU) suivent le modèle de `toInteger` : entrée singleton, sources `Integer`, `Long`, `Boolean` et `String` `(\+|-)?\d+` dans les bornes `i64`, sinon collection vide (`toLong`) ou `false` (`convertsToLong`). Une chaîne de chiffres au-delà de `f64` ne SHALL pas être convertie en infini par `toDecimal` ni `toQuantity`. De même, `toQuantity` ne SHALL pas convertir un `Decimal` non fini (texte XML ou valeur `f64` au-delà de `f64`) : il donne une collection vide. Un littéral décimal FHIRPath de plus de 38 chiffres significatifs SHALL être une erreur de parsing. Le texte XML d'un `decimal` SHALL être exact, conserve la valeur `f64` au-delà de 38 chiffres et reste une `String` au-delà de `f64`.
 
 `toQuantity([unit])` et `convertsToQuantity([unit])` suivent N1 §5.5.7 : `Integer` et `Decimal` donnent une quantité d'unité `'1'`, une `Quantity` est inchangée, un `Boolean` donne `1.0` ou `0.0` d'unité `'1'`, une `String` conforme à `(\+|-)?\d+(\.\d+)?\s*('unité'|mot-clé)?` est convertie (une unité sans guillemets SHALL être un mot-clé calendaire). Plusieurs éléments SHALL être une erreur, une entrée vide donne une collection vide, tout autre élément donne une collection vide (`toQuantity`) ou `false` (`convertsToQuantity`). Un argument `unit` SHALL convertir la quantité d'entrée vers l'unité demandée par le convertisseur UCUM (mot-clé calendaire normalisé au singulier) ; une unité non convertible (inconnue, spéciale, incompatible, absente) donne une collection vide (`toQuantity`) ou `false` (`convertsToQuantity`), un argument vide donne une collection vide et un argument non `String` est une erreur.
 
@@ -541,7 +541,7 @@ Les unités calendaires des littéraux de quantité (`year`, `month`, `week`, `d
 
 Pour `=`, `!=`, `~`, `!~`, `<`, `<=`, `>`, `>=`, un objet FHIR Quantity (enfants typés : `value` de type `decimal`, clés limitées à value/unit/system/code/id/extension, texte décimal XML fini) SHALL être traité comme une quantité littérale (R5 §2.1.9.1). Son unité est le `code` si `system` vaut `http://unitsofmeasure.org`, sinon le texte `unit` en l'absence de `code`, sinon aucune. Un `code` avec un `system` absent ou non UCUM, ou un `comparator`, n'est pas reconnu : la comparaison structurelle d'objets s'applique. `=`, `!=`, `~`, `!~`, `<`, `<=`, `>`, `>=`, `comparable()`, `sort`, `min` et `max` SHALL convertir les unités par le convertisseur UCUM : l'opérande droit est converti dans l'unité du gauche, en `f64` avec une tolérance relative de 1e-12 (shortcut). Des unités inconnues, spéciales (`Cel`, `[degF]`), incompatibles ou présentes d'un seul côté SHALL donner une collection vide pour `=`, `!=` et les opérateurs d'ordre, `false` pour `~` et pour `comparable()`, et une erreur de type pour `sort`/`min`/`max` (inchangé). `~` SHALL arrondir à la précision de l'opérande le moins précis, mesurée dans l'unité gauche (`4 'g' ~ 4040 'mg'` est vrai). `*` et `/` sur des Quantity (N1 §6.6) SHALL combiner les montants comme des nombres et les unités par UCUM : les puissances d'un même atome fusionnent et s'annulent (`12 'cm' * 3 'cm'` donne `36 'cm2'`, `1 'm' / 1 'm'` donne `1 '1'`, `4 'g' / 2 'm'` donne `2 'g/m'`, `2.0 'cm' * 2.0 'm'` donne `4.0 'cm.m'`, égal à `0.040 'm2'`). Un opérande nombre a l'unité `'1'` et laisse l'autre unité telle qu'écrite (`6 / 3 's'` donne `2 '1/s'`). Une unité avec parenthèses ou annotations SHALL être conservée entière entre parenthèses. Les mots-clés calendaires `week` et plus courts SHALL valoir leur unité UCUM. Le résultat SHALL être vide pour une division par zéro, une Quantity sans unité, une unité inconnue ou non prise en charge, ou un mot-clé `year`/`month`. `+`, `-`, `div` et `mod` sur des Quantity ne sont pas encore pris en charge (erreur de type). La négation unaire et `abs()` d'une Quantity SHALL conserver l'unité. La négation unaire, `abs()` et `toQuantity(unit)` SHALL aussi accepter un objet FHIR Quantity (même reconnaissance que pour la comparaison : `value` décimal typé, unité UCUM `code`) et le traiter comme la Quantity littérale équivalente.
 
-`toString()` et `convertsToString()` SHALL exiger une entrée singleton (plusieurs éléments : erreur). `String`, `Boolean`, `Integer`, `Long`, `Decimal`, `Date`, `DateTime`, `Time` et `Quantity` sont convertibles, tout autre élément non (collection vide pour `toString`, `false` pour `convertsToString`). Un `Decimal` SHALL toujours s'afficher avec une partie fractionnaire (`1.0` donne `'1.0'` ; `f64` ne conserve pas la précision du littéral, donc `1.50` donne `'1.5'`) et une `Quantity` SHALL s'afficher `valeur 'unité'`, unités calendaires comprises (`4 days` donne `"4 'day'"`). `toString` d'un `Decimal` non fini (littéral décimal au-delà de `f64`) SHALL donner une collection vide. `convertsToString` sur une entrée vide SHALL donner une collection vide.
+`toString()` et `convertsToString()` SHALL exiger une entrée singleton (plusieurs éléments : erreur). `String`, `Boolean`, `Integer`, `Long`, `Decimal`, `Date`, `DateTime`, `Time` et `Quantity` sont convertibles, tout autre élément non (collection vide pour `toString`, `false` pour `convertsToString`). Un `Decimal` SHALL toujours s'afficher avec une partie fractionnaire (`1.0` donne `'1.0'` ; un `Decimal` conserve ses décimales écrites, donc `1.50` donne `'1.50'`) et une `Quantity` SHALL s'afficher `valeur 'unité'`, unités calendaires comprises (`4 days` donne `"4 'day'"`). `toString` d'un `Decimal` non fini, ou dont l'écriture exigerait un exposant (échelle au-delà de 1000), SHALL donner une collection vide. `convertsToString` sur une entrée vide SHALL donner une collection vide.
 
 #### Scenario: toInteger depuis une chaîne
 
@@ -631,12 +631,17 @@ Pour `=`, `!=`, `~`, `!~`, `<`, `<=`, `>`, `>=`, un objet FHIR Quantity (enfants
 #### Scenario: toString d'un Decimal
 
 - **WHEN** `1.0.toString()` puis `1.50.toString()` sont évalués
-- **THEN** les résultats SHALL être `[String('1.0')]` puis `[String('1.5')]`
+- **THEN** les résultats SHALL être `[String('1.0')]` puis `[String('1.50')]`
+
+#### Scenario: Decimal à exposant
+
+- **WHEN** `toString()` est évalué sur un `Decimal` de plus de 1000 décimales
+- **THEN** le résultat SHALL être une collection vide
 
 #### Scenario: Decimal non fini
 
-- **WHEN** `toQuantity()` ou `toString()` est évalué sur un littéral décimal au-delà de `f64` (au-dessus d'environ 1,8e308, par exemple 400 chiffres entiers)
-- **THEN** le résultat SHALL être une collection vide
+- **WHEN** `toQuantity()` ou `toString()` est évalué sur un `Decimal` non fini (valeur `f64` au-delà de 1,8e308)
+- **THEN** le résultat SHALL être une collection vide ; un littéral de plus de 38 chiffres significatifs (par exemple 400 chiffres entiers) SHALL être rejeté au parsing
 
 #### Scenario: toString d'une Quantity
 
@@ -679,7 +684,7 @@ Le système SHALL implémenter `distinct()`, `isDistinct()`, `subsetOf(other)`, 
 `union(other)` SHALL être équivalente à l'opérateur `|` (valeurs distinctes selon l'égalité FHIRPath).
 L'union `|` et `intersect()` SHALL éliminer les doublons des deux opérandes, y compris ceux présents dans un seul opérande, et conserver l'ordre de première occurrence. `distinct()` SHALL conserver la dernière occurrence de chaque valeur (N1 laisse l'ordre ouvert ; la suite officielle conserve la dernière). `distinct()` SHALL retourner une collection vide quand deux valeurs Date/DateTime (ou deux Time) ne sont pas comparables (précisions différentes, égalité N1). `isDistinct()` SHALL retourner `false` dès qu'une valeur se répète (même si des Date/DateTime non comparables sont aussi présents), une collection vide seulement si aucune valeur ne se répète et que deux Date/DateTime (ou deux Time) ne sont pas comparables, et `true` sinon.
 
-`precision()` (FHIRPath 3.0) SHALL donner pour Date/DateTime/Time le nombre de chiffres sans le fuseau (`@2014` donne 4, `@2014-01-05T10:30:00.000` donne 17, `@T10:30` donne 4) et, pour un Decimal, le nombre de décimales du plus court texte `f64` (shortcut : `1.50` donne 1). Une entrée vide ou d'un autre type SHALL donner une collection vide ; plusieurs éléments SHALL donner `Err(EvalError::Type(...))`.
+`precision()` (FHIRPath 3.0) SHALL donner pour Date/DateTime/Time le nombre de chiffres sans le fuseau (`@2014` donne 4, `@2014-01-05T10:30:00.000` donne 17, `@T10:30` donne 4) et, pour un Decimal, le nombre de décimales écrites (`1.58700` donne 5). Une entrée vide ou d'un autre type SHALL donner une collection vide ; plusieurs éléments SHALL donner `Err(EvalError::Type(...))`.
 
 #### Scenario: distinct élimine les doublons
 
@@ -699,7 +704,7 @@ L'union `|` et `intersect()` SHALL éliminer les doublons des deux opérandes, y
 #### Scenario: precision
 
 - **WHEN** `@2014.precision()`, `@T10:30.precision()` ou `1.587.precision()` est évalué
-- **THEN** le résultat SHALL être `4`, `4` et `3` (shortcut : les zéros finaux d’un Decimal sont perdus, `1.50.precision()` donne `1` au lieu de `2`)
+- **THEN** le résultat SHALL être `4`, `4` et `3` (les zéros finaux d’un Decimal comptent : `1.58700.precision()` donne `5`)
 
 #### Scenario: intersect retourne les éléments communs
 
@@ -1134,7 +1139,7 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 ### Requirement: Fonctions lowBoundary, highBoundary et comparable
 
-`lowBoundary([precision])` et `highBoundary([precision])` SHALL s'appliquer à Integer/Long/Decimal (résultat Decimal), Date, DateTime, Time et Quantity (objet FHIR Quantity ou littéral ; frontière Decimal de la valeur, même unité, sans unité -> `'1'`). Pour un Decimal, la frontière est à une demi-unité du dernier chiffre (basse tronquée vers zéro, haute arrondie à la moitié supérieure en s'éloignant de zéro, symétrique pour les négatifs) ; la précision par défaut est 8, valide de 0 à 28, sinon vide ; la précision de la source provient du plus court texte f64 (zéros finaux et exposants perdus). Pour un temporel, la précision s'exprime en chiffres (Date 4/6/8 ; DateTime 4/6/8/10/12/14/17, défaut 17 ; Time 2/4/6/9, défaut 9) ; toute autre précision, une Date sans précision, un texte mal formé ou un argument de précision vide SHALL donner une collection vide. Les parties manquantes prennent la plus petite/grande valeur (dernier jour du mois, années bissextiles incluses, 23:59:59.999) ; une heure seule se lit `hh:00` ; un DateTime avec heure mais sans fuseau reçoit `+14:00` (bas) / `-12:00` (haut). Les littéraux d'heure SHALL pouvoir ne comporter que l'heure (`@T10`, `@2014-01-01T08`).
+`lowBoundary([precision])` et `highBoundary([precision])` SHALL s'appliquer à Integer/Long/Decimal (résultat Decimal), Date, DateTime, Time et Quantity (objet FHIR Quantity ou littéral ; frontière Decimal de la valeur, même unité, sans unité -> `'1'`). Pour un Decimal, la frontière est à une demi-unité du dernier chiffre (basse tronquée vers zéro, haute arrondie à la moitié supérieure en s'éloignant de zéro, symétrique pour les négatifs) ; la précision par défaut est 8, valide de 0 à 28, sinon vide ; la précision de la source est l'échelle écrite du Decimal, exposant compris (`9.5e2.lowBoundary(0)` donne `945`, `9.5e2.highBoundary()` donne `955.00000000`), et le résultat est rendu à `precision` décimales. Pour un temporel, la précision s'exprime en chiffres (Date 4/6/8 ; DateTime 4/6/8/10/12/14/17, défaut 17 ; Time 2/4/6/9, défaut 9) ; toute autre précision, une Date sans précision, un texte mal formé ou un argument de précision vide SHALL donner une collection vide. Les parties manquantes prennent la plus petite/grande valeur (dernier jour du mois, années bissextiles incluses, 23:59:59.999) ; une heure seule se lit `hh:00` ; un DateTime avec heure mais sans fuseau reçoit `+14:00` (bas) / `-12:00` (haut). Les littéraux d'heure SHALL pouvoir ne comporter que l'heure (`@T10`, `@2014-01-01T08`).
 
 `comparable(other)` SHALL retourner `true`/`false` selon que le moteur peut comparer les unités (mêmes règles que la comparaison de Quantity, conversion UCUM comprise) et SHALL être vide sauf si chaque côté est une Quantity unique.
 
@@ -1285,7 +1290,7 @@ Les opérateurs et fonctions qui attendent une seule valeur SHALL appliquer l'é
 
 L'opérateur `=` SHALL comparer deux collections élément par élément dans l'ordre ; des longueurs différentes donnent `[Bool(false)]` et une collection vide d'un côté donne une collection vide. Les objets SHALL être comparés propriété par propriété, récursivement. Un objet (valeur complexe) comparé à une primitive SHALL donner `[Bool(false)]` ; une primitive FHIR portant `id`/`extension` (`Value::Primitive`) SHALL être comparée par sa valeur.
 
-L'opérateur `~` SHALL ne jamais retourner de collection vide : `{} ~ {}` vaut `true` et un seul côté vide vaut `false`. Il SHALL ignorer l'ordre des collections, comparer les chaînes sans tenir compte de la casse en traitant chaque caractère d'espacement comme une espace, sans fusionner les suites d'espaces, arrondir les décimaux à la précision de l'opérande le moins précis, et ignorer `id` dans les objets.
+L'opérateur `~` SHALL ne jamais retourner de collection vide : `{} ~ {}` vaut `true` et un seul côté vide vaut `false`. Il SHALL ignorer l'ordre des collections, comparer les chaînes sans tenir compte de la casse en traitant chaque caractère d'espacement comme une espace, sans fusionner les suites d'espaces, arrondir les décimaux à la précision de l'opérande le moins précis (zéros finaux ignorés), et ignorer `id` dans les objets.
 
 Les dates, date-heures et heures SHALL être comparées précision par précision (secondes et millisecondes comptent pour une seule précision), les fuseaux étant normalisés en UTC. Une précision différente avec des parties communes égales SHALL donner une collection vide, de même qu'un fuseau présent d'un seul côté, y compris une `Date` comparée à une `DateTime` avec fuseau. Une `Date` ou une `DateTime` comparée à une `Time` SHALL donner `[Bool(false)]` pour `=` et `[Bool(true)]` pour `!=` (N2 §6.1.1), et non une collection vide. `sort()`, `min()` et `max()` SHALL continuer d'ordonner les date-heures par leur texte.
 

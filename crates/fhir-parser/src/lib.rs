@@ -4,12 +4,14 @@
 //! Converts JSON or XML input into a typed `Resource` AST, preserving source
 //! spans for precise diagnostic messages.
 
+mod decimal;
 mod json;
 mod line_index;
 mod types;
 mod xml;
 mod xml_checks;
 
+pub use decimal::{Decimal, ParseDecimalError, Rounding};
 pub use json::parse_json;
 pub use types::{Node, ParseError, Resource, ResourceId, Span, TrimmedAttribute, Value};
 pub use xml::parse_xml;

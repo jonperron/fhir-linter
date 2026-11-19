@@ -4,6 +4,7 @@ use super::{ArithOp, Evaluator};
 use crate::ast::Expr;
 use crate::error::EvalError;
 use crate::value::{Collection, Value, quantity_unit_factor};
+use crate::{Decimal, Rounding};
 
 /// Largest collection an evaluation may build. N1 sets no limit; this one
 /// stops exponential growth (a `select($this.combine($this))` chain, or
@@ -136,33 +137,19 @@ pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collecti
     let b = rv
         .as_decimal()
         .ok_or_else(|| EvalError::Type("arithmetic requires numbers".into()))?;
-    let result = match op {
-        ArithOp::Add => a + b,
-        ArithOp::Sub => a - b,
-        ArithOp::Mul => a * b,
-        // N1 §6.6: division by zero gives empty, not an error.
-        ArithOp::Div | ArithOp::Mod if b == 0.0 => return Ok(vec![]),
-        ArithOp::Div => a / b,
-        ArithOp::Mod => a % b,
-        ArithOp::DivInt => return Err(EvalError::Type("div is not a numeric_op".into())),
-    };
-    // shortcut: N1 Decimal is exact; computing on the operands scaled to whole
-    // numbers avoids binary error (`1.8 - 1.2`, `1.2 mod 0.1`) until Decimal
-    // carries its own scale. Larger values keep the plain f64 result.
-    if matches!(op, ArithOp::Add | ArithOp::Sub | ArithOp::Mod) {
-        let factor = 10f64.powi(decimal_scale(a).max(decimal_scale(b)));
-        let (x, y) = ((a * factor).round(), (b * factor).round());
-        // Below 2^52 each, the scaled operands and their sum are exact integers.
-        if x.abs() < 4.5e15 && y.abs() < 4.5e15 {
-            let exact = match op {
-                ArithOp::Add => x + y,
-                ArithOp::Sub => x - y,
-                _ => x % y,
-            };
-            // `+ 0.0` drops a -0.0.
-            return Ok(vec![Value::Decimal(exact / factor + 0.0)]);
-        }
+    // N1 §6.6: division by zero gives empty, not an error.
+    if matches!(op, ArithOp::Div | ArithOp::Mod) && b.is_zero() {
+        return Ok(vec![]);
     }
+    let result = match op {
+        ArithOp::Add => a.checked_add(b),
+        ArithOp::Sub => a.checked_sub(b),
+        ArithOp::Mul => a.checked_mul(b),
+        ArithOp::Div => a.checked_div(b),
+        ArithOp::Mod => a.checked_rem(b),
+        ArithOp::DivInt => return Err(EvalError::Type("div is not a numeric_op".into())),
+    }
+    .ok_or_else(|| EvalError::Type("decimal overflow".into()))?;
     Ok(vec![Value::Decimal(result)])
 }
 
@@ -233,7 +220,7 @@ pub(super) fn as_quantity(v: &Value) -> Option<(f64, Option<&str>)> {
         [Value::Primitive(value, _, Some(ty))] if &**ty == "decimal" => match &**value {
             // XML primitives are text, typed by their element.
             Value::String(text) => text.parse().ok().filter(|v: &f64| v.is_finite())?,
-            other => other.as_decimal()?,
+            other => Some(other.as_decimal()?.to_f64()).filter(|v| v.is_finite())?,
         },
         _ => return None,
     };
@@ -323,11 +310,10 @@ pub(super) fn values_equal(a: &Value, b: &Value) -> Option<bool> {
         (Value::Integer(x), Value::Integer(y)) => Some(x == y),
         (Value::Long(x), Value::Long(y)) => Some(x == y),
         (Value::Long(x), Value::Integer(y)) | (Value::Integer(y), Value::Long(x)) => Some(x == y),
-        (Value::Decimal(x), Value::Decimal(y)) => Some(x == y),
-        (Value::Integer(x), Value::Decimal(y)) => Some(*x as f64 == *y),
-        (Value::Decimal(x), Value::Integer(y)) => Some(*x == *y as f64),
-        (Value::Long(x), Value::Decimal(y)) => Some(*x as f64 == *y),
-        (Value::Decimal(x), Value::Long(y)) => Some(*x == *y as f64),
+        (Value::Decimal(_), Value::Decimal(_) | Value::Integer(_) | Value::Long(_))
+        | (Value::Integer(_) | Value::Long(_), Value::Decimal(_)) => {
+            Some(a.as_decimal() == b.as_decimal())
+        }
         (Value::String(x), Value::String(y)) => Some(x == y),
         // N1 §6.1.1: complex values are equal when all their properties are.
         (Value::Object(x, _), Value::Object(y, _)) => objects_match(x, y, false),
@@ -533,13 +519,13 @@ pub(super) fn values_equivalent(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Null, Value::Null) => true,
         (Value::String(x), Value::String(y)) => normalise(x) == normalise(y),
-        // Decimals are rounded to the precision of the least precise operand.
-        // shortcut: f64 has no literal precision, so the shortest decimal form
-        // stands in for it; upgrade with a real decimal type.
+        // N1: rounded to the precision of the least precise operand, trailing
+        // zeros ignored.
         (Value::Decimal(_), _) | (_, Value::Decimal(_)) => match (a.as_decimal(), b.as_decimal()) {
             (Some(x), Some(y)) => {
-                let scale = 10f64.powi(decimal_scale(x).min(decimal_scale(y)));
-                (x * scale).round() == (y * scale).round()
+                let scale = x.trim().scale().min(y.trim().scale());
+                let round = |d: Decimal| d.rescale(scale, Rounding::HalfAwayFromZero);
+                round(x).zip(round(y)).is_some_and(|(x, y)| x == y)
             }
             _ => false,
         },
@@ -554,21 +540,10 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
         (Value::Long(x), Value::Long(y)) => Ok(x.cmp(y)),
         (Value::Long(x), Value::Integer(y)) => Ok(x.cmp(y)),
         (Value::Integer(x), Value::Long(y)) => Ok(x.cmp(y)),
-        (Value::Decimal(x), Value::Decimal(y)) => {
-            Ok(x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal))
+        (x @ Value::Decimal(_), y @ (Value::Decimal(_) | Value::Integer(_) | Value::Long(_)))
+        | (x @ (Value::Integer(_) | Value::Long(_)), y @ Value::Decimal(_)) => {
+            Ok(x.as_decimal().cmp(&y.as_decimal()))
         }
-        (Value::Integer(x), Value::Decimal(y)) => Ok((*x as f64)
-            .partial_cmp(y)
-            .unwrap_or(std::cmp::Ordering::Equal)),
-        (Value::Decimal(x), Value::Integer(y)) => Ok(x
-            .partial_cmp(&(*y as f64))
-            .unwrap_or(std::cmp::Ordering::Equal)),
-        (Value::Long(x), Value::Decimal(y)) => Ok((*x as f64)
-            .partial_cmp(y)
-            .unwrap_or(std::cmp::Ordering::Equal)),
-        (Value::Decimal(x), Value::Long(y)) => Ok(x
-            .partial_cmp(&(*y as f64))
-            .unwrap_or(std::cmp::Ordering::Equal)),
         (Value::String(x), Value::String(y)) => Ok(x.cmp(y)),
         // shortcut: sort/min/max order date-times by text (total, but zones are not
         // normalised); operators use `operator_order`. Upgrade when sort needs zones.

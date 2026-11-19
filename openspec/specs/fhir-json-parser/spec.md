@@ -30,7 +30,7 @@ Le système SHALL exposer un enum `Value` représentant les types JSON possibles
 #### Scenario: Variantes couvertes
 
 - **WHEN** un nœud JSON est parsé
-- **THEN** `Value` SHALL avoir les variantes : `Null`, `Bool(bool)`, `Integer(i64)`, `Decimal(f64)`, `Str(Arc<str>)`, `Array(Vec<Node>)`, `Object(IndexMap<Arc<str>, Node>)`
+- **THEN** `Value` SHALL avoir les variantes : `Null`, `Bool(bool)`, `Integer(i64)`, `Decimal(Decimal)`, `Str(Arc<str>)`, `Array(Vec<Node>)`, `Object(IndexMap<Arc<str>, Node>)`
 
 ---
 
@@ -93,7 +93,7 @@ Le système SHALL exposer une fonction `parse_json(source: &str) -> Result<Resou
 
 ### Requirement: Conversion des nombres JSON
 
-Le système SHALL convertir chaque nombre JSON en `Value` selon sa forme lexicale : un nombre sans `.` ni exposant représentable sur 64 bits signés, autre que `-0`, SHALL devenir `Value::Integer` ; tout autre nombre fini SHALL devenir `Value::Decimal(f64)` (arrondi à la précision `f64`). Le littéral `-0` SHALL devenir `Value::Decimal(-0.0)`, la regex R5 `integer` (`[0]|[-+]?[1-9][0-9]*`) l'excluant. Un nombre dont la conversion en `f64` n'est pas finie SHALL être rejeté.
+Le système SHALL convertir chaque nombre JSON en `Value` selon sa forme lexicale : un nombre sans `.` ni exposant représentable sur 64 bits signés, autre que `-0`, SHALL devenir `Value::Integer` ; tout autre nombre fini SHALL devenir `Value::Decimal(Decimal)`, décimal exact (`fhir_parser::Decimal` : mantisse `i128` et échelle `i32`) qui conserve l'échelle lexicale, exposant compris (`12.500` a 3 décimales ; `9.5e2` vaut (95, -1), précis à la dizaine). Au-delà de 38 chiffres significatifs ou d'un exposant hors `i32`, la valeur `f64` SHALL être conservée à la place. Le littéral `-0` SHALL devenir un `Value::Decimal` nul, la regex R5 `integer` (`[0]|[-+]?[1-9][0-9]*`) l'excluant. Un nombre dont la conversion en `f64` n'est pas finie SHALL être rejeté.
 
 #### Scenario: Entier dans la plage i64
 
@@ -103,22 +103,22 @@ Le système SHALL convertir chaque nombre JSON en `Value` selon sa forme lexical
 #### Scenario: Moins zéro
 
 - **WHEN** `parse_json` rencontre le nombre `-0`
-- **THEN** la valeur SHALL être `Value::Decimal(-0.0)` (zéro de signe négatif)
+- **THEN** la valeur SHALL être un `Value::Decimal` nul
 
 #### Scenario: Entier hors de la plage i64
 
 - **WHEN** `parse_json` rencontre un entier littéral dépassant i64, par exemple `12345678901234567890`
-- **THEN** la valeur SHALL être `Value::Decimal` (arrondie à la précision `f64`) et le parsing SHALL réussir
+- **THEN** la valeur SHALL être `Value::Decimal` (exact tant qu'il tient en 38 chiffres significatifs, sinon valeur `f64`) et le parsing SHALL réussir
 
 #### Scenario: Nombre avec partie décimale ou exposant
 
 - **WHEN** `parse_json` rencontre un nombre contenant `.` ou un exposant, par exemple `1.5` ou `1e2`
-- **THEN** la valeur SHALL être `Value::Decimal`
+- **THEN** la valeur SHALL être `Value::Decimal` qui conserve l'échelle écrite (`1.50` garde 2 décimales)
 
 #### Scenario: Sous-dépassement
 
 - **WHEN** `parse_json` rencontre le nombre `1e-400`
-- **THEN** la valeur SHALL être `Value::Decimal(0.0)`
+- **THEN** la valeur SHALL être un `Value::Decimal` nul
 
 #### Scenario: Nombre hors plage
 

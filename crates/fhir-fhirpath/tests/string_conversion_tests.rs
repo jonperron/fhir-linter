@@ -142,8 +142,8 @@ fn to_boolean_on_unconvertible_value_yields_empty() {
 // N1 §5.5.4: a String converts to Decimal only in the form (\+|-)?\d+(\.\d+)?.
 #[test]
 fn to_decimal_accepts_only_the_n1_format() {
-    assert_eq!(eval("'+1.5'.toDecimal()"), vec![Value::Decimal(1.5)]);
-    assert_eq!(eval("'-2'.toDecimal()"), vec![Value::Decimal(-2.0)]);
+    assert_eq!(eval("'+1.5'.toDecimal()"), vec![Value::Decimal(dec("1.5"))]);
+    assert_eq!(eval("'-2'.toDecimal()"), vec![Value::Decimal(dec("-2.0"))]);
     for text in [
         "NaN",
         "inf",
@@ -365,4 +365,8 @@ fn to_datetime_bounds_the_time_zone_offset() {
             "{text}"
         );
     }
+}
+
+fn dec(text: &str) -> fhir_fhirpath::Decimal {
+    text.parse().expect("decimal literal")
 }
