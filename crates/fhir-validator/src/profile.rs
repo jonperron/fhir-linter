@@ -2,6 +2,7 @@ use fhir_definitions::{Constraint, ElementDefinition, Registry, StructureDefinit
 use fhir_fhirpath::{Environment, Value as FhirPathValue};
 use fhir_parser::{Node, Resource, Span, Value};
 use indexmap::IndexMap;
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use crate::cardinality::{check_run_cardinality, own_descendants, subtree, without_own_slices};
@@ -18,7 +19,8 @@ use fhir_definitions::capitalise;
 /// (`PROFILE_002`) and their cardinality, `fixed[x]`/`pattern[x]` and value-slice rules are
 /// applied at every depth (`check_profile_object`); `environment` evaluates discriminators and
 /// slice invariants. Unknown profiles
-/// produce a `PROFILE_001` warning because they cannot be validated against. A `|version`
+/// produce a `PROFILE_001` warning because they cannot be validated against; a profile supplied
+/// without a snapshot (`Registry::needs_snapshot`) gives a `PROFILE_010` error. A `|version`
 /// other than the loaded definition's gives a `PROFILE_003` warning.
 /// `resource_path` is the resource's instance path.
 pub fn validate(
@@ -58,10 +60,12 @@ pub fn validate(
             None => (url.as_ref(), None),
         };
         let Some(sd) = registry.structure_definition(canonical) else {
-            diagnostics.push(
+            let diagnostic = if registry.needs_snapshot(canonical) {
+                no_snapshot(url, path)
+            } else {
                 Diagnostic::warning("PROFILE_001", format!("Profile '{url}' is not known"), path)
-                    .with_location(node.span),
-            );
+            };
+            diagnostics.push(diagnostic.with_location(node.span));
             continue;
         };
         // The spec is silent on a version mismatch: warn, then validate against the loaded
@@ -153,8 +157,12 @@ pub(crate) fn check_type_profiles(
             .structure_definition(url)
             .and_then(|profile| Some((profile, profile.snapshot.first()?)))
         else {
-            let message = format!("Profile '{url}' of '{path}' is not known");
-            diagnostics.push(Diagnostic::warning("PROFILE_001", message, path.to_owned()));
+            diagnostics.push(if registry.needs_snapshot(url) {
+                no_snapshot(url, path.to_owned())
+            } else {
+                let message = format!("Profile '{url}' of '{path}' is not known");
+                Diagnostic::warning("PROFILE_001", message, path.to_owned())
+            });
             continue;
         };
         let mut found = Vec::new();
@@ -289,6 +297,13 @@ pub(crate) fn check_profile_object(
     }
 }
 
+/// `PROFILE_010`: the profile at `url` was supplied without a snapshot, so it cannot be
+/// validated against (snapshot generation is not supported).
+fn no_snapshot(url: &str, path: String) -> Diagnostic {
+    let message = format!("Profile '{url}' has no snapshot; snapshot required");
+    Diagnostic::error("PROFILE_010", message, path)
+}
+
 /// What the profile layer reads besides the profile: the registry, and the FHIRPath
 /// environment of the resource for discriminators and slice invariants.
 #[derive(Clone, Copy)]
@@ -311,8 +326,16 @@ fn check_slices(
 ) {
     // Conformance to the profile's own rules (root and element invariants included); the
     // rules of the core type are the base walk's.
+    // Slice profiles supplied without a snapshot, reported once the assignment is done.
+    let snapshotless = RefCell::new(Vec::<String>::new());
     let conforms = |fields: &IndexMap<Arc<str>, Node>, value: &[FhirPathValue], url: &str| {
-        let profile = layer.registry.structure_definition(url)?;
+        let Some(profile) = layer.registry.structure_definition(url) else {
+            let mut snapshotless = snapshotless.borrow_mut();
+            if layer.registry.needs_snapshot(url) && !snapshotless.iter().any(|u| u == url) {
+                snapshotless.push(url.to_owned());
+            }
+            return None;
+        };
         let root = profile.snapshot.first()?;
         let core_root = root
             .path
@@ -338,6 +361,9 @@ fn check_slices(
         &conforms,
         diagnostics,
     );
+    for url in snapshotless.into_inner() {
+        diagnostics.push(no_snapshot(&url, path.to_owned()));
+    }
     let is_choice_variant =
         |base: &str, suffix: &str| layer.registry.is_choice_variant(base, suffix);
     for (item, assigned) in items.iter().zip(assigned) {
@@ -489,6 +515,60 @@ mod tests {
             human,
             Some(Arc::from(expression)),
         )
+    }
+
+    #[test]
+    fn type_profile_without_snapshot_is_profile_010() {
+        // No core element names a profile the bundle lacks, so only an edited element
+        // reaches this path with a supplied snapshotless profile.
+        let url = "http://example.org/StructureDefinition/no-snapshot-cc";
+        let dir = std::env::temp_dir().join(format!("profile-010-type-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("sd.json");
+        let sd = serde_json::json!({
+            "resourceType": "StructureDefinition",
+            "url": url,
+            "name": "NoSnapshotCC",
+            "status": "draft",
+            "kind": "complex-type",
+            "abstract": false,
+            "type": "CodeableConcept",
+            "derivation": "constraint",
+            "differential": {"element": [{"path": "CodeableConcept"}]},
+        });
+        std::fs::write(&file, sd.to_string()).unwrap();
+        let definitions =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5");
+        let base = Arc::new(Registry::from_definitions_dir(definitions).unwrap());
+        let registry = Registry::with_extra(base, &[file.as_path()]).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        let mut elem = registry
+            .core("Patient")
+            .and_then(|sd| sd.element("Patient.maritalStatus"))
+            .unwrap()
+            .clone();
+        elem.type_profiles = vec![fhir_definitions::TypeProfiles {
+            code: Arc::from("CodeableConcept"),
+            profiles: vec![Arc::from(url)],
+            target_profiles: vec![],
+        }];
+        let mut diagnostics = Vec::new();
+        check_type_profiles(
+            (&IndexMap::new(), &[], Span::default()),
+            &elem,
+            "CodeableConcept",
+            "Patient.maritalStatus",
+            &registry,
+            &Environment::default(),
+            0,
+            &mut diagnostics,
+        );
+        let found: Vec<_> = diagnostics
+            .iter()
+            .map(|d| (d.code.as_ref(), d.severity, d.message.as_str()))
+            .collect();
+        let message = format!("Profile '{url}' has no snapshot; snapshot required");
+        assert_eq!(found, [("PROFILE_010", Severity::Error, message.as_str())]);
     }
 
     #[test]
