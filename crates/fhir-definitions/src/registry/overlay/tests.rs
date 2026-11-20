@@ -336,3 +336,207 @@ fn bundle_entry_that_is_not_an_array_is_malformed() {
         .unwrap();
     assert!(matches!(error, Error::MalformedBundle { .. }), "{error}");
 }
+
+const CONCEPT_MAP: &str = "http://example.org/ConceptMap/colours";
+
+/// A ConceptMap from the colours CodeSystem with the given groups.
+fn concept_map(groups: Value) -> Value {
+    json!({
+        "resourceType": "ConceptMap",
+        "url": CONCEPT_MAP,
+        "version": "1",
+        "group": groups,
+    })
+}
+
+fn overlay_with(name: &str, resources: &[Value]) -> Registry {
+    let dir = TempDir::new(name);
+    let file = dir.write("bundle.json", &bundle(resources));
+    Registry::with_extra(Arc::clone(&BASE), &[&file]).unwrap()
+}
+
+#[test]
+fn overlay_concept_map_is_translated() {
+    let overlay = overlay_with(
+        "concept_map",
+        &[concept_map(json!([{
+            "source": CODE_SYSTEM,
+            "target": "http://example.org/hex",
+            "element": [
+                {"code": "red", "target": [
+                    {"code": "#f00", "relationship": "equivalent"},
+                    {"code": "#e00", "relationship": "source-is-narrower-than-target"},
+                ]},
+                {"code": "blue", "noMap": true},
+            ],
+        }]))],
+    );
+    assert_eq!(
+        overlay.translate(CONCEPT_MAP, Some(CODE_SYSTEM), "red"),
+        Some(vec![
+            ("http://example.org/hex", "#f00", "equivalent"),
+            (
+                "http://example.org/hex",
+                "#e00",
+                "source-is-narrower-than-target"
+            ),
+        ])
+    );
+    assert_eq!(overlay.translate(CONCEPT_MAP, None, "blue"), Some(vec![]));
+    // The base maps stay reachable through the overlay.
+    assert!(
+        overlay
+            .translate(
+                "http://hl7.org/fhir/ConceptMap/cm-address-use-v2",
+                None,
+                "home"
+            )
+            .is_some()
+    );
+    assert_eq!(BASE.translate(CONCEPT_MAP, None, "red"), None);
+}
+
+#[test]
+fn translate_without_a_sure_answer_is_none() {
+    let group = |source: &str, extra: Value| {
+        let mut group = json!({
+            "source": source,
+            "target": "http://example.org/hex",
+            "element": [{"code": "red", "target": [
+                {"code": "#f00", "relationship": "equivalent"},
+            ]}],
+        });
+        group
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        group
+    };
+    // Unmapped codes follow `group.unmapped`, which is not applied.
+    let unmapped = overlay_with(
+        "cm_unmapped",
+        &[concept_map(json!([group(
+            CODE_SYSTEM,
+            json!({"unmapped": {"mode": "use-source-code"}})
+        )]))],
+    );
+    assert_eq!(unmapped.translate(CONCEPT_MAP, None, "green"), None);
+    assert!(unmapped.translate(CONCEPT_MAP, None, "red").is_some());
+    // A systemless code is ambiguous across two source systems.
+    let two_sources = overlay_with(
+        "cm_two_sources",
+        &[concept_map(json!([
+            group(CODE_SYSTEM, json!({})),
+            group("http://example.org/other", json!({})),
+        ]))],
+    );
+    assert_eq!(two_sources.translate(CONCEPT_MAP, None, "red"), None);
+    assert_eq!(
+        two_sources.translate(CONCEPT_MAP, Some(CODE_SYSTEM), "red"),
+        Some(vec![("http://example.org/hex", "#f00", "equivalent")])
+    );
+    // A target conditional on `dependsOn` cannot be decided from the code alone.
+    let mut conditional = group(CODE_SYSTEM, json!({}));
+    conditional["element"][0]["target"][0]["dependsOn"] =
+        json!([{"attribute": "x", "valueCode": "y"}]);
+    let depends = overlay_with("cm_depends_on", &[concept_map(json!([conditional]))]);
+    assert_eq!(depends.translate(CONCEPT_MAP, None, "red"), None);
+    // A target without relationship hides part of the answer.
+    let mut partial = group(CODE_SYSTEM, json!({}));
+    partial["element"][0]["target"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"code": "#e00"}));
+    let partial = overlay_with("cm_partial", &[concept_map(json!([partial]))]);
+    assert_eq!(partial.translate(CONCEPT_MAP, None, "red"), None);
+    // An element keyed by valueSet may cover an unlisted code.
+    let mut by_value_set = group(CODE_SYSTEM, json!({}));
+    by_value_set["element"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"valueSet": VALUE_SET, "target": []}));
+    let by_value_set = overlay_with("cm_value_set", &[concept_map(json!([by_value_set]))]);
+    assert_eq!(by_value_set.translate(CONCEPT_MAP, None, "green"), None);
+    assert!(by_value_set.translate(CONCEPT_MAP, None, "red").is_some());
+    // A match cannot be named without the group's target system.
+    let mut no_target = group(CODE_SYSTEM, json!({}));
+    no_target.as_object_mut().unwrap().remove("target");
+    let no_target = overlay_with("cm_no_target", &[concept_map(json!([no_target]))]);
+    assert_eq!(no_target.translate(CONCEPT_MAP, None, "red"), None);
+    assert_eq!(
+        no_target.translate(CONCEPT_MAP, None, "green"),
+        Some(vec![])
+    );
+}
+
+#[test]
+fn concept_map_in_base_is_a_conflict() {
+    let dir = TempDir::new("conflict_concept_map");
+    let mut map = concept_map(json!([]));
+    map["url"] = json!("http://hl7.org/fhir/ConceptMap/cm-address-use-v2");
+    let file = dir.write("cm.json", &map);
+    let error = Registry::with_extra(Arc::clone(&BASE), &[&file])
+        .err()
+        .unwrap();
+    assert!(matches!(error, Error::Conflict { .. }), "{error}");
+}
+
+#[test]
+fn expand_follows_imports_and_takes_displays_from_the_compose_or_system() {
+    let colours_vs = |url: &str, include: Value| json!({"resourceType": "ValueSet", "url": url, "name": "V", "compose": {"include": include}});
+    let overlay = overlay_with(
+        "expand_imports",
+        &[
+            json!({
+                "resourceType": "CodeSystem",
+                "url": CODE_SYSTEM,
+                "name": "Colours",
+                "content": "complete",
+                "concept": [
+                    {"code": "red", "display": "Red"},
+                    {"code": "blue", "concept": [{"code": "navy", "display": "Navy"}]},
+                ],
+            }),
+            colours_vs("http://x/all", json!([{"system": CODE_SYSTEM}])),
+            colours_vs(
+                "http://x/listed",
+                json!([{"system": CODE_SYSTEM, "concept": [
+                    {"code": "navy"},
+                    {"code": "red", "display": "Rouge"},
+                ]}]),
+            ),
+            // Intersection of two imports, plus a duplicate include.
+            colours_vs(
+                "http://x/both",
+                json!([
+                    {"valueSet": ["http://x/all", "http://x/listed"]},
+                    {"system": CODE_SYSTEM, "concept": [{"code": "red"}]},
+                ]),
+            ),
+            colours_vs("http://x/cycle", json!([{"valueSet": ["http://x/cycle"]}])),
+        ],
+    );
+    assert_eq!(
+        overlay.expand("http://x/all"),
+        Some(vec![
+            (CODE_SYSTEM, "red", Some("Red")),
+            (CODE_SYSTEM, "blue", None),
+            (CODE_SYSTEM, "navy", Some("Navy")),
+        ])
+    );
+    assert_eq!(
+        overlay.expand("http://x/listed"),
+        Some(vec![
+            (CODE_SYSTEM, "navy", Some("Navy")),
+            (CODE_SYSTEM, "red", Some("Rouge")),
+        ])
+    );
+    assert_eq!(
+        overlay.expand("http://x/both"),
+        Some(vec![
+            (CODE_SYSTEM, "red", Some("Red")),
+            (CODE_SYSTEM, "navy", Some("Navy")),
+        ])
+    );
+    assert_eq!(overlay.expand("http://x/cycle"), None);
+}

@@ -23,7 +23,7 @@ impl Registry {
     ///
     /// Each path is a `.json` file holding one resource or a Bundle, or a directory
     /// whose `*.json` files are read (not recursively; symlinks and other files are
-    /// skipped). StructureDefinitions, ValueSets and CodeSystems are loaded; every
+    /// skipped). StructureDefinitions, ValueSets, CodeSystems and ConceptMaps are loaded; every
     /// lookup reads them first, then falls back to `base`, which is left untouched.
     /// The overlay is not cached: build it once per validation context.
     /// Other resources, and definitions the registry skips (no url, name or kind),
@@ -118,7 +118,8 @@ fn load_extra(
             base.structure_definition(&url).is_some() || base.needs_snapshot(&url)
         }
         "ValueSet" => base.value_set(&url).is_some(),
-        _ => base.code_system(&url).is_some(),
+        "CodeSystem" => base.code_system(&url).is_some(),
+        _ => base.concept_map(&url).is_some(),
     };
     if in_base || !seen.insert((Arc::from(resource_type), Arc::clone(&url))) {
         return Err(Error::Conflict {

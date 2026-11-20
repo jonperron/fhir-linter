@@ -310,6 +310,7 @@ fn value_set_contains_applies_include_version_and_exclude() {
         "profiles-resources.json",
         "profiles-types.json",
         "profiles-others.json",
+        "conceptmaps.json",
     ] {
         fs::write(dir.join(file), r#"{"entry": []}"#).unwrap();
     }
@@ -369,6 +370,7 @@ fn value_set_contains_without_system_is_undecided_across_several_systems() {
         "profiles-resources.json",
         "profiles-types.json",
         "profiles-others.json",
+        "conceptmaps.json",
     ] {
         fs::write(dir.join(file), r#"{"entry": []}"#).unwrap();
     }
@@ -458,4 +460,95 @@ fn value_set_contains_decides_membership_from_the_bundled_definitions() {
             "{vs} {system:?} {code}",
         );
     }
+}
+
+#[test]
+fn expand_lists_a_whole_complete_code_system_in_document_order() {
+    const GENDER: &str = "http://hl7.org/fhir/administrative-gender";
+    assert_eq!(
+        REGISTRY.expand("http://hl7.org/fhir/ValueSet/administrative-gender"),
+        Some(vec![
+            (GENDER, "male", Some("Male")),
+            (GENDER, "female", Some("Female")),
+            (GENDER, "other", Some("Other")),
+            (GENDER, "unknown", Some("Unknown")),
+        ])
+    );
+}
+
+#[test]
+fn expand_lists_explicit_concepts_across_systems() {
+    let codes: Vec<_> = REGISTRY
+        .expand("http://hl7.org/fhir/ValueSet/security-label-data-examples")
+        .unwrap()
+        .into_iter()
+        .map(|(_, code, _)| code)
+        .collect();
+    assert_eq!(codes, ["N", "R", "ETH", "PSY", "STD"]);
+}
+
+#[test]
+fn expand_gives_none_when_the_compose_cannot_be_enumerated_exactly() {
+    for vs in [
+        // include.filter
+        "example-filter",
+        // compose.exclude
+        "encounter-participant-type",
+        // CodeSystem with content `example`
+        "biologicallyderived-product-property-type-codes",
+        // notSelectable concept (item-type#question)
+        "item-type",
+        // include.version pins a CodeSystem version other than the loaded one
+        "example-metadata",
+        "no-such-value-set",
+    ] {
+        assert_eq!(
+            REGISTRY.expand(&format!("http://hl7.org/fhir/ValueSet/{vs}")),
+            None,
+            "{vs}"
+        );
+    }
+}
+
+#[test]
+fn translate_follows_the_r5_concept_map_groups() {
+    const CM: &str = "http://hl7.org/fhir/ConceptMap/cm-address-use-v2";
+    const V2: &str = "http://terminology.hl7.org/CodeSystem/v2-0190";
+    let home = Some(vec![(V2, "H", "equivalent")]);
+    assert_eq!(REGISTRY.translate(CM, None, "home"), home);
+    assert_eq!(
+        REGISTRY.translate(CM, Some("http://hl7.org/fhir/address-use"), "home"),
+        home
+    );
+    assert_eq!(
+        REGISTRY.translate(CM, None, "old"),
+        Some(vec![(V2, "BA", "source-is-broader-than-target")])
+    );
+    // A code or system the map does not cover has no match.
+    assert_eq!(REGISTRY.translate(CM, None, "bogus"), Some(vec![]));
+    assert_eq!(
+        REGISTRY.translate(CM, Some("http://example.org/cs"), "home"),
+        Some(vec![])
+    );
+    assert_eq!(
+        REGISTRY.translate("http://example.org/no-map", None, "home"),
+        None
+    );
+}
+
+#[test]
+fn missing_concept_map_bundle_is_an_io_error() {
+    let dir = std::env::temp_dir().join(format!("fhir_def_no_conceptmaps_{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    for file in [
+        "profiles-resources.json",
+        "profiles-types.json",
+        "profiles-others.json",
+        "valuesets.json",
+    ] {
+        fs::write(dir.join(file), r#"{"entry": []}"#).unwrap();
+    }
+    let result = Registry::from_definitions_dir(&dir);
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(matches!(result, Err(crate::Error::Io(_))));
 }
