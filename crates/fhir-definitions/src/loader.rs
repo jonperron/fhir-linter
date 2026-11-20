@@ -67,9 +67,12 @@ pub fn load_resource(
                 })?;
             sd.map(|sd| {
                 let url = Arc::clone(&sd.url);
+                // A reloaded URL keeps only its latest state, never one in each collection.
                 if sd.snapshot.is_empty() {
+                    defs.structure_definitions.remove(&url);
                     defs.needs_snapshot.insert(Arc::clone(&url));
                 } else {
+                    defs.needs_snapshot.remove(&url);
                     defs.structure_definitions.insert(Arc::clone(&url), sd);
                 }
                 url

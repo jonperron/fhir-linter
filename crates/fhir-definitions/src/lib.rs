@@ -38,7 +38,7 @@ pub enum Error {
         source: serde_json::Error,
     },
 
-    #[error("malformed FHIR bundle in {file}: {message}")]
+    #[error("malformed FHIR definitions in {file}: {message}")]
     MalformedBundle { file: String, message: String },
 
     #[error("cannot read {file}: {source}")]

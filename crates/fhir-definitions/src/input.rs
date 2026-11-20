@@ -27,7 +27,7 @@ pub fn read_capped(path: &Path, cap: u64) -> io::Result<Vec<u8>> {
     }
     // Sized up front so the read does not double the allocation of a large file.
     let mut bytes = Vec::with_capacity(len as usize);
-    file.take(cap + 1).read_to_end(&mut bytes)?;
+    file.take(cap.saturating_add(1)).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > cap {
         return Err(too_large());
     }
@@ -47,5 +47,14 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert_eq!(at_cap.unwrap(), b"12345");
         assert_eq!(over_cap.unwrap_err().kind(), io::ErrorKind::FileTooLarge);
+    }
+
+    #[test]
+    fn largest_cap_reads_the_whole_file() {
+        let path = std::env::temp_dir().join(format!("{}_read_uncapped.json", std::process::id()));
+        std::fs::write(&path, b"12345").unwrap();
+        let read = read_capped(&path, u64::MAX);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(read.unwrap(), b"12345");
     }
 }

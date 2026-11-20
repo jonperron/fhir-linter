@@ -374,3 +374,31 @@ fn load_bundle_skips_code_system_with_missing_name() {
         "CodeSystem without name should be skipped"
     );
 }
+
+#[test]
+fn reloaded_definition_keeps_only_its_latest_snapshot_state() {
+    let with_snapshot = serde_json::json!({
+        "resourceType": "StructureDefinition", "url": "http://example.com/sd",
+        "name": "Sd", "kind": "resource",
+        "snapshot": {"element": [{"path": "Sd", "min": 0, "max": "*"}]},
+    });
+    let without_snapshot = serde_json::json!({
+        "resourceType": "StructureDefinition", "url": "http://example.com/sd",
+        "name": "Sd", "kind": "resource",
+    });
+    let mut defs = Definitions::default();
+    load_resource(&with_snapshot, "a.json", &mut defs).unwrap();
+    load_resource(&without_snapshot, "b.json", &mut defs).unwrap();
+    assert!(defs.needs_snapshot.contains("http://example.com/sd"));
+    assert!(
+        !defs
+            .structure_definitions
+            .contains_key("http://example.com/sd")
+    );
+    load_resource(&with_snapshot, "c.json", &mut defs).unwrap();
+    assert!(!defs.needs_snapshot.contains("http://example.com/sd"));
+    assert!(
+        defs.structure_definitions
+            .contains_key("http://example.com/sd")
+    );
+}

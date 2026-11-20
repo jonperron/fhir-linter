@@ -65,8 +65,18 @@ impl Registry {
                     })?;
                 drop(bytes);
                 let resources: Vec<&Value> = if value["resourceType"] == "Bundle" {
-                    let entries = value["entry"].as_array().into_iter().flatten();
-                    entries.map(|entry| &entry["resource"]).collect()
+                    // An absent `entry` is an empty Bundle; any other non-array is malformed.
+                    let entries = match &value["entry"] {
+                        Value::Null => &[][..],
+                        Value::Array(entries) => entries,
+                        _ => {
+                            return Err(Error::MalformedBundle {
+                                file: name,
+                                message: "'entry' is not an array".to_owned(),
+                            });
+                        }
+                    };
+                    entries.iter().map(|entry| &entry["resource"]).collect()
                 } else {
                     vec![&value]
                 };
@@ -86,7 +96,7 @@ fn load_extra(
     file: &str,
     base: &Registry,
     defs: &mut Definitions,
-    seen: &mut HashSet<(String, Arc<str>)>,
+    seen: &mut HashSet<(Arc<str>, Arc<str>)>,
 ) -> Result<()> {
     let Some(resource_type) = resource["resourceType"].as_str() else {
         return Ok(());
@@ -110,7 +120,7 @@ fn load_extra(
         "ValueSet" => base.value_set(&url).is_some(),
         _ => base.code_system(&url).is_some(),
     };
-    if in_base || !seen.insert((resource_type.to_owned(), Arc::clone(&url))) {
+    if in_base || !seen.insert((Arc::from(resource_type), Arc::clone(&url))) {
         return Err(Error::Conflict {
             url: url.to_string(),
             file: file.to_owned(),

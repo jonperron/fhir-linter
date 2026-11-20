@@ -319,3 +319,20 @@ fn value_set_and_code_system_in_base_are_conflicts() {
         );
     }
 }
+
+#[test]
+fn bundle_entry_that_is_not_an_array_is_malformed() {
+    let dir = TempDir::new("entry_not_array");
+    let file = dir.write(
+        "bundle.json",
+        &json!({
+            "resourceType": "Bundle",
+            "type": "collection",
+            "entry": {"resource": profile(PROFILE)},
+        }),
+    );
+    let error = Registry::with_extra(Arc::clone(&BASE), &[&file])
+        .err()
+        .unwrap();
+    assert!(matches!(error, Error::MalformedBundle { .. }), "{error}");
+}
