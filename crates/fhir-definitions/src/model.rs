@@ -291,12 +291,20 @@ pub struct Include {
     pub system: Option<Arc<str>>,
     /// CodeSystem version the include is pinned to (`include.version`), if any.
     pub version: Option<Arc<str>>,
-    /// Explicitly enumerated codes; empty means "the whole system" (unless `has_filter`).
-    pub codes: Vec<Arc<str>>,
-    /// True when a `filter` restricts the system; membership is then not decidable.
+    /// Explicitly enumerated concepts; empty means "the whole system" (unless `has_filter`).
+    pub concepts: Vec<Concept>,
+    /// True when a `filter` restricts the system, or a `concept` entry is unreadable;
+    /// membership is then not decidable.
     pub has_filter: bool,
     /// Canonical URLs of ValueSets this include is intersected with.
     pub value_sets: Vec<Arc<str>>,
+}
+
+/// A code with its display, as enumerated by a CodeSystem or a ValueSet include.
+#[derive(Debug, Clone)]
+pub struct Concept {
+    pub code: Arc<str>,
+    pub display: Option<Arc<str>>,
 }
 
 /// A lightweight CodeSystem with its flattened concept codes.
@@ -307,10 +315,54 @@ pub struct CodeSystem {
     /// Business version (`CodeSystem.version`), if any.
     pub version: Option<Arc<str>>,
     pub codes: HashSet<Arc<str>>,
+    /// Every concept, nested ones flattened depth-first in document order.
+    pub concepts: Vec<Concept>,
     /// Codes of concepts flagged notSelectable (R5 concept property); a subset of `codes`.
     pub not_selectable: HashSet<Arc<str>>,
     /// False when the system is a fragment/not-present, so absence of a code proves nothing.
     pub complete: bool,
+    /// True when `content` is `complete` with concepts listed, whatever the case rule:
+    /// the concept list is then exact, though a lookup of absence is not.
+    pub enumerated: bool,
+}
+
+/// The parts of an R5 ConceptMap that a code translation reads.
+#[derive(Debug, Clone)]
+pub struct ConceptMap {
+    pub url: Arc<str>,
+    pub version: Option<Arc<str>>,
+    pub groups: Vec<ConceptMapGroup>,
+}
+
+/// One `ConceptMap.group`: mappings from one source system to one target system.
+#[derive(Debug, Clone)]
+pub struct ConceptMapGroup {
+    /// True when `source` or `target` was a versioned canonical (`url|version`), dropped here.
+    pub versioned: bool,
+    pub source: Option<Arc<str>>,
+    pub target: Option<Arc<str>>,
+    pub elements: Vec<ConceptMapElement>,
+    /// True when a code the group does not list may still map: `group.unmapped`
+    /// (not applied), or an element without `code` (keyed by `valueSet`).
+    pub unlisted_undecided: bool,
+}
+
+/// One `group.element`: a source code and its targets (none with `noMap`).
+#[derive(Debug, Clone)]
+pub struct ConceptMapElement {
+    pub code: Arc<str>,
+    pub targets: Vec<ConceptMapTarget>,
+    /// True when some target is not a plain code mapping (no `code` or
+    /// `relationship`, or a `dependsOn` condition): kept out of `targets`, so
+    /// they alone do not tell what the code maps to.
+    pub undecided: bool,
+}
+
+/// One `element.target` mapping to a code.
+#[derive(Debug, Clone)]
+pub struct ConceptMapTarget {
+    pub code: Arc<str>,
+    pub relationship: Arc<str>,
 }
 
 #[cfg(test)]
