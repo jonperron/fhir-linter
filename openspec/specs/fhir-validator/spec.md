@@ -799,12 +799,33 @@ Le système SHALL émettre `REFERENCE_002` (erreur) lorsqu'une référence `#id`
 
 ### Requirement: Validation de profil — profil inconnu (PROFILE_001)
 
-Le système SHALL émettre un Diagnostic de sévérité warning `PROFILE_001` pour chaque URL de `meta.profile` inconnue du Registry (suffixe `|version` ignoré pour la résolution), avec le `path` `<Type>.meta.profile[i]`.
+Le système SHALL émettre un Diagnostic de sévérité warning `PROFILE_001` pour chaque URL de `meta.profile` inconnue du Registry (suffixe `|version` ignoré pour la résolution), avec le `path` `<Type>.meta.profile[i]`. Une URL nommant une StructureDefinition fournie sans snapshot (voir `PROFILE_010`) SHALL produire `PROFILE_010` à la place de `PROFILE_001`.
 
 #### Scenario: Profil inconnu
 
 - **WHEN** `meta.profile` contient une URL absente du Registry
 - **THEN** un Diagnostic `PROFILE_001` de sévérité warning SHALL être émis
+
+---
+
+### Requirement: Validation de profil — profil sans snapshot (PROFILE_010)
+
+Une StructureDefinition fournie via `Registry::with_extra` sans snapshot SHALL être tenue hors du Registry et consignée dans `Registry::needs_snapshot`. Là où `PROFILE_001` serait émis pour l'URL d'un tel profil, le système SHALL émettre un Diagnostic de sévérité error `PROFILE_010` (message `Profile '<url>' has no snapshot; snapshot required`) : pour `meta.profile` au `path` `<Type>.meta.profile[i]` (canonique sans `|version`), pour `type.profile` au nœud, et pour un discriminateur `profile` d'un découpage, une fois par URL au chemin de l'élément découpé, après l'affectation.
+
+#### Scenario: meta.profile sans snapshot
+
+- **WHEN** `meta.profile[0]` nomme un profil fourni sans snapshot
+- **THEN** un Diagnostic `PROFILE_010` de sévérité error SHALL être émis à `<Type>.meta.profile[0]` et aucun `PROFILE_001`
+
+#### Scenario: URL toujours inconnue
+
+- **WHEN** `meta.profile` contient une URL ni dans le Registry ni dans `needs_snapshot`
+- **THEN** un `PROFILE_001` SHALL être émis, et aucun `PROFILE_010`
+
+#### Scenario: Profil de slice sans snapshot
+
+- **WHEN** un discriminateur `profile` référence un profil de slice nécessitant un snapshot
+- **THEN** un seul `PROFILE_010` par URL SHALL être émis au chemin de l'élément découpé, et un `SLICING_SKIPPED` (information) SHALL l'être aussi car le découpage ne peut être évalué
 
 ---
 
@@ -917,7 +938,7 @@ Le système SHALL émettre, au chemin d'instance concerné :
 - `PROFILE_007` (erreur) : découpage fermé et un item ne correspond à aucune slice (au chemin de l'item) ;
 - `PROFILE_008` (erreur) : découpage ordonné et un item correspond à une slice déclarée avant la slice d'un item précédent ;
 - `PROFILE_009` (erreur) : slice `openAtEnd` et un item apparaît après un item non apparié ;
-- `SLICING_SKIPPED` (information) : un discriminateur ne peut être évalué (chemin fonction tel que `resolve()`, `ofType()`, `extension('url')` ; chemin non analysable ; type non supporté tel que `position` ; slice ne donnant aucune valeur au chemin ; profil inconnu ; erreur d'évaluation, y compris un chemin nommant un élément que le type ne déclare pas, la navigation étant stricte ; la raison est alors `cannot evaluate discriminator '<path>': <error>`). Il SHALL être émis seulement s'il existe des items ou une slice avec `min>0`, et le découpage n'est alors pas évalué.
+- `SLICING_SKIPPED` (information) : un discriminateur ne peut être évalué (chemin fonction tel que `resolve()`, `ofType()`, `extension('url')` ; chemin non analysable ; type non supporté tel que `position` ; slice ne donnant aucune valeur au chemin ; profil inconnu ou nécessitant un snapshot (ce dernier émet en plus un `PROFILE_010` par URL au chemin de l'élément découpé, après l'affectation) ; erreur d'évaluation, y compris un chemin nommant un élément que le type ne déclare pas, la navigation étant stricte ; la raison est alors `cannot evaluate discriminator '<path>': <error>`). Il SHALL être émis seulement s'il existe des items ou une slice avec `min>0`, et le découpage n'est alors pas évalué.
 
 Exception : dans un découpage fermé, une slice `max=0` ne donnant aucune valeur de discriminateur (ex. `patch` du Bundle d'historique R5) SHALL ne correspondre à rien.
 
@@ -969,7 +990,7 @@ Limites connues : les re-slices comptent comme des slices ; les chemins de discr
 
 ### Requirement: Validation de profil — profils de type (type.profile)
 
-Lorsque `type.profile` d'un élément nomme un profil pour le type du nœud (ex. `Claim.item.quantity` → `SimpleQuantity`), le système SHALL appliquer à ce nœud les invariants racine du profil non déjà portés par le type ou l'élément, ainsi que ses cardinalités, `fixed[x]` et `pattern[x]`. Avec plusieurs profils, la conformité à un seul SHALL suffire ; un profil inconnu SHALL produire un `PROFILE_001` (warning) au nœud. Les constats déjà faits par la validation de base (même code et même `path`) SHALL NOT être répétés.
+Lorsque `type.profile` d'un élément nomme un profil pour le type du nœud (ex. `Claim.item.quantity` → `SimpleQuantity`), le système SHALL appliquer à ce nœud les invariants racine du profil non déjà portés par le type ou l'élément, ainsi que ses cardinalités, `fixed[x]` et `pattern[x]`. Avec plusieurs profils, la conformité à un seul SHALL suffire ; un profil inconnu SHALL produire un `PROFILE_001` (warning) au nœud, et un profil fourni sans snapshot un `PROFILE_010` (error) au nœud. Les constats déjà faits par la validation de base (même code et même `path`) SHALL NOT être répétés.
 
 #### Scenario: Invariant du profil de type
 
@@ -991,11 +1012,16 @@ Lorsque `type.profile` d'un élément nomme un profil pour le type du nœud (ex.
 - **WHEN** un des profils de `type.profile` est inconnu du Registry
 - **THEN** un `PROFILE_001` de sévérité warning SHALL être émis au nœud
 
+#### Scenario: Profil de type sans snapshot
+
+- **WHEN** un des profils de `type.profile` est fourni sans snapshot
+- **THEN** un `PROFILE_010` de sévérité error SHALL être émis au nœud, à la place de `PROFILE_001`
+
 ---
 
 ### Requirement: Exécution des manifestes de test officiels
 
-Le crate `fhir-validator` SHALL fournir un test d'intégration exécutant le manifeste `validator/manifest.json` de `fhir-test-cases` pour les cas R5 autonomes (sans `supporting`, `profile`, `profiles`, `packages`, `logical`), JSON (`parse_json`) et XML (`parse_xml`). Le résultat attendu SHALL provenir de l'entrée `java` : le fichier OperationOutcome qu'elle nomme sous `outcomes/`, un `outcome` en ligne ou `errorCount` ; le nombre d'erreurs attendues est le nombre d'issues `error` + `fatal`. Les cas que le manifeste déclare hors périmètre — clé `supporting5` (définitions supplémentaires non chargées) ou `for-publication` valant `true` ou `"true"` (règles de publication HL7) — SHALL être ignorés, comptés par format dans un compteur distinct « skipped (out of scope) » affiché dans le rapport, et exclus du dénominateur du taux de réussite. Les cas sans résultat attendu (fichier d'outcome nommé absent des fixtures) sont comptés comme ignorés ; un fichier d'outcome nommé présent mais illisible ou qui n'est pas un OperationOutcome SHALL faire échouer le test. Chaque cas est jugé sur « présence d'erreurs » contre « erreurs attendues » ; un échec d'analyse (y compris un fichier non UTF-8) compte comme « présence d'erreurs ». Les taux JSON et XML SHALL être affichés séparément (réussites, fausses erreurs, erreurs manquées, échecs d'analyse) et SHALL être au moins 0,87 pour JSON et 0,88 pour XML (planchers de régression). Le test SHALL échouer si, par format, les décomptes (cas jugés, ignorés sans résultat attendu, hors périmètre) diffèrent exactement de JSON (108, 1, 3) et XML (107, 1, 1) sur les fixtures épinglées (dérive des fixtures ou des filtres). En plus du jugement « présence d'erreurs » (inchangé), le test SHALL comparer, pour chaque cas jugé, le nombre de diagnostics de sévérité Error (un échec d'analyse compte pour 1) au nombre d'erreurs attendues (`errorCount` + `fatalCount`, ou issues `error` + `fatal` de l'`outcome` en ligne ou du fichier `outcomes/`), et afficher par format une table des écarts (cas, format, attendu, obtenu, delta) triée par |delta| décroissant puis par nom de fichier, avec un résumé matched/over/under. Le décompte ne SHALL jamais modifier le verdict réussite/échec d'un cas. Le test SHALL échouer si le nombre de cas concordants descend sous le plancher exact `MIN_ERROR_COUNT_MATCHES` = (78, 79) (JSON, XML), à relever à mesure que les décomptes convergent. Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le manifeste est absent, le test SHALL être ignoré.
+Le crate `fhir-validator` SHALL fournir un test d'intégration exécutant le manifeste `validator/manifest.json` de `fhir-test-cases` pour les cas R5 autonomes (sans `supporting`, `profile`, `profiles`, `packages`, `logical`) dans les taux principaux, JSON (`parse_json`) et XML (`parse_xml`). Le résultat attendu SHALL provenir de l'entrée `java` : le fichier OperationOutcome qu'elle nomme sous `outcomes/`, un `outcome` en ligne ou `errorCount` ; le nombre d'erreurs attendues est le nombre d'issues `error` + `fatal`. Les cas que le manifeste déclare hors périmètre — clé `supporting5` (définitions supplémentaires non chargées) ou `for-publication` valant `true` ou `"true"` (règles de publication HL7) — SHALL être ignorés, comptés par format dans un compteur distinct « skipped (out of scope) » affiché dans le rapport, et exclus du dénominateur du taux de réussite. Les cas sans résultat attendu (fichier d'outcome nommé absent des fixtures) sont comptés comme ignorés ; un fichier d'outcome nommé présent mais illisible ou qui n'est pas un OperationOutcome SHALL faire échouer le test. Chaque cas est jugé sur « présence d'erreurs » contre « erreurs attendues » ; un échec d'analyse (y compris un fichier non UTF-8) compte comme « présence d'erreurs ». Les taux JSON et XML SHALL être affichés séparément (réussites, fausses erreurs, erreurs manquées, échecs d'analyse) et SHALL être au moins 0,87 pour JSON et 0,88 pour XML (planchers de régression). Le test SHALL échouer si, par format, les décomptes (cas jugés, ignorés sans résultat attendu, hors périmètre) diffèrent exactement de JSON (108, 1, 3) et XML (107, 1, 1) sur les fixtures épinglées (dérive des fixtures ou des filtres). En plus du jugement « présence d'erreurs » (inchangé), le test SHALL comparer, pour chaque cas jugé, le nombre de diagnostics de sévérité Error (un échec d'analyse compte pour 1) au nombre d'erreurs attendues (`errorCount` + `fatalCount`, ou issues `error` + `fatal` de l'`outcome` en ligne ou du fichier `outcomes/`), et afficher par format une table des écarts (cas, format, attendu, obtenu, delta) triée par |delta| décroissant puis par nom de fichier, avec un résumé matched/over/under. Le décompte ne SHALL jamais modifier le verdict réussite/échec d'un cas. Le test SHALL échouer si le nombre de cas concordants descend sous le plancher exact `MIN_ERROR_COUNT_MATCHES` = (78, 79) (JSON, XML), à relever à mesure que les décomptes convergent. Les cas R5 portant l'une des clés `supporting`, `profile`, `profiles`, `packages`, `logical` SHALL aller dans un compteur `supporting` distinct (les deux formats ensemble), jamais dans les taux principaux. Un cas portant `profile` (exécution avec profil explicite, `-profile` de Java) est différé et compté « skipped (explicit profile, deferred) ». Sont comptés « skipped (needs snapshot/package/xml) » : les cas avec `packages` ou `logical`, un fichier `supporting`/`profiles` qui n'est pas `.json` ou est absent, un ensemble fourni rejeté par la surcouche (`Error::Unsupported`, ex. une spécialisation ; `Error::Conflict`, ex. deux versions d'un même canonique) et une StructureDefinition fournie sans snapshot (`needs_snapshot`). Les autres SHALL être validés avec `Registry::with_extra(base, fichiers)` et jugés comme les cas principaux, avec leur propre ligne de rapport et table des écarts de décompte. Le test SHALL échouer si les décomptes (jugés, ignorés sans résultat attendu, hors périmètre, needs snapshot/package/xml, profil explicite différé) diffèrent exactement de (42, 0, 0, 68, 69), ou si le nombre de cas réussis ou de concordances de décompte `supporting` descend sous 31 (planchers sans marge). Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le manifeste est absent, le test SHALL être ignoré.
 
 #### Scenario: Taux de réussite sous le plancher
 
@@ -1006,6 +1032,11 @@ Le crate `fhir-validator` SHALL fournir un test d'intégration exécutant le man
 
 - **WHEN** un cas du manifeste porte une clé `supporting5` ou `for-publication` valant `true` ou `"true"`
 - **THEN** il SHALL être compté dans « skipped (out of scope) » et exclu du dénominateur du taux de réussite
+
+#### Scenario: Cas avec définitions supplémentaires
+
+- **WHEN** un cas R5 porte `supporting` ou `profiles` (fichiers `.json` chargeables, sans snapshot manquant)
+- **THEN** il SHALL être validé avec `Registry::with_extra`, compté dans le tally `supporting` et non dans les taux JSON/XML principaux ; un cas avec `profile` SHALL être compté « skipped (explicit profile, deferred) » et un cas avec `packages`, `logical`, fichier non `.json`, surcouche rejetée ou snapshot manquant « skipped (needs snapshot/package/xml) »
 
 #### Scenario: Sous-module absent
 
