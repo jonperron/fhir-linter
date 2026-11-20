@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 //! FHIR R5 definitions registry.
 //!
-//! Loads and indexes StructureDefinitions, ValueSets, and CodeSystems from
+//! Loads and indexes StructureDefinitions, ValueSets, CodeSystems and ConceptMaps from
 //! the bundled FHIR R5 artifact files.
 
 mod conformance;
@@ -16,8 +16,9 @@ mod type_code;
 
 pub use input::{MAX_INPUT_BYTES, read_capped};
 pub use model::{
-    AdditionalBinding, Binding, ChoiceValue, CodeSystem, Constraint, Discriminator,
-    ElementDefinition, Include, Slicing, StructureDefinition, TypeProfiles, ValueSet,
+    AdditionalBinding, Binding, ChoiceValue, CodeSystem, Concept, ConceptMap, ConceptMapElement,
+    ConceptMapGroup, ConceptMapTarget, Constraint, Discriminator, ElementDefinition, Include,
+    Slicing, StructureDefinition, TypeProfiles, ValueSet,
 };
 pub use registry::{CORE_PREFIX, Registry};
 pub use shared::DEFINITIONS_DIR_ENV;

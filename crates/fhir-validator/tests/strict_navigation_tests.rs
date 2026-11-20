@@ -97,6 +97,7 @@ fn typo_registry() -> &'static Registry {
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("strict-typo-profile");
         std::fs::create_dir_all(&dir).expect("create the definitions directory");
         for file in [
+            "conceptmaps.json",
             "profiles-resources.json",
             "profiles-types.json",
             "valuesets.json",

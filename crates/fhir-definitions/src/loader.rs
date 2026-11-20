@@ -5,8 +5,9 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::model::{
-    AdditionalBinding, Binding, ChoiceValue, CodeSystem, Constraint, Discriminator,
-    ElementDefinition, Include, Slicing, StructureDefinition, TypeProfiles, ValueSet,
+    AdditionalBinding, Binding, ChoiceValue, CodeSystem, Concept, ConceptMap, ConceptMapElement,
+    ConceptMapGroup, ConceptMapTarget, Constraint, Discriminator, ElementDefinition, Include,
+    Slicing, StructureDefinition, TypeProfiles, ValueSet,
 };
 use crate::{Error, Result};
 
@@ -16,13 +17,14 @@ pub struct Definitions {
     pub structure_definitions: HashMap<Arc<str>, StructureDefinition>,
     pub value_sets: HashMap<Arc<str>, ValueSet>,
     pub code_systems: HashMap<Arc<str>, CodeSystem>,
+    pub concept_maps: HashMap<Arc<str>, ConceptMap>,
     /// StructureDefinitions without a snapshot: kept out of the map, so no lookup
     /// ever sees an empty snapshot.
     pub needs_snapshot: HashSet<Arc<str>>,
 }
 
 /// Parse a FHIR Bundle JSON file and add any `StructureDefinition`, `ValueSet`,
-/// or `CodeSystem` entries found to `defs`.
+/// `CodeSystem` or `ConceptMap` entries found to `defs`.
 pub fn load_bundle(path: &Path, defs: &mut Definitions) -> Result<()> {
     let file_name = path.to_string_lossy().into_owned();
     let content = std::fs::read_to_string(path).map_err(Error::Io)?;
@@ -45,8 +47,8 @@ pub fn load_bundle(path: &Path, defs: &mut Definitions) -> Result<()> {
     Ok(())
 }
 
-/// Add one resource to `defs` if it is a `StructureDefinition`, `ValueSet` or
-/// `CodeSystem`, and return its canonical URL. Other resources, and definitions
+/// Add one resource to `defs` if it is a `StructureDefinition`, `ValueSet`,
+/// `CodeSystem` or `ConceptMap`, and return its canonical URL. Other resources, and definitions
 /// without the fields the registry needs, are skipped (`None`). `file` names the
 /// source in errors.
 pub fn load_resource(
@@ -86,6 +88,11 @@ pub fn load_resource(
         "CodeSystem" => parse_code_system(resource).map(|cs| {
             let url = Arc::clone(&cs.url);
             defs.code_systems.insert(Arc::clone(&url), cs);
+            url
+        }),
+        "ConceptMap" => parse_concept_map(resource).map(|cm| {
+            let url = Arc::clone(&cm.url);
+            defs.concept_maps.insert(Arc::clone(&url), cm);
             url
         }),
         _ => None,
@@ -369,20 +376,26 @@ fn parse_value_set(resource: &Value) -> Option<ValueSet> {
 }
 
 fn parse_include(inc: &Value) -> Include {
-    let strings = |v: &Value, key: &str| -> Vec<Arc<str>> {
-        v.as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|x| x[key].as_str().map(Arc::from))
-                    .collect()
-            })
-            .unwrap_or_default()
+    // A `concept` that is not an array is unreadable too.
+    let listed = match &inc["concept"] {
+        Value::Null => 0,
+        Value::Array(list) => list.len(),
+        _ => usize::MAX,
     };
+    let concepts: Vec<_> = inc["concept"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(parse_concept)
+        .collect();
     Include {
         system: inc["system"].as_str().map(Arc::from),
         version: inc["version"].as_str().map(Arc::from),
-        codes: strings(&inc["concept"], "code"),
-        has_filter: inc["filter"].as_array().is_some_and(|f| !f.is_empty()),
+        // An unreadable concept entry makes the list undecidable, like a filter; it must
+        // not shrink to a shorter list, or to "the whole system" when none is readable.
+        has_filter: inc["filter"].as_array().is_some_and(|f| !f.is_empty())
+            || concepts.len() != listed,
+        concepts,
         value_sets: canonicals(&inc["valueSet"]),
     }
 }
@@ -390,22 +403,86 @@ fn parse_include(inc: &Value) -> Include {
 fn parse_code_system(resource: &Value) -> Option<CodeSystem> {
     let url: Arc<str> = resource["url"].as_str()?.into();
     let name: Arc<str> = resource["name"].as_str()?.into();
-    let mut codes = HashSet::new();
+    let mut concepts = Vec::new();
     let mut not_selectable = HashSet::new();
     let flag = not_selectable_property_code(resource);
-    collect_concepts(&resource["concept"], flag, &mut codes, &mut not_selectable);
+    collect_concepts(
+        &resource["concept"],
+        flag,
+        &mut concepts,
+        &mut not_selectable,
+    );
+    let codes: HashSet<Arc<str>> = concepts.iter().map(|c| Arc::clone(&c.code)).collect();
     // Only a complete, enumerated system can prove a code absent.
     // Case-insensitive systems are never proven absent: lookup is exact-match.
-    let complete = resource["content"].as_str() == Some("complete")
-        && resource["caseSensitive"].as_bool() != Some(false)
-        && !codes.is_empty();
+    let enumerated = resource["content"].as_str() == Some("complete") && !codes.is_empty();
+    let complete = enumerated && resource["caseSensitive"].as_bool() != Some(false);
     Some(CodeSystem {
         url,
         name,
         version: resource["version"].as_str().map(Arc::from),
         codes,
+        concepts,
         not_selectable,
         complete,
+        enumerated,
+    })
+}
+
+/// `None` for a concept without `code`.
+fn parse_concept(concept: &Value) -> Option<Concept> {
+    Some(Concept {
+        code: concept["code"].as_str()?.into(),
+        display: concept["display"].as_str().map(Arc::from),
+    })
+}
+
+/// `None` skips a map without url. Targets that are not plain code mappings, and
+/// elements without `code`, are not stored but flagged, so a lookup never takes
+/// the rest for the whole answer.
+fn parse_concept_map(resource: &Value) -> Option<ConceptMap> {
+    fn array(value: &Value) -> impl Iterator<Item = &Value> {
+        value.as_array().into_iter().flatten()
+    }
+    let plain_target = |target: &Value| {
+        // `product` only adds outputs; `dependsOn` makes the mapping conditional.
+        if target["dependsOn"].is_array() {
+            return None;
+        }
+        Some(ConceptMapTarget {
+            code: target["code"].as_str()?.into(),
+            relationship: target["relationship"].as_str()?.into(),
+        })
+    };
+    let element = |element: &Value| {
+        let parsed: Vec<_> = array(&element["target"]).map(plain_target).collect();
+        Some(ConceptMapElement {
+            code: element["code"].as_str()?.into(),
+            undecided: parsed.iter().any(Option::is_none),
+            targets: parsed.into_iter().flatten().collect(),
+        })
+    };
+    let groups = array(&resource["group"])
+        .map(|group| {
+            let parsed: Vec<_> = array(&group["element"]).map(element).collect();
+            // A canonical `url|version` pins a version that translate cannot check or give back.
+            let versioned = ["source", "target"]
+                .iter()
+                .any(|key| group[key].as_str().is_some_and(|c| c.contains('|')));
+            ConceptMapGroup {
+                versioned,
+                source: group["source"].as_str().map(strip_version),
+                target: group["target"].as_str().map(strip_version),
+                unlisted_undecided: group["unmapped"].is_object()
+                    || parsed.iter().any(Option::is_none),
+                elements: parsed.into_iter().flatten().collect(),
+            }
+        })
+        .collect();
+    Some(ConceptMap {
+        url: resource["url"].as_str()?.into(),
+        version: resource["version"].as_str().map(Arc::from),
+        groups,
     })
 }
 
@@ -428,15 +505,15 @@ fn not_selectable_property_code(resource: &Value) -> &str {
 fn collect_concepts(
     concepts: &Value,
     flag: &str,
-    out: &mut HashSet<Arc<str>>,
+    out: &mut Vec<Concept>,
     not_selectable: &mut HashSet<Arc<str>>,
 ) {
     for c in concepts.as_array().into_iter().flatten() {
-        if let Some(code) = c["code"].as_str() {
-            out.insert(Arc::from(code));
+        if let Some(concept) = parse_concept(c) {
             if is_flagged(c, flag) {
-                not_selectable.insert(Arc::from(code));
+                not_selectable.insert(Arc::clone(&concept.code));
             }
+            out.push(concept);
         }
         collect_concepts(&c["concept"], flag, out, not_selectable);
     }
