@@ -144,15 +144,7 @@ impl Evaluator<'_> {
             let system = field_string(coding, "system")?;
             member_of(Some(&system), &field_string(coding, "code")?)
         };
-        // An object's FHIR type decides; an untyped one is told by its fields,
-        // `coding` for a CodeableConcept and `code` for a Coding.
-        let object_type = match item {
-            Value::Object(_, Some(fhir_type)) => Some(&**fhir_type),
-            Value::Object(fields, None) if fields.contains_key("coding") => Some("CodeableConcept"),
-            Value::Object(fields, None) if fields.contains_key("code") => Some("Coding"),
-            _ => None,
-        };
-        let member = match (item, object_type) {
+        let member = match (item, coded_type(item)) {
             // shortcut: only a `code` element is looked up without a system; a
             // plain String is empty, as fhirpath.html answers it only for a
             // ValueSet of one code system, which `member_of` cannot tell.
@@ -249,8 +241,19 @@ fn reference(item: &Value) -> Option<Arc<str>> {
     }
 }
 
+/// An object's FHIR type; an untyped one is told by its fields, `coding` for
+/// a CodeableConcept and `code` for a Coding.
+pub(super) fn coded_type(item: &Value) -> Option<&str> {
+    match item {
+        Value::Object(_, Some(fhir_type)) => Some(fhir_type),
+        Value::Object(fields, None) if fields.contains_key("coding") => Some("CodeableConcept"),
+        Value::Object(fields, None) if fields.contains_key("code") => Some("Coding"),
+        _ => None,
+    }
+}
+
 /// The single String value of the child `name` of an object.
-fn field_string(item: &Value, name: &str) -> Option<Arc<str>> {
+pub(super) fn field_string(item: &Value, name: &str) -> Option<Arc<str>> {
     let Value::Object(fields, _) = item else {
         return None;
     };

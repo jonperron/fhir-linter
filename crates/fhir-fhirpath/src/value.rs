@@ -93,6 +93,24 @@ impl Value {
             .flat_map(|(_, values)| values)
     }
 
+    /// An object node of the FHIR type `fhir_type` (a resource type, `Coding`,
+    /// `BackboneElement`) with `fields` in order; a resource lists its
+    /// `resourceType` field itself, as [`resource_to_typed_value`] does. A field
+    /// with an empty collection is left out, as absent.
+    pub fn object(fhir_type: &str, fields: Vec<(&str, Collection)>) -> Value {
+        let fields = fields
+            .into_iter()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(k, v)| (Arc::from(k), v))
+            .collect();
+        Value::Object(Arc::new(fields), Some(Arc::from(fhir_type)))
+    }
+
+    /// The FHIR primitive `text` of type `fhir_type` (`code`, `uri`, `string`).
+    pub fn fhir_string(text: &str, fhir_type: &str) -> Value {
+        typed_string(&Arc::from(text), Some(&Arc::from(fhir_type)))
+    }
+
     /// Human-readable type name for error messages.
     pub fn type_name(&self) -> &'static str {
         match self {

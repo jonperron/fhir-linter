@@ -24,11 +24,13 @@ mod regex;
 mod strict;
 mod string_fns;
 mod temporal;
+mod terminologies;
 mod type_conv;
 mod value_set;
 
 use strict::Focus;
 pub use strict::Strict;
+pub use terminologies::Terminologies;
 
 use helpers::{
     as_type, bool_col, collections_equal, collections_equivalent, contains_value, is_type,
@@ -106,6 +108,10 @@ pub struct Environment<'a> {
     /// checked against it (an error), else whether it conforms (build it from
     /// `Registry::conforms_to`). Unset, `conformsTo()` is an error.
     pub conforms_to: Option<&'a ConformsTo<'a>>,
+    /// `%terminologies` (R5 fhirpath.html §2.1.9.4): `expand()`, `validateVS()`
+    /// and `translate()` (implemented for `Registry` in `fhir-definitions`).
+    /// Unset, or when it cannot decide, a call on `%terminologies` is an error.
+    pub terminologies: Option<&'a dyn Terminologies>,
 }
 
 impl std::fmt::Debug for Environment<'_> {
@@ -117,6 +123,10 @@ impl std::fmt::Debug for Environment<'_> {
             .field("member_of", &self.member_of.map(|_| "Fn"))
             .field("strict", &self.strict.map(|_| "Fn"))
             .field("conforms_to", &self.conforms_to.map(|_| "Fn"))
+            .field(
+                "terminologies",
+                &self.terminologies.map(|_| "Terminologies"),
+            )
             .finish()
     }
 }
@@ -172,9 +182,14 @@ pub(super) type Scope = Option<Rc<Variable>>;
 fn is_system_variable(name: &str) -> bool {
     matches!(
         name,
-        "context" | "resource" | "rootResource" | "ucum" | "sct" | "loinc"
+        "context" | "resource" | "rootResource" | "ucum" | "sct" | "loinc" | "terminologies"
     ) || name.starts_with("vs-")
         || name.starts_with("ext-")
+}
+
+/// Whether `base` is `%terminologies`, whose calls go to the terminology hook.
+fn is_terminologies(base: &Expr) -> bool {
+    matches!(base, Expr::External(name) if name == "terminologies")
 }
 
 impl Evaluator<'_> {
@@ -501,6 +516,10 @@ impl Evaluator<'_> {
                     _ => next.eval_chain(step, &base_col)?,
                 }
             }
+            Expr::Method(base, name, args) if is_terminologies(base) => (
+                self.call_terminologies(name, args, ctx)?,
+                self.variables.clone(),
+            ),
             Expr::Method(base, name, args) => {
                 let (base_col, scope) = self.eval_chain(base, ctx)?;
                 let next = Evaluator {
