@@ -84,7 +84,7 @@ impl Registry {
     fn expand_system<'a>(&'a self, system: &'a str, inc: &'a Include) -> Option<Expansion<'a>> {
         let cs = self.include_code_system(system, inc);
         let entries: Expansion<'a> = if inc.concepts.is_empty() {
-            let cs = cs.filter(|cs| cs.complete)?;
+            let cs = cs.filter(|cs| cs.enumerated)?;
             cs.concepts
                 .iter()
                 .map(|c| (system, c.code.as_ref(), c.display.as_deref()))
@@ -117,7 +117,8 @@ impl Registry {
     ///
     /// `None` when the answer is not sure: unknown map; no `system` and groups
     /// from several source systems; a `system` and a group without `source`; a
-    /// matching group without `target`; a matching element with a target that is
+    /// matching group without `target` whose element has targets; a matching
+    /// group pinned to a version (`source` or `target` as `url|version`); a matching element with a target that is
     /// no plain code mapping (no `code` or `relationship`, or a `dependsOn`
     /// condition); or a code a matching group does not list while it declares
     /// `unmapped` (not applied) or keys an element by `valueSet`. `product`
@@ -141,6 +142,9 @@ impl Registry {
                 (Some(_), None) => return None,
                 (Some(system), Some(source)) if system != source => continue,
                 _ => {}
+            }
+            if group.versioned {
+                return None;
             }
             let mut listed = false;
             for element in group.elements.iter().filter(|e| e.code.as_ref() == code) {

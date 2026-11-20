@@ -376,16 +376,21 @@ fn parse_value_set(resource: &Value) -> Option<ValueSet> {
 }
 
 fn parse_include(inc: &Value) -> Include {
+    let listed = inc["concept"].as_array().map_or(0, Vec::len);
+    let concepts: Vec<_> = inc["concept"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(parse_concept)
+        .collect();
     Include {
         system: inc["system"].as_str().map(Arc::from),
         version: inc["version"].as_str().map(Arc::from),
-        concepts: inc["concept"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(parse_concept)
-            .collect(),
-        has_filter: inc["filter"].as_array().is_some_and(|f| !f.is_empty()),
+        // An unreadable concept entry makes the list undecidable, like a filter; it must
+        // not shrink to a shorter list, or to "the whole system" when none is readable.
+        has_filter: inc["filter"].as_array().is_some_and(|f| !f.is_empty())
+            || concepts.len() != listed,
+        concepts,
         value_sets: canonicals(&inc["valueSet"]),
     }
 }
@@ -405,9 +410,8 @@ fn parse_code_system(resource: &Value) -> Option<CodeSystem> {
     let codes: HashSet<Arc<str>> = concepts.iter().map(|c| Arc::clone(&c.code)).collect();
     // Only a complete, enumerated system can prove a code absent.
     // Case-insensitive systems are never proven absent: lookup is exact-match.
-    let complete = resource["content"].as_str() == Some("complete")
-        && resource["caseSensitive"].as_bool() != Some(false)
-        && !codes.is_empty();
+    let enumerated = resource["content"].as_str() == Some("complete") && !codes.is_empty();
+    let complete = enumerated && resource["caseSensitive"].as_bool() != Some(false);
     Some(CodeSystem {
         url,
         name,
@@ -416,6 +420,7 @@ fn parse_code_system(resource: &Value) -> Option<CodeSystem> {
         concepts,
         not_selectable,
         complete,
+        enumerated,
     })
 }
 
@@ -436,12 +441,13 @@ fn parse_concept_map(resource: &Value) -> Option<ConceptMap> {
     }
     let plain_target = |target: &Value| {
         // `product` only adds outputs; `dependsOn` makes the mapping conditional.
-        let conditional = target["dependsOn"].is_array();
+        if target["dependsOn"].is_array() {
+            return None;
+        }
         Some(ConceptMapTarget {
             code: target["code"].as_str()?.into(),
             relationship: target["relationship"].as_str()?.into(),
         })
-        .filter(|_| !conditional)
     };
     let element = |element: &Value| {
         let parsed: Vec<_> = array(&element["target"]).map(plain_target).collect();
@@ -454,7 +460,12 @@ fn parse_concept_map(resource: &Value) -> Option<ConceptMap> {
     let groups = array(&resource["group"])
         .map(|group| {
             let parsed: Vec<_> = array(&group["element"]).map(element).collect();
+            // A canonical `url|version` pins a version that translate cannot check or give back.
+            let versioned = ["source", "target"]
+                .iter()
+                .any(|key| group[key].as_str().is_some_and(|c| c.contains('|')));
             ConceptMapGroup {
+                versioned,
                 source: group["source"].as_str().map(strip_version),
                 target: group["target"].as_str().map(strip_version),
                 unlisted_undecided: group["unmapped"].is_object()

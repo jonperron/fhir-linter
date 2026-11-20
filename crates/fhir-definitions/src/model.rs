@@ -320,6 +320,9 @@ pub struct CodeSystem {
     pub not_selectable: HashSet<Arc<str>>,
     /// False when the system is a fragment/not-present, so absence of a code proves nothing.
     pub complete: bool,
+    /// True when `content` is `complete` with concepts listed, whatever the case rule:
+    /// the concept list is then exact, though a lookup of absence is not.
+    pub enumerated: bool,
 }
 
 /// The parts of an R5 ConceptMap that a code translation reads.
@@ -333,6 +336,8 @@ pub struct ConceptMap {
 /// One `ConceptMap.group`: mappings from one source system to one target system.
 #[derive(Debug, Clone)]
 pub struct ConceptMapGroup {
+    /// True when `source` or `target` was a versioned canonical (`url|version`), dropped here.
+    pub versioned: bool,
     pub source: Option<Arc<str>>,
     pub target: Option<Arc<str>>,
     pub elements: Vec<ConceptMapElement>,

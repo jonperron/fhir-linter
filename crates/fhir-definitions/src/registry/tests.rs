@@ -478,13 +478,24 @@ fn expand_lists_a_whole_complete_code_system_in_document_order() {
 
 #[test]
 fn expand_lists_explicit_concepts_across_systems() {
-    let codes: Vec<_> = REGISTRY
+    let entries: Vec<_> = REGISTRY
         .expand("http://hl7.org/fhir/ValueSet/security-label-data-examples")
         .unwrap()
         .into_iter()
-        .map(|(_, code, _)| code)
+        .map(|(system, code, _)| (system, code))
         .collect();
-    assert_eq!(codes, ["N", "R", "ETH", "PSY", "STD"]);
+    const CONFIDENTIALITY: &str = "http://terminology.hl7.org/CodeSystem/v3-Confidentiality";
+    const ACT_CODE: &str = "http://terminology.hl7.org/CodeSystem/v3-ActCode";
+    assert_eq!(
+        entries,
+        [
+            (CONFIDENTIALITY, "N"),
+            (CONFIDENTIALITY, "R"),
+            (ACT_CODE, "ETH"),
+            (ACT_CODE, "PSY"),
+            (ACT_CODE, "STD"),
+        ]
+    );
 }
 
 #[test]

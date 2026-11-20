@@ -565,3 +565,42 @@ fn translate_with_a_system_over_a_sourceless_group_is_none() {
     );
     assert!(overlay.translate(CONCEPT_MAP, None, "red").is_some());
 }
+
+#[test]
+fn expand_reads_include_concepts_and_case_insensitive_systems_exactly() {
+    let mut insensitive = code_system();
+    insensitive["caseSensitive"] = json!(false);
+    let mut malformed = value_set();
+    malformed["url"] = json!("http://example.org/ValueSet/malformed");
+    malformed["compose"]["include"][0]["concept"] = json!([{"display": "no code"}]);
+    let overlay = overlay_with("expand_edges", &[insensitive, value_set(), malformed]);
+    // An enumerated, complete system lists exactly even when its codes match case-blind.
+    assert_eq!(
+        overlay.expand(VALUE_SET),
+        Some(vec![
+            (CODE_SYSTEM, "red", None),
+            (CODE_SYSTEM, "blue", None)
+        ])
+    );
+    // A concept list that cannot be read is not "the whole system".
+    assert_eq!(
+        overlay.expand("http://example.org/ValueSet/malformed"),
+        None
+    );
+}
+
+#[test]
+fn translate_declines_a_group_pinned_to_a_version() {
+    for (name, key) in [("cm_source_ver", "source"), ("cm_target_ver", "target")] {
+        let mut group = json!({
+            "source": CODE_SYSTEM,
+            "target": "http://example.org/hex",
+            "element": [{"code": "red", "target": [
+                {"code": "#f00", "relationship": "equivalent"},
+            ]}],
+        });
+        group[key] = json!(format!("{}|2", group[key].as_str().unwrap()));
+        let overlay = overlay_with(name, &[concept_map(json!([group]))]);
+        assert_eq!(overlay.translate(CONCEPT_MAP, None, "red"), None, "{key}");
+    }
+}
