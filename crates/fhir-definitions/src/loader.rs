@@ -16,6 +16,9 @@ pub struct Definitions {
     pub structure_definitions: HashMap<Arc<str>, StructureDefinition>,
     pub value_sets: HashMap<Arc<str>, ValueSet>,
     pub code_systems: HashMap<Arc<str>, CodeSystem>,
+    /// StructureDefinitions without a snapshot: kept out of the map, so no lookup
+    /// ever sees an empty snapshot.
+    pub needs_snapshot: HashSet<Arc<str>>,
 }
 
 /// Parse a FHIR Bundle JSON file and add any `StructureDefinition`, `ValueSet`,
@@ -64,7 +67,11 @@ pub fn load_resource(
                 })?;
             sd.map(|sd| {
                 let url = Arc::clone(&sd.url);
-                defs.structure_definitions.insert(Arc::clone(&url), sd);
+                if sd.snapshot.is_empty() {
+                    defs.needs_snapshot.insert(Arc::clone(&url));
+                } else {
+                    defs.structure_definitions.insert(Arc::clone(&url), sd);
+                }
                 url
             })
         }
@@ -84,7 +91,8 @@ pub fn load_resource(
 }
 
 /// `Ok(None)` skips a definition without url, name or kind; a snapshot element
-/// without `path` or `max` is an error, so no element is dropped silently.
+/// without `path` or `max` is an error, so no element is dropped silently. A
+/// missing snapshot gives an empty one, which [`load_resource`] keeps out of the map.
 fn parse_structure_definition(
     resource: &Value,
 ) -> std::result::Result<Option<StructureDefinition>, String> {

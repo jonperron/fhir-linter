@@ -5,6 +5,7 @@
 //! the bundled FHIR R5 artifact files.
 
 mod conformance;
+mod input;
 #[cfg(test)]
 mod loaded_fields_tests;
 mod loader;
@@ -13,6 +14,7 @@ mod registry;
 mod shared;
 mod type_code;
 
+pub use input::{MAX_INPUT_BYTES, read_capped};
 pub use model::{
     AdditionalBinding, Binding, ChoiceValue, CodeSystem, Constraint, Discriminator,
     ElementDefinition, Include, Slicing, StructureDefinition, TypeProfiles, ValueSet,
@@ -38,6 +40,22 @@ pub enum Error {
 
     #[error("malformed FHIR bundle in {file}: {message}")]
     MalformedBundle { file: String, message: String },
+
+    #[error("cannot read {file}: {source}")]
+    Read {
+        file: String,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("{url} in {file} is already defined")]
+    Conflict { url: String, file: String },
+
+    #[error("unsupported definition in {file}: {message}")]
+    Unsupported { file: String, message: String },
+
+    #[error("{file}: {message}")]
+    Limit { file: String, message: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

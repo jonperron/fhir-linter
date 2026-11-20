@@ -22,7 +22,7 @@ Always read the relevant spec before implementing or modifying a feature.
 
 - Official artifacts are fetched by `scripts/download-definitions.sh` (SHA-256 verified).
 - Never hard-code FHIR R5 resource shapes; always derive from the `Registry`.
-- The `Registry` is read-only at runtime; build it once and share via `Arc`.
+- The base Registry is read-only at runtime and shared via Arc. Supplied definitions go into an immutable overlay (`Registry::with_extra`) built once per validation context. Nothing ever mutates a Registry.
 
 ## Key Files
 
