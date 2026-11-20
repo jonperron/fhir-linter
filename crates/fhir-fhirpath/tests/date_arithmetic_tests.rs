@@ -1,5 +1,5 @@
-//! Date, DateTime and Time plus or minus a calendar duration (FHIRPath N2
-//! §6.6.7 `+` and §6.6.8 `-`).
+//! Date, DateTime and Time plus or minus a calendar duration (FHIRPath N1
+//! §6.7.1 `+` and §6.7.2 `-`).
 use std::sync::Arc;
 
 use fhir_fhirpath::{Value, evaluate};
@@ -139,6 +139,14 @@ fn partial_values_convert_days_to_years_and_months() {
     date("@2026-02 + 5 weeks", "2026-03");
     date("@2026-02 + 4 weeks", "2026-02");
     date("@2026-02 - 60 'd'", "2025-12");
+    date("@2026-02 - 29 days", "2026-02");
+    date("@2026-02 - 30 days", "2026-01");
+    // A partial DateTime takes clock units the same way.
+    date_time("@2016T + 8760 hours", "2017T");
+    date_time("@2016-02T + 719 hours", "2016-02T");
+    date_time("@2016-02T + 720 hours", "2016-03T");
+    fails("@2016-02T + 1000000000000000000000000000000 's'");
+    fails("@2016-02-01T00:00:00.000Z - 1000000000000000000000000000000 's'");
 }
 
 #[test]
