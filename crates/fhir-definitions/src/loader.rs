@@ -10,14 +10,20 @@ use crate::model::{
 };
 use crate::{Error, Result};
 
-/// Parse a FHIR Bundle JSON file and populate the given maps with any
-/// `StructureDefinition`, `ValueSet`, or `CodeSystem` entries found.
-pub fn load_bundle(
-    path: &Path,
-    structure_definitions: &mut HashMap<Arc<str>, StructureDefinition>,
-    value_sets: &mut HashMap<Arc<str>, ValueSet>,
-    code_systems: &mut HashMap<Arc<str>, CodeSystem>,
-) -> Result<()> {
+/// The definitions loaded from one or more files, keyed by canonical URL.
+#[derive(Default)]
+pub struct Definitions {
+    pub structure_definitions: HashMap<Arc<str>, StructureDefinition>,
+    pub value_sets: HashMap<Arc<str>, ValueSet>,
+    pub code_systems: HashMap<Arc<str>, CodeSystem>,
+    /// StructureDefinitions without a snapshot: kept out of the map, so no lookup
+    /// ever sees an empty snapshot.
+    pub needs_snapshot: HashSet<Arc<str>>,
+}
+
+/// Parse a FHIR Bundle JSON file and add any `StructureDefinition`, `ValueSet`,
+/// or `CodeSystem` entries found to `defs`.
+pub fn load_bundle(path: &Path, defs: &mut Definitions) -> Result<()> {
     let file_name = path.to_string_lossy().into_owned();
     let content = std::fs::read_to_string(path).map_err(Error::Io)?;
     let bundle: Value = serde_json::from_str(&content).map_err(|source| Error::Json {
@@ -33,42 +39,63 @@ pub fn load_bundle(
         })?;
 
     for entry in entries {
-        let resource = &entry["resource"];
-        let Some(resource_type) = resource["resourceType"].as_str() else {
-            continue;
-        };
-
-        match resource_type {
-            "StructureDefinition" => {
-                let sd = parse_structure_definition(resource).map_err(|message| {
-                    Error::MalformedBundle {
-                        file: file_name.clone(),
-                        message,
-                    }
-                })?;
-                if let Some(sd) = sd {
-                    structure_definitions.insert(Arc::clone(&sd.url), sd);
-                }
-            }
-            "ValueSet" => {
-                if let Some(vs) = parse_value_set(resource) {
-                    value_sets.insert(Arc::clone(&vs.url), vs);
-                }
-            }
-            "CodeSystem" => {
-                if let Some(cs) = parse_code_system(resource) {
-                    code_systems.insert(Arc::clone(&cs.url), cs);
-                }
-            }
-            _ => {}
-        }
+        load_resource(&entry["resource"], &file_name, defs)?;
     }
 
     Ok(())
 }
 
+/// Add one resource to `defs` if it is a `StructureDefinition`, `ValueSet` or
+/// `CodeSystem`, and return its canonical URL. Other resources, and definitions
+/// without the fields the registry needs, are skipped (`None`). `file` names the
+/// source in errors.
+pub fn load_resource(
+    resource: &Value,
+    file: &str,
+    defs: &mut Definitions,
+) -> Result<Option<Arc<str>>> {
+    let Some(resource_type) = resource["resourceType"].as_str() else {
+        return Ok(None);
+    };
+
+    let url = match resource_type {
+        "StructureDefinition" => {
+            let sd =
+                parse_structure_definition(resource).map_err(|message| Error::MalformedBundle {
+                    file: file.to_owned(),
+                    message,
+                })?;
+            sd.map(|sd| {
+                let url = Arc::clone(&sd.url);
+                // A reloaded URL keeps only its latest state, never one in each collection.
+                if sd.snapshot.is_empty() {
+                    defs.structure_definitions.remove(&url);
+                    defs.needs_snapshot.insert(Arc::clone(&url));
+                } else {
+                    defs.needs_snapshot.remove(&url);
+                    defs.structure_definitions.insert(Arc::clone(&url), sd);
+                }
+                url
+            })
+        }
+        "ValueSet" => parse_value_set(resource).map(|vs| {
+            let url = Arc::clone(&vs.url);
+            defs.value_sets.insert(Arc::clone(&url), vs);
+            url
+        }),
+        "CodeSystem" => parse_code_system(resource).map(|cs| {
+            let url = Arc::clone(&cs.url);
+            defs.code_systems.insert(Arc::clone(&url), cs);
+            url
+        }),
+        _ => None,
+    };
+    Ok(url)
+}
+
 /// `Ok(None)` skips a definition without url, name or kind; a snapshot element
-/// without `path` or `max` is an error, so no element is dropped silently.
+/// without `path` or `max` is an error, so no element is dropped silently. A
+/// missing snapshot gives an empty one, which [`load_resource`] keeps out of the map.
 fn parse_structure_definition(
     resource: &Value,
 ) -> std::result::Result<Option<StructureDefinition>, String> {
