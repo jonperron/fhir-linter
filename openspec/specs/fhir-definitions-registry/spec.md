@@ -667,3 +667,26 @@ Le système SHALL fournir `Registry::translate(cm_url, system: Option<&str>, cod
 - **WHEN** un include porte sur un CodeSystem complet énuméré dont `caseSensitive` est faux
 - **THEN** `expand` SHALL lister ses concepts
 
+### Requirement: Service de terminologie FHIRPath
+
+Le système SHALL implémenter `fhir_fhirpath::Terminologies` pour `Registry` (`registry/terminology_service.rs`), au-dessus de `Registry::expand`, `value_set_contains` et `translate`, sans autre logique de décision. `expand` SHALL retourner un ValueSet `{resourceType, url, expansion {total, contains[{system, code, display?}]}}` (R5 OperationDefinition `ValueSet-expand` ; `status` et `expansion.timestamp` sont omis, raccourci documenté) et `None` lorsque `Registry::expand` est indécidable. `validate_vs` SHALL retourner des `Parameters {parameter: [{name: result, valueBoolean}]}` : `true` si un des codings appartient au ValueSet, `false` si chacun des codings (au moins un) est décidé hors du ValueSet, sinon `None`. `translate` SHALL retourner des `Parameters` avec `result` (vrai ssi une correspondance a une relation autre que `not-related-to`) et un `match` par cible portant les parties `relationship` (`valueCode`) et `concept` (`valueCoding {system, code}`) ; `None` lorsque `Registry::translate` est indécidable.
+
+#### Scenario: Expansion
+
+- **WHEN** `expand` est appelé pour un ValueSet énumérable
+- **THEN** le résultat SHALL être un ValueSet avec `expansion.total` et `expansion.contains`
+
+#### Scenario: validateVS décidé
+
+- **WHEN** `validate_vs` reçoit des codings dont un appartient au ValueSet, ou dont tous sont hors du ValueSet
+- **THEN** `result` SHALL valoir respectivement `true` et `false`
+
+#### Scenario: validateVS indécidable
+
+- **WHEN** aucun coding n'appartient au ValueSet et au moins un est indécidable
+- **THEN** `validate_vs` SHALL retourner `None`
+
+#### Scenario: Traduction
+
+- **WHEN** `translate` trouve des correspondances
+- **THEN** `result` SHALL être vrai ssi une relation diffère de `not-related-to`, avec un `match` par cible
