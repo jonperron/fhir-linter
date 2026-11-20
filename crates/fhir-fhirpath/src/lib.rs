@@ -17,7 +17,7 @@ mod xml_text;
 
 pub use ast::Expr;
 pub use error::{EvalError, ParseError};
-pub use eval::{ConformsTo, Environment, HasElement, IsSubtype, MemberOf, Strict};
+pub use eval::{ConformsTo, Environment, HasElement, IsSubtype, MemberOf, Strict, Terminologies};
 pub use fhir_parser::{Decimal, Rounding};
 pub use value::{
     ChildElement, Collection, Value, from_parser_value, is_primitive_type, node_to_typed_value,
