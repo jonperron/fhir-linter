@@ -64,11 +64,13 @@ alias and is reported as `information`.
 
 ```bash
 cargo run -p fhir-cli -- [--format text|json|sarif] [--config fhir-linter.toml] \
-    [--strict] [--definitions definitions/r5] <FILES|DIRS>...
+    [--strict] [--definitions definitions/r5] [--extra-definitions <PATH>]... \
+    <FILES|DIRS>...
 ```
 
 Directories are scanned recursively for `*.json` and `*.xml`. The definitions
-directory defaults to `definitions/r5` (or `$FHIR_DEFINITIONS_DIR`).
+directory defaults to `definitions/r5` (or `$FHIR_DEFINITIONS_DIR`);
+`--extra-definitions` adds your own profiles and terminology on top of it.
 Exit codes: `0` clean, `1` errors found (warnings too with `--strict`),
 `2` tool error (bad arguments, unreadable file, bad config or definitions).
 

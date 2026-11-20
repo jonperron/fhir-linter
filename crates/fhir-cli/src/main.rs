@@ -2,8 +2,8 @@
 //! `fhir-lint`: validate and lint FHIR R5 resources from the command line.
 //!
 //! Exit codes: 0 = clean, 1 = validation or lint errors (warnings too with
-//! `--strict`), 2 = tool error (bad arguments, unreadable input, bad config
-//! or definitions).
+//! `--strict`), 2 = tool error (bad arguments, unreadable input, bad config,
+//! definitions or extra definitions).
 
 mod files;
 mod output;
@@ -12,6 +12,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use clap::{Parser, ValueEnum};
 use fhir_definitions::{DEFINITIONS_DIR_ENV, MAX_INPUT_BYTES, Registry, read_capped};
@@ -39,6 +40,11 @@ struct Cli {
     /// Directory holding the FHIR definitions (`profiles-resources.json`, ...).
     #[arg(long, env = DEFINITIONS_DIR_ENV, default_value = "definitions/r5")]
     definitions: PathBuf,
+    /// Extra conformance resources (profiles, value sets, code systems, concept maps)
+    /// layered on the definitions: a `.json` file (resource or Bundle) or a directory
+    /// of `*.json` files. Repeatable.
+    #[arg(long, value_name = "PATH")]
+    extra_definitions: Vec<PathBuf>,
     /// Treat warnings as errors for the exit code.
     #[arg(long)]
     strict: bool,
@@ -84,6 +90,13 @@ fn run(cli: &Cli) -> Result<bool, String> {
             cli.definitions.display()
         )
     })?;
+    let registry = if cli.extra_definitions.is_empty() {
+        registry
+    } else {
+        // fhir-definitions errors name the offending file (and its canonical URL), not its body.
+        Registry::with_extra(Arc::new(registry), &cli.extra_definitions)
+            .map_err(|e| format!("cannot load extra definitions: {e}"))?
+    };
 
     let mut findings = Vec::new();
     for path in &inputs {

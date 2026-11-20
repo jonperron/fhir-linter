@@ -14,6 +14,7 @@ Le crate `fhir-cli` SHALL fournir le binaire `fhir-lint` acceptant :
 | `--config <fichier>` | Configuration `fhir-linter.toml` |
 | `--fhir-version r5` | Version FHIR des entrées ; `r5` est la seule valeur acceptée |
 | `--definitions <dir>` | Répertoire des définitions ; variable `FHIR_DEFINITIONS_DIR`, défaut `definitions/r5` relatif au répertoire courant |
+| `--extra-definitions <PATH>` | Répétable. Fichier `.json` ou répertoire de définitions supplémentaires (voir « Définitions supplémentaires ») |
 | `--strict` | Les avertissements font aussi échouer l'exécution |
 
 `--version` SHALL afficher la version de l'outil (écart avec PLAN.md, où `--version` désignait la version FHIR). Le binaire SHALL NOT proposer d'option `--profile` : seuls les profils déclarés dans `meta.profile` sont vérifiés.
@@ -84,13 +85,44 @@ Pour chaque fichier, `fhir-lint` SHALL exécuter `fhir_validator::validate` puis
 - **WHEN** `--config` désactive `missing-meta-profile`
 - **THEN** la sortie SHALL ne pas contenir `LINT_003` mais SHALL contenir `LINT_002`
 
+### Requirement: Définitions supplémentaires
+
+Chaque `--extra-definitions <PATH>` SHALL désigner un fichier `.json` (une ressource de conformité ou un Bundle) ou un répertoire de fichiers `*.json` (non récursif, liens symboliques ignorés). Les définitions SHALL être chargées via `fhir_definitions::Registry::with_extra` au-dessus du registre de base de `--definitions`, une seule fois par exécution, après la collecte des entrées et le chargement des définitions de base, et SHALL servir pour tous les fichiers analysés. Les StructureDefinition, ValueSet, CodeSystem et ConceptMap SHALL être chargés ; les autres ressources SHALL être ignorées. Sans l'option, la sortie SHALL être identique à celle d'avant.
+
+Toute erreur de chargement SHALL produire le code de sortie 2, sans rapport sur stdout, et une ligne stderr `fhir-lint: cannot load extra definitions: <erreur>`. L'erreur SHALL nommer le fichier (et l'URL canonique en cas de conflit) et SHALL NOT contenir le corps du fichier. Causes : URL canonique déjà présente dans la base ou fournie deux fois, StructureDefinition de dérivation `specialization`, chemin ni `.json` ni répertoire, fichier illisible ou absent, JSON mal formé, dépassement des limites (64 MiB par fichier, 256 MiB au total, 10 000 fichiers par répertoire).
+
+#### Scenario: Profil fourni depuis un répertoire
+
+- **WHEN** `--extra-definitions <dir>` fournit un profil de contrainte avec snapshot dont un élément est requis, et une ressource le déclare dans `meta.profile`
+- **THEN** la sortie SHALL contenir `CARDINALITY_001` pour cet élément et l'avertissement `PROFILE_001` « not known » SHALL disparaître
+
+#### Scenario: Option répétée
+
+- **WHEN** `--extra-definitions` est passé deux fois (un répertoire puis un fichier)
+- **THEN** les définitions des deux SHALL être appliquées
+
+#### Scenario: Conflit avec la base
+
+- **WHEN** un fichier fourni redéfinit une URL canonique déjà présente dans la base
+- **THEN** le code de sortie SHALL être 2, stdout SHALL être vide et stderr SHALL nommer le fichier sans en reproduire le corps
+
+#### Scenario: Chemin manquant
+
+- **WHEN** `--extra-definitions` désigne un chemin inexistant
+- **THEN** le code de sortie SHALL être 2 et stderr SHALL nommer le chemin
+
+#### Scenario: Définition mal formée
+
+- **WHEN** `--extra-definitions` désigne un fichier JSON mal formé
+- **THEN** le code de sortie SHALL être 2 et stderr SHALL nommer le fichier
+
 ### Requirement: Codes de sortie
 
 `fhir-lint` SHALL sortir avec :
 
 - 0 si aucun diagnostic ne fait échouer l'exécution ;
 - 1 si au moins un diagnostic `fatal` ou `error` est produit, ou un `warning` avec `--strict` ; `information` SHALL NOT faire échouer l'exécution ;
-- 2 en cas d'erreur d'outil : erreur d'usage clap, chemin manquant ou illisible, configuration illisible ou invalide (règle ou sévérité inconnue, vérifiée par `check_config` avant la lecture des entrées), échec du chargement des définitions.
+- 2 en cas d'erreur d'outil : erreur d'usage clap, chemin manquant ou illisible, configuration illisible ou invalide (règle ou sévérité inconnue, vérifiée par `check_config` avant la lecture des entrées), échec du chargement des définitions, définitions supplémentaires rejetées.
 
 La configuration SHALL être chargée et vérifiée avant la collecte des chemins : une configuration invalide SHALL être signalée même si un chemin est manquant. Si stdout est fermé par le lecteur (`BrokenPipe`), `fhir-lint` SHALL NOT paniquer et SHALL sortir avec le code du verdict.
 
