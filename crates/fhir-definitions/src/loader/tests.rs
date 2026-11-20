@@ -24,14 +24,10 @@ fn write_temp(name: &str, content: &str) -> TempFile {
 
 #[test]
 fn load_bundle_missing_file_returns_io_error() {
-    let mut sds = HashMap::new();
-    let mut vss = HashMap::new();
-    let mut css = HashMap::new();
+    let mut defs = Definitions::default();
     let result = load_bundle(
         std::path::Path::new("/nonexistent/path/file.json"),
-        &mut sds,
-        &mut vss,
-        &mut css,
+        &mut defs,
     );
     assert!(matches!(result, Err(crate::Error::Io(_))));
 }
@@ -39,10 +35,8 @@ fn load_bundle_missing_file_returns_io_error() {
 #[test]
 fn load_bundle_invalid_json_returns_json_error() {
     let path = write_temp("fhir_def_test_invalid_json.json", "not valid json {{{{");
-    let mut sds = HashMap::new();
-    let mut vss = HashMap::new();
-    let mut css = HashMap::new();
-    let result = load_bundle(&path, &mut sds, &mut vss, &mut css);
+    let mut defs = Definitions::default();
+    let result = load_bundle(&path, &mut defs);
     assert!(matches!(result, Err(crate::Error::Json { .. })));
 }
 
@@ -52,10 +46,8 @@ fn load_bundle_missing_entry_array_returns_malformed_bundle_error() {
         "fhir_def_test_no_entry.json",
         r#"{"resourceType": "Bundle"}"#,
     );
-    let mut sds = HashMap::new();
-    let mut vss = HashMap::new();
-    let mut css = HashMap::new();
-    let result = load_bundle(&path, &mut sds, &mut vss, &mut css);
+    let mut defs = Definitions::default();
+    let result = load_bundle(&path, &mut defs);
     assert!(matches!(result, Err(crate::Error::MalformedBundle { .. })));
 }
 
@@ -65,13 +57,11 @@ fn load_bundle_skips_unknown_resource_types() {
         {"resource": {"resourceType": "Observation", "url": "http://example.com"}}
     ]}"#;
     let path = write_temp("fhir_def_test_unknown_type.json", content);
-    let mut sds = HashMap::new();
-    let mut vss = HashMap::new();
-    let mut css = HashMap::new();
-    load_bundle(&path, &mut sds, &mut vss, &mut css).unwrap();
-    assert!(sds.is_empty());
-    assert!(vss.is_empty());
-    assert!(css.is_empty());
+    let mut defs = Definitions::default();
+    load_bundle(&path, &mut defs).unwrap();
+    assert!(defs.structure_definitions.is_empty());
+    assert!(defs.value_sets.is_empty());
+    assert!(defs.code_systems.is_empty());
 }
 
 #[test]
@@ -80,11 +70,9 @@ fn load_bundle_skips_structure_definition_with_missing_url() {
         {"resource": {"resourceType": "StructureDefinition", "name": "Foo", "kind": "resource"}}
     ]}"#;
     let path = write_temp("fhir_def_test_sd_no_url.json", content);
-    let mut sds = HashMap::new();
-    let mut vss = HashMap::new();
-    let mut css = HashMap::new();
-    load_bundle(&path, &mut sds, &mut vss, &mut css).unwrap();
-    assert!(sds.is_empty());
+    let mut defs = Definitions::default();
+    load_bundle(&path, &mut defs).unwrap();
+    assert!(defs.structure_definitions.is_empty());
 }
 
 #[test]
@@ -100,14 +88,18 @@ fn load_bundle_parses_value_set_and_code_system() {
         ]
     }"#;
     let path = write_temp("fhir_def_test_vs_cs.json", content);
-    let mut sds = HashMap::new();
-    let mut vss = HashMap::new();
-    let mut css = HashMap::new();
-    load_bundle(&path, &mut sds, &mut vss, &mut css).unwrap();
-    assert!(vss.contains_key("http://example.com/vs"));
-    assert_eq!(vss["http://example.com/vs"].name.as_ref(), "TestVS");
-    assert!(css.contains_key("http://example.com/cs"));
-    assert_eq!(css["http://example.com/cs"].name.as_ref(), "TestCS");
+    let mut defs = Definitions::default();
+    load_bundle(&path, &mut defs).unwrap();
+    assert!(defs.value_sets.contains_key("http://example.com/vs"));
+    assert_eq!(
+        defs.value_sets["http://example.com/vs"].name.as_ref(),
+        "TestVS"
+    );
+    assert!(defs.code_systems.contains_key("http://example.com/cs"));
+    assert_eq!(
+        defs.code_systems["http://example.com/cs"].name.as_ref(),
+        "TestCS"
+    );
 }
 
 #[test]
@@ -130,11 +122,10 @@ fn load_bundle_parses_structure_definition_with_snapshot() {
         }]
     }"#;
     let path = write_temp("fhir_def_test_sd_snapshot.json", content);
-    let mut sds = HashMap::new();
-    let mut vss = HashMap::new();
-    let mut css = HashMap::new();
-    load_bundle(&path, &mut sds, &mut vss, &mut css).unwrap();
-    let sd = sds
+    let mut defs = Definitions::default();
+    load_bundle(&path, &mut defs).unwrap();
+    let sd = defs
+        .structure_definitions
         .get("http://example.com/sd")
         .expect("SD should be parsed");
     assert_eq!(sd.name.as_ref(), "TestSD");
@@ -298,10 +289,8 @@ fn load_bundle_rejects_malformed_snapshot_element() {
             }}}}]}}"#
         );
         let path = write_temp(&format!("fhir_def_test_sd_elem_{name}.json"), &content);
-        let mut sds = HashMap::new();
-        let mut vss = HashMap::new();
-        let mut css = HashMap::new();
-        let result = load_bundle(&path, &mut sds, &mut vss, &mut css);
+        let mut defs = Definitions::default();
+        let result = load_bundle(&path, &mut defs);
         let Err(crate::Error::MalformedBundle { message, .. }) = result else {
             panic!("{name}: expected MalformedBundle, got {result:?}");
         };
@@ -319,11 +308,12 @@ fn load_bundle_skips_value_set_with_missing_name() {
         {"resource": {"resourceType": "ValueSet", "url": "http://example.com/vs-no-name"}}
     ]}"#;
     let path = write_temp("fhir_def_test_vs_no_name.json", content);
-    let mut sds = HashMap::new();
-    let mut vss = HashMap::new();
-    let mut css = HashMap::new();
-    load_bundle(&path, &mut sds, &mut vss, &mut css).unwrap();
-    assert!(vss.is_empty(), "ValueSet without name should be skipped");
+    let mut defs = Definitions::default();
+    load_bundle(&path, &mut defs).unwrap();
+    assert!(
+        defs.value_sets.is_empty(),
+        "ValueSet without name should be skipped"
+    );
 }
 
 #[test]
@@ -377,9 +367,38 @@ fn load_bundle_skips_code_system_with_missing_name() {
         {"resource": {"resourceType": "CodeSystem", "url": "http://example.com/cs-no-name"}}
     ]}"#;
     let path = write_temp("fhir_def_test_cs_no_name.json", content);
-    let mut sds = HashMap::new();
-    let mut vss = HashMap::new();
-    let mut css = HashMap::new();
-    load_bundle(&path, &mut sds, &mut vss, &mut css).unwrap();
-    assert!(css.is_empty(), "CodeSystem without name should be skipped");
+    let mut defs = Definitions::default();
+    load_bundle(&path, &mut defs).unwrap();
+    assert!(
+        defs.code_systems.is_empty(),
+        "CodeSystem without name should be skipped"
+    );
+}
+
+#[test]
+fn reloaded_definition_keeps_only_its_latest_snapshot_state() {
+    let with_snapshot = serde_json::json!({
+        "resourceType": "StructureDefinition", "url": "http://example.com/sd",
+        "name": "Sd", "kind": "resource",
+        "snapshot": {"element": [{"path": "Sd", "min": 0, "max": "*"}]},
+    });
+    let without_snapshot = serde_json::json!({
+        "resourceType": "StructureDefinition", "url": "http://example.com/sd",
+        "name": "Sd", "kind": "resource",
+    });
+    let mut defs = Definitions::default();
+    load_resource(&with_snapshot, "a.json", &mut defs).unwrap();
+    load_resource(&without_snapshot, "b.json", &mut defs).unwrap();
+    assert!(defs.needs_snapshot.contains("http://example.com/sd"));
+    assert!(
+        !defs
+            .structure_definitions
+            .contains_key("http://example.com/sd")
+    );
+    load_resource(&with_snapshot, "c.json", &mut defs).unwrap();
+    assert!(!defs.needs_snapshot.contains("http://example.com/sd"));
+    assert!(
+        defs.structure_definitions
+            .contains_key("http://example.com/sd")
+    );
 }
