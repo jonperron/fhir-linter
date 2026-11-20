@@ -18,7 +18,7 @@ pub enum Expr {
     /// Temporal literals: stored as raw ISO string + kind.
     Temporal(TemporalKind, String),
     /// Quantity literal: value + unit.
-    Quantity(f64, String),
+    Quantity(crate::Decimal, String),
 
     // ── Navigation ──────────────────────────────────────────────────────────
     /// `$this`

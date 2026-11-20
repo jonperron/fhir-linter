@@ -420,7 +420,7 @@ fn parse_quantity(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         .split_once(' ')
         .ok_or_else(|| ParseError::Syntax(format!("invalid quantity: {text}")))?;
     let value = num_str
-        .parse::<f64>()
+        .parse::<crate::Decimal>()
         .map_err(|_| ParseError::Syntax(format!("invalid quantity number: {num_str}")))?;
     let rest = rest.trim();
     // A calendar keyword is represented by its singular form (N1 §4.1.8).
@@ -567,7 +567,7 @@ mod tests {
     fn quantity_unit_keeps_escaped_quote() {
         assert_eq!(
             parse(r"1 'a\''").unwrap(),
-            Expr::Quantity(1.0, r"a\'".into())
+            Expr::Quantity(crate::Decimal::from(1), r"a\'".into())
         );
     }
 

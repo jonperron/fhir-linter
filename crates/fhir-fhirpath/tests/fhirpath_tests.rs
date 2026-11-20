@@ -1381,9 +1381,12 @@ fn to_time_from_time_value_returns_same() {
 
 #[test]
 fn to_quantity_from_quantity_value_returns_same() {
-    let col = vec![Value::Quantity(1.5, Arc::from("kg"))];
+    let col = vec![Value::Quantity("1.5".parse().unwrap(), Arc::from("kg"))];
     let result = fhir_fhirpath::evaluate("$this.toQuantity()", &col).unwrap();
-    assert_eq!(result, vec![Value::Quantity(1.5, Arc::from("kg"))]);
+    assert_eq!(
+        result,
+        vec![Value::Quantity("1.5".parse().unwrap(), Arc::from("kg"))]
+    );
 }
 
 #[test]
@@ -1445,7 +1448,7 @@ fn converts_to_time_true_for_time_value() {
 
 #[test]
 fn converts_to_quantity_true_for_quantity_value() {
-    let col = vec![Value::Quantity(2.0, Arc::from("mg"))];
+    let col = vec![Value::Quantity("2.0".parse().unwrap(), Arc::from("mg"))];
     let result = fhir_fhirpath::evaluate("$this.convertsToQuantity()", &col).unwrap();
     assert_eq!(result, vec![Value::Bool(true)]);
 }
@@ -1682,9 +1685,12 @@ fn parse_syntax_error_returns_parse_error_variant() {
 #[test]
 fn quantity_value_converts_to_quantity() {
     // Verify that a Quantity value round-trips through toQuantity()
-    let col = vec![Value::Quantity(70.0, Arc::from("kg"))];
+    let col = vec![Value::Quantity("70.0".parse().unwrap(), Arc::from("kg"))];
     let result = fhir_fhirpath::evaluate("$this.toQuantity()", &col).unwrap();
-    assert_eq!(result, vec![Value::Quantity(70.0, Arc::from("kg"))]);
+    assert_eq!(
+        result,
+        vec![Value::Quantity("70.0".parse().unwrap(), Arc::from("kg"))]
+    );
 }
 
 // ── Value::Display ──────────────────────────────────────────────────────────
@@ -1743,8 +1749,8 @@ fn display_time() {
 #[test]
 fn display_quantity() {
     assert_eq!(
-        Value::Quantity(70.0, Arc::from("kg")).to_string(),
-        "70 'kg'"
+        Value::Quantity("70.0".parse().unwrap(), Arc::from("kg")).to_string(),
+        "70.0 'kg'"
     );
 }
 
@@ -1797,7 +1803,7 @@ fn type_name_time() {
 #[test]
 fn type_name_quantity() {
     assert_eq!(
-        Value::Quantity(1.0, Arc::from("kg")).type_name(),
+        Value::Quantity("1.0".parse().unwrap(), Arc::from("kg")).type_name(),
         "Quantity"
     );
 }
@@ -2048,7 +2054,10 @@ fn literal_time_evaluates_to_time_value() {
 #[test]
 fn literal_quantity_evaluates_correctly() {
     let result = evaluate("1.5 'kg'", &[]).unwrap();
-    assert_eq!(result, vec![Value::Quantity(1.5, Arc::from("kg"))]);
+    assert_eq!(
+        result,
+        vec![Value::Quantity("1.5".parse().unwrap(), Arc::from("kg"))]
+    );
 }
 
 // ── Negation ─────────────────────────────────────────────────────────────────

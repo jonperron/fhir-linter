@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
+use super::quantity::{quantities_equivalent, quantity_operands, quantity_order};
 use super::value_set::{ValueSet, is_keyed};
 use super::{ArithOp, Evaluator};
 use crate::ast::Expr;
 use crate::error::EvalError;
-use crate::value::{Collection, Value, quantity_unit_factor};
+use crate::value::{Collection, Value};
 use crate::{Decimal, Rounding};
 
 /// Largest collection an evaluation may build. N1 sets no limit; this one
@@ -119,6 +120,9 @@ pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collecti
     ) && matches!(op, ArithOp::Add | ArithOp::Sub)
         && let Some((amount, unit)) = as_quantity(rv)
     {
+        // shortcut: date arithmetic stays in f64 (`add_duration`); upgrade
+        // it to Decimal steps if sub-millisecond amounts need exactness.
+        let amount = amount.to_f64();
         let amount = if matches!(op, ArithOp::Sub) {
             -amount
         } else {
@@ -198,7 +202,7 @@ pub(super) fn object_quantity(v: &Value) -> Option<Value> {
 /// derives from Quantity, so a FHIR Quantity (or a descendant: Age, Duration...)
 /// is recognised by its typed `value: decimal` and its Quantity element names;
 /// upgrade when comparisons can reach the type hook.
-pub(super) fn as_quantity(v: &Value) -> Option<(f64, Option<&str>)> {
+pub(super) fn as_quantity(v: &Value) -> Option<(Decimal, Option<&str>)> {
     let fields = match v {
         Value::Quantity(value, unit) => return Some((*value, Some(unit))),
         Value::Object(fields, _) => fields,
@@ -219,9 +223,13 @@ pub(super) fn as_quantity(v: &Value) -> Option<(f64, Option<&str>)> {
     };
     let value = match fields.get("value").map(Vec::as_slice)? {
         [Value::Primitive(value, _, Some(ty))] if &**ty == "decimal" => match &**value {
-            // XML primitives are text, typed by their element.
-            Value::String(text) => text.parse().ok().filter(|v: &f64| v.is_finite())?,
-            other => Some(other.as_decimal()?.to_f64()).filter(|v| v.is_finite())?,
+            // XML primitives are text, typed by their element: exact, or the
+            // f64 value beyond 38 digits, as `xml_text` reads a decimal.
+            Value::String(text) => text
+                .parse()
+                .ok()
+                .or_else(|| Decimal::from_f64(text.parse().ok()?))?,
+            other => other.as_decimal()?,
         },
         _ => return None,
     };
@@ -245,80 +253,10 @@ pub(super) fn as_quantity(v: &Value) -> Option<(f64, Option<&str>)> {
     }
 }
 
-/// N1 §6.1, §6.2 on two Quantities: `Some(Some((x, y, factor)))` when `b`'s
-/// unit converts into `a`'s (`y * factor` is `b` in `a`'s unit), `Some(None)`
-/// when they cannot be compared (no conversion, or a unit on one side only),
-/// `None` when neither is a Quantity, or the other is not a number. N1 §5.5:
-/// Integer and Decimal convert implicitly to Quantity, with the default unit
-/// `'1'` (§5.5.7 toQuantity).
-fn quantity_operands(a: &Value, b: &Value, equivalent: bool) -> Option<Option<(f64, f64, f64)>> {
-    // shortcut: f64 like every Quantity amount, so integers past 2^53 lose
-    // digits; upgrade with the decimal Quantity type.
-    let number = |v: &Value| match v {
-        // v3 §5.5 table: Long -> Quantity has no conversion.
-        Value::Integer(_) | Value::Decimal(_) => Some((v.as_decimal()?.to_f64(), Some("1"))),
-        _ => None,
-    };
-    let ((x, x_unit), (y, y_unit)) = match (as_quantity(a), as_quantity(b)) {
-        (Some(x), Some(y)) => (x, y),
-        (Some(x), None) => (x, number(b)?),
-        (None, Some(y)) => (number(a)?, y),
-        (None, None) => return None,
-    };
-    let factor = match (x_unit, y_unit) {
-        (None, None) => Some(1.0),
-        (Some(x_unit), Some(y_unit)) => quantity_unit_factor(y_unit, x_unit, equivalent)
-            .map(|ratio| ratio.numer() as f64 / ratio.denom() as f64),
-        _ => None,
-    };
-    Some(factor.map(|factor| (x, y, factor)))
-}
-
-/// `y * factor`, snapped to `x` when they differ only by float noise.
-/// shortcut: f64 conversion with a 1e-12 relative tolerance; replace with an
-/// exact decimal comparison once Quantity values are decimals.
-fn convert_amount(x: f64, y: f64, factor: f64) -> f64 {
-    if factor == 1.0 {
-        return y;
-    }
-    let converted = y * factor;
-    let close =
-        converted.is_finite() && (converted - x).abs() <= 1e-12 * x.abs().max(converted.abs());
-    if close { x } else { converted }
-}
-
-/// [`quantity_operands`] with `b` converted into `a`'s unit: `Some(Some((x, y)))`
-/// when comparable, `Some(None)` when not, `None` when neither is a Quantity
-/// or the other is not a number.
-pub(super) fn quantity_values(
-    a: &Value,
-    b: &Value,
-    equivalent: bool,
-) -> Option<Option<(f64, f64)>> {
-    let operands = quantity_operands(a, b, equivalent)?;
-    // An overflowing conversion has no comparable value: empty, not equal.
-    Some(operands.and_then(|(x, y, factor)| {
-        Some(convert_amount(x, y, factor))
-            .filter(|c| c.is_finite())
-            .map(|c| (x, c))
-    }))
-}
-
-/// N1 §6.3.1 `~` on two comparable Quantities: equal once both are rounded
-/// to the precision of the least precise one, measured in `x`'s unit so the
-/// result does not depend on the operand order (`4 'g' ~ 4040 'mg'`).
-/// shortcut: f64 rounding, so float noise can flip a value lying on a .5
-/// boundary; upgrade with the decimal type.
-fn quantities_equivalent(x: f64, y: f64, factor: f64) -> bool {
-    let step = |value: f64| 10f64.powi(-decimal_scale(value));
-    let step = step(x).max(step(y) * factor.abs());
-    (x / step).round() == (convert_amount(x, y, factor) / step).round()
-}
-
 pub(super) fn values_equal(a: &Value, b: &Value) -> Option<bool> {
     let (a, b) = (a.primitive_value(), b.primitive_value());
-    if let Some(values) = quantity_values(a, b, false) {
-        return values.map(|(x, y)| x == y);
+    if let Some(order) = quantity_order(a, b) {
+        return order.map(std::cmp::Ordering::is_eq);
     }
     match (a, b) {
         (Value::Null, _) | (_, Value::Null) => None,
@@ -351,8 +289,8 @@ pub(super) fn operator_order(
     b: &Value,
 ) -> Result<Option<std::cmp::Ordering>, EvalError> {
     let (a, b) = (a.primitive_value(), b.primitive_value());
-    if let Some(values) = quantity_values(a, b, false) {
-        return Ok(values.map(|(x, y)| x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal)));
+    if let Some(order) = quantity_order(a, b) {
+        return Ok(order);
     }
     match (a, b) {
         (Value::Date(_) | Value::DateTime(_), Value::Date(_) | Value::DateTime(_))
@@ -438,13 +376,6 @@ fn temporal_order(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
         (Value::Time(x), Value::Time(y)) => super::temporal::compare(x, y, true),
         _ => None,
     }
-}
-
-/// Number of digits after the decimal point in the shortest form of `d`.
-fn decimal_scale(d: f64) -> i32 {
-    let text = d.to_string();
-    text.split_once('.')
-        .map_or(0, |(_, fraction)| fraction.len() as i32)
 }
 
 /// Membership using FHIRPath equality (`1 = 1.0`); complex values fall back to structural equality.
@@ -598,16 +529,16 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
             ))
         }),
         (lhs @ Value::Quantity(_, xu), rhs @ Value::Quantity(_, yu)) => {
-            match quantity_values(lhs, rhs, false) {
-                Some(Some((x, y))) => Ok(x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal)),
+            match quantity_order(lhs, rhs) {
+                Some(Some(order)) => Ok(order),
                 _ => Err(EvalError::Type(format!(
                     "cannot compare quantities with different units: '{xu}' vs '{yu}'"
                 ))),
             }
         }
         // N1 §5.5: a number against a Quantity compares as unit '1'.
-        (a, b) => match quantity_values(a, b, false) {
-            Some(Some((x, y))) => Ok(x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal)),
+        (a, b) => match quantity_order(a, b) {
+            Some(Some(order)) => Ok(order),
             _ => Err(EvalError::Type(format!(
                 "cannot compare {} and {}",
                 a.type_name(),

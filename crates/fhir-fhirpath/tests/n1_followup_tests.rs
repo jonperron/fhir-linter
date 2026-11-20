@@ -133,7 +133,10 @@ fn date_literals_that_are_not_calendar_dates_are_syntax_errors() {
 // ── Conversions ──────────────────────────────────────────────────────────────
 
 fn quantity(value: f64, unit: &str) -> Vec<Value> {
-    vec![Value::Quantity(value, unit.into())]
+    vec![Value::Quantity(
+        fhir_fhirpath::Decimal::from_f64(value).unwrap(),
+        unit.into(),
+    )]
 }
 
 fn boolean(b: bool) -> Vec<Value> {

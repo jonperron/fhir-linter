@@ -317,7 +317,7 @@ fn expected_key(kind: &str, text: &str) -> String {
         "date" | "dateTime" | "time" => format!("{kind}:{}", temporal_text(text)),
         "Quantity" => {
             let (number, unit) = text.split_once(' ').expect("Quantity output");
-            let number: f64 = number.parse().expect("Quantity number");
+            let number = decimal_key(number.parse().expect("Quantity number"));
             format!("Quantity:{number} {}", unit.trim_matches('\''))
         }
         // FHIR string-like primitives (code, id, uri...) are Strings here.
@@ -343,7 +343,7 @@ fn actual_key(value: &Value) -> String {
         Value::Date(s) => format!("date:{}", temporal_text(s)),
         Value::DateTime(s) => format!("dateTime:{}", temporal_text(s)),
         Value::Time(s) => format!("time:{}", temporal_text(s)),
-        Value::Quantity(n, u) => format!("Quantity:{n} {u}"),
+        Value::Quantity(n, u) => format!("Quantity:{} {u}", decimal_key(*n)),
         Value::Null => "null".to_owned(),
         Value::Object(..) | Value::UnresolvedResource { .. } => "object".to_owned(),
         Value::Primitive(value, _, _) => actual_key(value),
@@ -488,7 +488,7 @@ fn keys_match_across_expected_and_actual_forms() {
     );
     assert_eq!(
         expected_key("Quantity", "1 '1'"),
-        actual_key(&Value::Quantity(1.0, "1".into()))
+        actual_key(&Value::Quantity("1.0".parse().unwrap(), "1".into()))
     );
     assert_eq!(
         expected_key("code", "male"),
