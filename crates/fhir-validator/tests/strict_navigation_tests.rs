@@ -71,6 +71,9 @@ fn corpus_diagnostics_are_identical_with_strict_navigation() -> TestResult {
         let strict = render(validate_strict(&resource, &registry));
         if lenient != strict {
             let name = file.strip_prefix(&corpus)?.display();
+            // Same diagnostics in another order or count still differ.
+            let counts = format!("{} vs {} diagnostics", lenient.len(), strict.len());
+            differences.push(format!("{name}: {counts}"));
             differences.extend(
                 lenient
                     .iter()
@@ -94,15 +97,15 @@ fn corpus_diagnostics_are_identical_with_strict_navigation() -> TestResult {
     Ok(())
 }
 
-/// A List with five contained Patients, each referenced once, then `references`
-/// references in total (as in `dom3_scale_tests`).
+/// A List with five contained Patients, the first four referenced once (the last
+/// violates dom-3), then `references` references in total.
 fn list_with_many_references(references: usize) -> String {
     let contained: Vec<String> = (0..5)
         .map(|i| format!(r#"{{"resourceType":"Patient","id":"p{i}"}}"#))
         .collect();
     let entries: Vec<String> = (0..references)
         .map(|i| match i {
-            0..5 => format!(r##"{{"item":{{"reference":"#p{i}"}}}}"##),
+            0..4 => format!(r##"{{"item":{{"reference":"#p{i}"}}}}"##),
             _ => format!(r#"{{"item":{{"reference":"Patient/x{i}"}}}}"#),
         })
         .collect();
@@ -126,11 +129,12 @@ fn strict_dom3_over_many_references_is_linear() -> TestResult {
     let skipped: Vec<String> = validate_strict(&resource, &registry)
         .into_iter()
         .filter(|d| d.code.as_ref() == "INVARIANT_dom-3" || d.code.as_ref() == "INVARIANT_SKIPPED")
-        .map(|d| format!("{} {} {}", d.code, d.path, d.message))
+        .map(|d| format!("{} {}", d.code, d.path))
         .collect();
     let elapsed = started.elapsed();
     eprintln!("strict validate of {references} references took {elapsed:?}");
-    assert!(skipped.is_empty(), "{skipped:?}");
+    // dom-3 ran: it reports the unreferenced Patient, and nothing is skipped.
+    assert_eq!(skipped, ["INVARIANT_dom-3 List"], "{skipped:?}");
     assert!(elapsed < Duration::from_secs(120), "took {elapsed:?}");
     Ok(())
 }

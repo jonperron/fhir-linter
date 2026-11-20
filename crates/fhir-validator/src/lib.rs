@@ -53,6 +53,10 @@ pub fn validate_strict(resource: &Resource, registry: &Registry) -> Vec<Diagnost
 }
 
 fn validate_with(resource: &Resource, registry: &Registry, strict: bool) -> Vec<Diagnostic> {
+    let has_element = |fhir_type: &str, name: &str| registry.has_element(fhir_type, name);
+    // One for the whole tree: embedded resources share their container's path index.
+    let navigation = fhir_fhirpath::Strict::new(&has_element);
+    let strict = strict.then_some(&navigation);
     let resource_type = resource.resource_type.as_ref();
     let sd = match embedded::concrete_resource(registry, resource_type) {
         Ok(sd) => sd,
@@ -137,7 +141,7 @@ fn validate_one<'a>(
     container_ids: Option<embedded::ContainedIds>,
     bundle: embedded::BundleEntries,
     number_texts: &HashMap<u32, Box<str>>,
-    strict: bool,
+    strict: Option<&fhir_fhirpath::Strict<'_>>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<embedded::Embedded<'a>> {
     let is_subtype =
@@ -146,15 +150,13 @@ fn validate_one<'a>(
         registry.value_set_contains(value_set, system, code)
     };
     let conforms_to = |fhir_type: &str, url: &str| registry.conforms_to(fhir_type, url);
-    let has_element = |fhir_type: &str, name: &str| registry.has_element(fhir_type, name);
-    let navigation = fhir_fhirpath::Strict::new(&has_element);
     // fhirpath.html: %rootResource is the container only for a contained resource.
     let environment = fhir_fhirpath::Environment {
         resource: Some(root),
         root_resource: Some(container.unwrap_or(root)),
         is_subtype: Some(&is_subtype),
         member_of: Some(&member_of),
-        strict: strict.then_some(&navigation),
+        strict,
         conforms_to: Some(&conforms_to),
     };
     let embedded = nested::validate(

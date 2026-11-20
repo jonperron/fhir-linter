@@ -10,6 +10,7 @@ use super::helpers::{
     eval_type_name, is_distinct, is_type, min_max_order, optional_integer, primitive_values,
     singleton, try_sort_by, value_is_type,
 };
+use super::strict::Focus;
 use super::value_set::ValueSet;
 use std::cmp::Ordering;
 
@@ -54,8 +55,9 @@ impl Evaluator<'_> {
                 }
                 check_arity(name, args, 1)?;
                 let mut result = false;
+                let items = Focus::new(focus);
                 for index in 0..focus.len() {
-                    let col = self.eval_item(&args[0], focus, index)?;
+                    let col = self.eval_item(&args[0], &items, index)?;
                     if criteria_bool(&col, name)? == Some(true) {
                         result = true;
                         break;
@@ -69,8 +71,9 @@ impl Evaluator<'_> {
                     return Ok(Some(vec![Value::Bool(true)]));
                 }
                 let mut result = true;
+                let items = Focus::new(focus);
                 for index in 0..focus.len() {
-                    let col = self.eval_item(&args[0], focus, index)?;
+                    let col = self.eval_item(&args[0], &items, index)?;
                     if criteria_bool(&col, name)? != Some(true) {
                         result = false;
                         break;
@@ -104,8 +107,9 @@ impl Evaluator<'_> {
             "where" => {
                 check_arity(name, args, 1)?;
                 let mut out = Vec::new();
+                let items = Focus::new(focus);
                 for (index, item) in focus.iter().enumerate() {
-                    let col = self.eval_item(&args[0], focus, index)?;
+                    let col = self.eval_item(&args[0], &items, index)?;
                     if criteria_bool(&col, name)? == Some(true) {
                         out.push(item.clone());
                     }
@@ -115,8 +119,9 @@ impl Evaluator<'_> {
             "select" => {
                 check_arity(name, args, 1)?;
                 let mut out = Vec::new();
+                let items = Focus::new(focus);
                 for index in 0..focus.len() {
-                    out.extend(self.eval_item(&args[0], focus, index)?);
+                    out.extend(self.eval_item(&args[0], &items, index)?);
                     check_collection_len(out.len())?;
                 }
                 out
@@ -135,8 +140,9 @@ impl Evaluator<'_> {
                     let mut next = Vec::new();
                     // shortcut: N1 does not say what $index is in repeat(); each
                     // round indexes its own items. Revisit if a later release defines it.
+                    let round = Focus::new(&items[..end]);
                     for (index, item) in items[start..end].iter().enumerate() {
-                        let projected = self.eval_member(&args[0], item, index, &items[..end])?;
+                        let projected = self.eval_member(&args[0], item, index, &round)?;
                         check_known_content(&projected)?;
                         for v in projected {
                             if seen.insert(v.clone()) {
@@ -305,13 +311,14 @@ impl Evaluator<'_> {
                 } else {
                     vec![]
                 };
+                let items = Focus::new(focus);
                 for index in 0..focus.len() {
                     let step = Evaluator {
                         total: Some(&total),
                         variables: self.variables.clone(),
                         ..*self
                     };
-                    total = step.eval_item(&args[0], focus, index)?;
+                    total = step.eval_item(&args[0], &items, index)?;
                 }
                 total
             }
@@ -466,9 +473,10 @@ impl Evaluator<'_> {
             return Ok(indices);
         };
         let mut keyed = Vec::with_capacity(indices.len());
+        let items = Focus::new(focus);
         for index in indices {
             let col = match selector {
-                Some(expr) => self.eval_item(expr, focus, index)?,
+                Some(expr) => self.eval_item(expr, &items, index)?,
                 None => vec![focus[index].clone()],
             };
             keyed.push((index, singleton(&col, "sort() key")?.cloned()));

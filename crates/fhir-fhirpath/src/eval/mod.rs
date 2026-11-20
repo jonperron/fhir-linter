@@ -27,6 +27,7 @@ mod temporal;
 mod type_conv;
 mod value_set;
 
+use strict::Focus;
 pub use strict::Strict;
 
 use helpers::{
@@ -150,9 +151,10 @@ pub(super) struct Evaluator<'a> {
     total: Option<&'a [Value]>,
     /// `$index` while an expression parameter is evaluated for one item.
     index: Option<usize>,
-    /// The input collection `$this` was taken from while an expression parameter is
-    /// evaluated for one item: strict navigation resolves a leading name against it.
-    focus: Option<&'a [Value]>,
+    /// `$this` and the input collection it was taken from while an expression
+    /// parameter is evaluated for one item: strict navigation resolves a leading
+    /// name on `$this` against that collection.
+    focus: Option<(&'a Value, &'a Focus<'a>)>,
     /// Variables of `defineVariable()` in scope, innermost first.
     variables: Scope,
 }
@@ -181,10 +183,10 @@ impl Evaluator<'_> {
     pub(super) fn eval_item(
         &self,
         expr: &Expr,
-        focus: &[Value],
+        focus: &Focus<'_>,
         index: usize,
     ) -> Result<Collection, EvalError> {
-        self.eval_member(expr, &focus[index], index, focus)
+        self.eval_member(expr, &focus.items[index], index, focus)
     }
 
     /// Evaluate an expression parameter with `item` as `$this` and `index` as
@@ -194,11 +196,11 @@ impl Evaluator<'_> {
         expr: &Expr,
         item: &Value,
         index: usize,
-        focus: &[Value],
+        focus: &Focus<'_>,
     ) -> Result<Collection, EvalError> {
         Evaluator {
             index: Some(index),
-            focus: Some(focus),
+            focus: Some((item, focus)),
             variables: self.variables.clone(),
             ..*self
         }

@@ -18,13 +18,15 @@ type Declarations = HashMap<Box<str>, HashMap<Box<str>, Option<bool>>>;
 
 /// Strict navigation for [`super::Environment::strict`]: the `has_element` hook
 /// and the caches that keep its cost linear in the input. Build one per resource
-/// and share it by every evaluation on that resource: the instance paths of the
-/// environment resources are then indexed once, not once per evaluation.
+/// tree and share it by every evaluation in it (the resource's own and its
+/// embedded resources'): the instance paths are then indexed once, from the first
+/// environment resources asked, not once per evaluation.
 pub struct Strict<'a> {
     has_element: &'a HasElement<'a>,
     declared: RefCell<Declarations>,
-    /// The `%rootResource` and `%resource` the index was built from, held so their
-    /// addresses stay theirs, and the instance paths of every object in them.
+    /// The `%rootResource` and `%resource` the index was built from, held so the
+    /// addresses of everything in them stay theirs, and the instance paths of
+    /// every object in them.
     paths: OnceCell<([Option<Value>; 2], InstancePaths)>,
 }
 
@@ -57,21 +59,50 @@ impl<'a> Strict<'a> {
         })
     }
 
-    /// The instance paths of `roots`, or `None` when the index was built from
-    /// other resources (it is built from the first roots asked).
+    /// The instance paths of `roots`, or `None` when they are not in the index
+    /// (built from the first roots asked; an embedded resource is in its
+    /// container's, and its paths start at its own `resourceType` either way).
     fn paths_of(&self, roots: [Option<&Value>; 2]) -> Option<&InstancePaths> {
-        let (indexed, paths) = self.paths.get_or_init(|| {
+        // Without environment resources a context backbone has no known path.
+        if roots.iter().all(Option::is_none) {
+            return None;
+        }
+        let (_held, paths) = self.paths.get_or_init(|| {
             let mut paths = InstancePaths::new();
             for root in roots.into_iter().flatten() {
                 index_paths(root, "", &mut paths);
             }
             (roots.map(|root| root.cloned()), paths)
         });
-        let same = indexed
-            .iter()
-            .zip(roots)
-            .all(|(held, root)| held.as_ref().map(address) == root.map(address));
-        same.then_some(paths)
+        let indexed = |root: &Value| address(root).is_some_and(|key| paths.contains_key(&key));
+        roots.into_iter().flatten().all(indexed).then_some(paths)
+    }
+}
+
+/// The input collection of an expression parameter, with whether some item of
+/// it resolves each leading name, decided once per iteration (the answer
+/// depends on the name alone: the check always runs on a leading name).
+pub(crate) struct Focus<'f> {
+    pub(crate) items: &'f [Value],
+    resolved: RefCell<HashMap<Box<str>, bool>>,
+}
+
+impl<'f> Focus<'f> {
+    pub(crate) fn new(items: &'f [Value]) -> Self {
+        Self {
+            items,
+            resolved: RefCell::default(),
+        }
+    }
+
+    /// Whether some item resolves `name`, computed by `any` on the first ask.
+    fn resolves(&self, name: &str, any: impl FnOnce() -> bool) -> bool {
+        let cached = self.resolved.borrow().get(name).copied();
+        cached.unwrap_or_else(|| {
+            let resolved = any();
+            self.resolved.borrow_mut().insert(name.into(), resolved);
+            resolved
+        })
     }
 }
 
@@ -113,14 +144,13 @@ impl Evaluator<'_> {
         if !ctx.iter().all(unresolved) {
             return Ok(());
         }
-        // shortcut: only the leading name sees the whole input; a later step
-        // (`where(code.text)`) is still asked of this item's values alone. The
-        // scan runs per unresolved item: a long unresolved prefix before the first
-        // resolving one costs O(n) each; cache it per iteration if that shows up.
+        // shortcut: only a leading name on `$this` itself sees the whole input; a
+        // later step (`where(code.text)`) or a name on another input (`iif()`'s
+        // arguments) is still asked of its own input alone.
         if allow_type_name
-            && self
-                .focus
-                .is_some_and(|focus| !focus.iter().all(unresolved))
+            && let Some((this, focus)) = self.focus
+            && matches!(ctx, [item] if std::ptr::eq(item, this))
+            && focus.resolves(name, || !focus.items.iter().all(unresolved))
         {
             return Ok(());
         }

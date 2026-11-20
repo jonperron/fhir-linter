@@ -323,8 +323,11 @@ fn strict_types_repeat_items_by_the_input_and_every_projection() -> TestResult {
     // Core qrs-2: the answers `repeat()` reaches have no `answer`, the input items do.
     let response = r#"{"resourceType":"QuestionnaireResponse","status":"completed",
         "item":[{"linkId":"1","answer":[{"valueString":"x"}]}]}"#;
-    let expression = "QuestionnaireResponse.item.repeat(answer | item)";
-    assert_eq!(eval_on(response, expression, true)?.len(), 1);
+    let expression = "QuestionnaireResponse.item.repeat(answer | item).value = 'x'";
+    assert_eq!(
+        eval_on(response, expression, true)?,
+        vec![Value::Bool(true)]
+    );
     Ok(())
 }
 
@@ -338,5 +341,82 @@ fn strict_resolves_names_of_a_nested_resource_by_its_resource_element() -> TestR
         eval_on(patient, "contained.contained.empty()", true)?,
         vec![Value::Bool(true)]
     );
+    Ok(())
+}
+
+#[test]
+fn strict_asks_a_name_on_another_input_of_that_input_alone() {
+    // `iif()` evaluates its arguments on its own input (the component's `code`):
+    // the Quantity among the outer `descendants()` does not resolve `unit` there.
+    assert_unresolved(
+        "descendants().where(code.iif(unit.exists(), true, false))",
+        "unit is not an element of CodeableConcept",
+    );
+}
+
+#[test]
+fn strict_asks_has_element_once_per_pair_even_when_it_cannot_tell() -> TestResult {
+    let calls = std::cell::Cell::new(0);
+    let undecided = |_: &str, _: &str| {
+        calls.set(calls.get() + 1);
+        None
+    };
+    let navigation = Strict::new(&undecided);
+    let environment = Environment {
+        strict: Some(&navigation),
+        ..Environment::default()
+    };
+    let input = [typed(QUESTIONNAIRE)?];
+    let run = || {
+        evaluate_parsed_with_environment(
+            &parse("Questionnaire.item.item.linkId")?,
+            &input,
+            &|base, suffix| registry().is_choice_variant(base, suffix),
+            &environment,
+        )
+    };
+    run()?;
+    let first = calls.get();
+    run()?;
+    // Each (definition, name) pair is asked once, a cached `None` included.
+    assert!(first > 0);
+    assert_eq!(calls.get(), first);
+    Ok(())
+}
+
+#[test]
+fn strict_shares_a_container_index_with_its_contained_resources() -> TestResult {
+    let patient = typed(PATIENT)?;
+    let Value::Object(fields, _) = &patient else {
+        return Err("the patient is not an object".into());
+    };
+    let questionnaire = fields
+        .get("contained")
+        .and_then(|c| c.first())
+        .ok_or("no contained")?;
+    let navigation = Strict::new(&has_element);
+    let eval_in = |resource: &Value, expression: &str| {
+        let environment = Environment {
+            resource: Some(resource),
+            root_resource: Some(&patient),
+            is_subtype: Some(&is_subtype),
+            strict: Some(&navigation),
+            ..Environment::default()
+        };
+        evaluate_parsed_with_environment(
+            &parse(expression)?,
+            std::slice::from_ref(resource),
+            &|base, suffix| registry().is_choice_variant(base, suffix),
+            &environment,
+        )
+    };
+    // The container's evaluation builds the index; the contained one reuses it.
+    assert_eq!(eval_in(&patient, "contact.name.family")?.len(), 1);
+    match eval_in(questionnaire, "item.lnkId") {
+        Err(EvalError::Type(got)) => {
+            assert_eq!(got, "lnkId is not an element of Questionnaire.item");
+        }
+        other => panic!("expected a type error, got {other:?}"),
+    }
     Ok(())
 }
