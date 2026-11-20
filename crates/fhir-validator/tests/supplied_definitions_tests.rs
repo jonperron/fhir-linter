@@ -71,14 +71,7 @@ fn profile_diagnostics(patient: Value, registry: &Registry) -> Vec<String> {
     validate(&resource, registry)
         .iter()
         .filter(|d| d.code.starts_with("PROFILE_") || &*d.code == "SLICING_SKIPPED")
-        .map(|d| {
-            let severity = if d.severity == Severity::Error {
-                "error"
-            } else {
-                "other"
-            };
-            format!("{severity} {} {}", d.code, d.path)
-        })
+        .map(|d| format!("{:?} {} {}", d.severity, d.code, d.path))
         .collect()
 }
 
@@ -89,7 +82,7 @@ fn meta_profile_without_snapshot_is_profile_010() {
     let patient = json!({"resourceType": "Patient", "meta": {"profile": [SNAPSHOTLESS]}});
     assert_eq!(
         profile_diagnostics(patient, &registry),
-        ["error PROFILE_010 Patient.meta.profile[0]"],
+        ["Error PROFILE_010 Patient.meta.profile[0]"],
     );
 }
 
@@ -140,7 +133,7 @@ fn unknown_meta_profile_stays_profile_001() {
     });
     assert_eq!(
         profile_diagnostics(patient, &registry),
-        ["other PROFILE_001 Patient.meta.profile[0]"],
+        ["Warning PROFILE_001 Patient.meta.profile[0]"],
     );
 }
 
@@ -171,8 +164,8 @@ fn slice_profile_without_snapshot_is_profile_010() {
     assert_eq!(
         profile_diagnostics(patient, &registry),
         [
-            "other SLICING_SKIPPED Patient.identifier",
-            "error PROFILE_010 Patient.identifier",
+            "Information SLICING_SKIPPED Patient.identifier",
+            "Error PROFILE_010 Patient.identifier",
         ],
     );
 }
