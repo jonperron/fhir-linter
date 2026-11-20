@@ -1,0 +1,15 @@
+{
+  "resourceType": "Patient",
+  "id": "example",
+  "meta": {
+    "profile": [
+      "http://example.org/fhir/StructureDefinition/patient-with-birthdate",
+      "http://example.org/fhir/StructureDefinition/patient-with-active"
+    ]
+  },
+  "text": {
+    "status": "generated",
+    "div": "<div xmlns=\"http://www.w3.org/1999/xhtml\"><p>Jane Doe</p></div>"
+  },
+  "gender": "female"
+}
