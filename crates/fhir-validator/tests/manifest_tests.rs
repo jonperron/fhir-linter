@@ -1,6 +1,11 @@
 //! Runs the official `fhir-test-cases/validator` manifest (R5, self-contained cases).
 //!
-//! Cases with supporting profiles/packages are skipped. Cases the manifest
+//! Cases that supply definitions (`supporting`, `profiles`) are judged apart, in a
+//! `supporting` tally with its own floors, against `Registry::with_extra` over the R5
+//! registry; the main rates never include them. Of those, cases that ask for an explicit
+//! profile run (`profile`, Java `-profile`) are deferred, and cases that need packages,
+//! logical models, XML definitions or a snapshot the file lacks are skipped and counted
+//! ("needs snapshot/package/xml"). Cases the manifest
 //! marks as out of scope (`supporting5`, `for-publication`) are skipped and
 //! reported apart, outside the pass-rate denominator. The expected result
 //! comes from the inline `java` entry (`errorCount` or `outcome`) or from the
@@ -16,8 +21,9 @@
 //! does not change pass/fail. A passing test hides its output: run
 //! `cargo test -p fhir-validator --test manifest_tests -- --nocapture` to see the reports.
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use fhir_definitions::Registry;
+use fhir_definitions::{Error as DefinitionsError, Registry};
 use fhir_parser::{parse_json, parse_xml};
 use fhir_validator::{Severity, validate};
 use serde_json::Value;
@@ -57,6 +63,93 @@ const EXPECTED_XML_COUNTS: (u32, u32, u32) = (107, 1, 1);
 // (78, 78) -> (78, 79): observation-cholesterol-bad-wrongcode.xml, once PROFILE_004 names
 // each part that breaks a fixed value.
 const MIN_ERROR_COUNT_MATCHES: (u32, u32) = (78, 79);
+
+/// (judged, skipped without expected result, out of scope, needs snapshot/package/xml,
+/// explicit profile deferred) counts of the `supporting` tally on the pinned fixtures.
+const EXPECTED_SUPPORTING_COUNTS: (u32, u32, u32, u32, u32) = (42, 0, 0, 68, 69);
+/// Passing and error-count-matching cases of the `supporting` tally, measured on the pinned
+/// fixtures with no slack.
+// 31/42: every case that expects no error passes (26 mapping-validation, cs-val-vs, cs-val-cm,
+// ns-instance, AppointmentWithCodingFromFragmentCS, sd-reusable-section); the 7
+// content-reference-profile cases miss their unresolvable-contentReference error, and
+// q-derived-complies/extends, measure-report-ihe-r5 and supplement-reserved-nested miss theirs.
+const MIN_SUPPORTING_PASSED: u32 = 31;
+const MIN_SUPPORTING_COUNT_MATCHES: u32 = 31;
+
+/// Manifest keys that make a case supply definitions of its own.
+const SUPPLY_KEYS: [&str; 5] = ["supporting", "profile", "profiles", "packages", "logical"];
+
+/// Why a case that supplies definitions is not judged.
+#[derive(Debug, PartialEq)]
+enum Unsupported {
+    /// It asks for a run against an explicit profile (Java `-profile`): deferred.
+    ExplicitProfile,
+    /// It needs a package, a logical model, an XML definition file or a snapshot that a
+    /// supplied StructureDefinition lacks.
+    NeedsDefinitions,
+}
+
+/// The `supporting` and `profiles` files of a case under `dir`, when every one is JSON
+/// and present.
+fn supplied_files(case: &Value, dir: &Path) -> Result<Vec<PathBuf>, Unsupported> {
+    if case.get("profile").is_some() {
+        return Err(Unsupported::ExplicitProfile);
+    }
+    if case.get("packages").is_some() || case.get("logical").is_some() {
+        return Err(Unsupported::NeedsDefinitions);
+    }
+    let names = ["supporting", "profiles"]
+        .iter()
+        .flat_map(|k| case[k].as_array().map_or(&[][..], Vec::as_slice));
+    names
+        .map(|name| match name.as_str() {
+            Some(name) if name.ends_with(".json") && dir.join(name).is_file() => Ok(dir.join(name)),
+            _ => Err(Unsupported::NeedsDefinitions),
+        })
+        .collect()
+}
+
+/// Canonical URLs of the StructureDefinitions in a supplied file (a resource or a Bundle).
+fn structure_definition_urls(file: &Path) -> Vec<String> {
+    let text = std::fs::read_to_string(file).expect("supplied definition file");
+    let value: Value = serde_json::from_str(&text).expect("supplied definition JSON");
+    let resources: Vec<&Value> = match value["entry"].as_array() {
+        Some(entries) => entries.iter().map(|e| &e["resource"]).collect(),
+        None => vec![&value],
+    };
+    resources
+        .into_iter()
+        .filter(|r| r["resourceType"] == "StructureDefinition")
+        .filter_map(|r| r["url"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// The registry a case that supplies definitions is validated with: `base` overlaid with
+/// its files. A specialization or two versions of one canonical (both rejected by the
+/// overlay), or a StructureDefinition without a snapshot, need features the validator lacks.
+fn supplied_registry(
+    case: &Value,
+    dir: &Path,
+    base: &Arc<Registry>,
+) -> Result<Registry, Unsupported> {
+    let files = supplied_files(case, dir)?;
+    let registry = match Registry::with_extra(Arc::clone(base), &files) {
+        Ok(registry) => registry,
+        // Two versions of one canonical (mv-same-system-versioned): the overlay keeps one.
+        Err(DefinitionsError::Unsupported { .. } | DefinitionsError::Conflict { .. }) => {
+            return Err(Unsupported::NeedsDefinitions);
+        }
+        Err(e) => panic!("case {}: {e}", case["name"]),
+    };
+    let snapshotless = files
+        .iter()
+        .flat_map(|f| structure_definition_urls(f))
+        .any(|url| registry.needs_snapshot(&url));
+    if snapshotless {
+        return Err(Unsupported::NeedsDefinitions);
+    }
+    Ok(registry)
+}
 
 fn fixtures_dir() -> PathBuf {
     std::env::var_os("FHIR_FIXTURES_DIR").map_or_else(
@@ -119,6 +212,10 @@ struct Tally {
     skipped: u32,
     /// Cases the manifest marks as out of scope (see `out_of_scope`).
     out_of_scope: u32,
+    /// Cases supplying definitions the harness cannot load yet (`supporting` tally).
+    needs_definitions: u32,
+    /// Cases asking for an explicit profile run, deferred (`supporting` tally).
+    explicit_profile: u32,
     failing: Vec<String>,
     /// Judged cases whose error count equals the expected one.
     count_matches: u32,
@@ -197,6 +294,18 @@ impl Tally {
     /// (judged, skipped without expected result, out of scope) case counts.
     fn counts(&self) -> (u32, u32, u32) {
         (self.cases, self.skipped, self.out_of_scope)
+    }
+
+    /// The `supporting` tally's case counts, its two own skip buckets included.
+    fn supporting_counts(&self) -> (u32, u32, u32, u32, u32) {
+        let (cases, skipped, out_of_scope) = self.counts();
+        (
+            cases,
+            skipped,
+            out_of_scope,
+            self.needs_definitions,
+            self.explicit_profile,
+        )
     }
 
     fn rate(&self) -> f64 {
@@ -307,6 +416,35 @@ fn out_of_scope_follows_manifest_flags() {
 }
 
 #[test]
+fn supplied_files_keep_only_json_supporting_and_profiles() {
+    use serde_json::json;
+    let dir = fixtures_dir().join("validator");
+    if !dir.join("manifest.json").is_file() {
+        return;
+    }
+    assert_eq!(
+        supplied_files(&json!({"supporting": ["cs-val-example.json"]}), &dir),
+        Ok(vec![dir.join("cs-val-example.json")]),
+    );
+    let explicit = json!({"supporting": ["cs-val-example.json"], "profile": {"source": "p.json"}});
+    assert_eq!(
+        supplied_files(&explicit, &dir),
+        Err(Unsupported::ExplicitProfile)
+    );
+    for case in [
+        json!({"profiles": ["profile-slicing-profile-1.xml"]}),
+        json!({"supporting": ["absent.json"]}),
+        json!({"packages": ["hl7.fhir.uv.extensions#5.1.0"]}),
+        json!({"logical": "logical.json"}),
+    ] {
+        assert_eq!(
+            supplied_files(&case, &dir),
+            Err(Unsupported::NeedsDefinitions)
+        );
+    }
+}
+
+#[test]
 fn validator_manifest_pass_rate() {
     let dir = fixtures_dir().join("validator");
     let Ok(manifest) = std::fs::read_to_string(dir.join("manifest.json")) else {
@@ -318,34 +456,59 @@ fn validator_manifest_pass_rate() {
         return;
     };
     let manifest: Value = serde_json::from_str(&manifest).unwrap();
-    let registry = Registry::from_definitions_dir(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5"),
-    )
-    .unwrap();
+    let registry = Arc::new(
+        Registry::from_definitions_dir(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5"),
+        )
+        .unwrap(),
+    );
 
     let (mut json, mut xml) = (Tally::default(), Tally::default());
+    let mut supporting = Tally::default();
     for case in manifest["test-cases"].as_array().unwrap() {
         let is_r5 = matches!(case["version"].as_str(), None | Some("5.0.0" | "5.0"));
-        let standalone = ["supporting", "profile", "profiles", "packages", "logical"]
-            .iter()
-            .all(|k| case.get(k).is_none());
+        let supplies = SUPPLY_KEYS.iter().any(|k| case.get(k).is_some());
         let Some(file) = case["file"].as_str() else {
             continue;
         };
-        if !is_r5 || !standalone {
+        if !is_r5 {
             continue;
         }
-        let (tally, parse): (_, fn(&str) -> Result<_, _>) = if file.ends_with(".json") {
+        let (format_tally, parse): (_, fn(&str) -> Result<_, _>) = if file.ends_with(".json") {
             (&mut json, parse_json)
         } else if file.ends_with(".xml") {
             (&mut xml, parse_xml)
         } else {
             continue;
         };
+        let tally = if supplies {
+            &mut supporting
+        } else {
+            format_tally
+        };
         if out_of_scope(case) {
             tally.out_of_scope += 1;
             continue;
         }
+        let overlay;
+        let case_registry: &Registry = if supplies {
+            match supplied_registry(case, &dir, &registry) {
+                Ok(supplied) => {
+                    overlay = supplied;
+                    &overlay
+                }
+                Err(Unsupported::ExplicitProfile) => {
+                    tally.explicit_profile += 1;
+                    continue;
+                }
+                Err(Unsupported::NeedsDefinitions) => {
+                    tally.needs_definitions += 1;
+                    continue;
+                }
+            }
+        } else {
+            &registry
+        };
         let Some(expected) = expected_errors(&case["java"], &dir) else {
             tally.skipped += 1;
             continue;
@@ -356,7 +519,7 @@ fn validator_manifest_pass_rate() {
             .ok()
             .and_then(|text| parse(&text).ok());
         let actual = match &parsed {
-            Some(resource) => validate(resource, &registry)
+            Some(resource) => validate(resource, case_registry)
                 .iter()
                 .filter(|d| d.severity == Severity::Error)
                 .count() as u64,
@@ -380,8 +543,15 @@ fn validator_manifest_pass_rate() {
 
     json.report("json");
     xml.report("xml");
+    supporting.report("supporting");
+    eprintln!(
+        "manifest supporting: skipped (needs snapshot/package/xml) {}, \
+         skipped (explicit profile, deferred) {}",
+        supporting.needs_definitions, supporting.explicit_profile,
+    );
     json.report_counts("json");
     xml.report_counts("xml");
+    supporting.report_counts("supporting");
     // Exact counts, so lost or newly skipped cases cannot shrink the denominator
     // and pass the floors with less coverage.
     assert_eq!(
@@ -398,6 +568,22 @@ fn validator_manifest_pass_rate() {
         xml.rate() >= MIN_XML_PASS_RATE,
         "XML pass rate {:.3} below floor {MIN_XML_PASS_RATE}",
         xml.rate(),
+    );
+    assert_eq!(
+        supporting.supporting_counts(),
+        EXPECTED_SUPPORTING_COUNTS,
+        "supporting case counts drifted (fixture bump or filter change): update the counts \
+         and floors"
+    );
+    assert!(
+        supporting.passed >= MIN_SUPPORTING_PASSED,
+        "supporting passed {} below floor {MIN_SUPPORTING_PASSED}",
+        supporting.passed,
+    );
+    assert!(
+        supporting.count_matches >= MIN_SUPPORTING_COUNT_MATCHES,
+        "supporting error-count matches {} below floor {MIN_SUPPORTING_COUNT_MATCHES}",
+        supporting.count_matches,
     );
     let matches = (json.count_matches, xml.count_matches);
     assert!(
