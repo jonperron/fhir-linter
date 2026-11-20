@@ -86,6 +86,24 @@ fn flag_can_be_given_twice() {
 }
 
 #[test]
+fn snapshotless_supplied_profile_is_profile_010() {
+    let (code, pairs) = findings(
+        fhir_lint()
+            .arg("--extra-definitions")
+            .arg(extra("snapshotless")),
+    );
+    assert_eq!(code, Some(1), "{pairs:?}");
+    assert!(
+        has(&pairs, "PROFILE_010", "Patient.meta.profile[1]"),
+        "{pairs:?}"
+    );
+    assert!(
+        !has(&pairs, "PROFILE_001", "Patient.meta.profile[1]"),
+        "{pairs:?}"
+    );
+}
+
+#[test]
 fn conflict_with_base_exits_two_naming_the_file() {
     fhir_lint()
         .arg("--extra-definitions")

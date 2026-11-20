@@ -96,6 +96,11 @@ Toute erreur de chargement SHALL produire le code de sortie 2, sans rapport sur 
 - **WHEN** `--extra-definitions <dir>` fournit un profil de contrainte avec snapshot dont un élément est requis, et une ressource le déclare dans `meta.profile`
 - **THEN** la sortie SHALL contenir `CARDINALITY_001` pour cet élément et l'avertissement `PROFILE_001` « not known » SHALL disparaître
 
+#### Scenario: Profil fourni sans snapshot
+
+- **WHEN** `--extra-definitions` fournit un profil de contrainte sans snapshot (differential seul) et une ressource le déclare dans `meta.profile`
+- **THEN** la sortie SHALL contenir une erreur `PROFILE_010` à `Patient.meta.profile[n]`, et non `PROFILE_001`, et le code de sortie SHALL être 1
+
 #### Scenario: Option répétée
 
 - **WHEN** `--extra-definitions` est passé deux fois (un répertoire puis un fichier)
