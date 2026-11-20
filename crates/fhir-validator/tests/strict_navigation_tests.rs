@@ -64,20 +64,24 @@ fn core_invariants_resolve_every_name_on_a_corpus_sample() -> TestResult {
         "corpus not found: {} files",
         files.len()
     );
-    let mut unresolved = Vec::new();
-    for file in files.iter().step_by(40) {
+    let unresolved = |file: &PathBuf| -> Result<Vec<String>, Box<dyn Error>> {
         let Ok(resource) = parse_json(&std::fs::read_to_string(file)?) else {
-            continue;
+            return Ok(Vec::new());
         };
         let name = file.strip_prefix(&corpus)?.display().to_string();
-        unresolved.extend(
-            validate(&resource, &registry)
-                .into_iter()
-                .filter(|d| d.message.contains("is not an element of"))
-                .map(|d| format!("{name}: {} {} {}", d.code, d.path, d.message)),
-        );
-    }
-    assert!(unresolved.is_empty(), "{}", unresolved.join("\n"));
+        Ok(validate(&resource, &registry)
+            .into_iter()
+            .filter(|d| d.message.contains("is not an element of"))
+            .map(|d| format!("{name}: {} {} {}", d.code, d.path, d.message))
+            .collect())
+    };
+    let found: Vec<Vec<String>> = files
+        .iter()
+        .step_by(40)
+        .map(unresolved)
+        .collect::<Result<_, _>>()?;
+    let found = found.concat();
+    assert!(found.is_empty(), "{}", found.join("\n"));
     Ok(())
 }
 
