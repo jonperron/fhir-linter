@@ -88,7 +88,10 @@ pub(crate) fn check(
     location: Option<Span>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some(parsed) = constraint.parsed_expression() else {
+    let (Some(expression), Some(parsed)) = (
+        constraint.expression.as_deref(),
+        constraint.parsed_expression(),
+    ) else {
         return;
     };
     let result = parsed
@@ -115,11 +118,15 @@ pub(crate) fn check(
             format!("INVARIANT_{}", constraint.key),
             constraint.human.to_string(),
         ),
-        // Parse/evaluation errors are non-fatal: report the skip, then move on.
+        // Parse/evaluation errors are non-fatal: report the skip, then move on. The
+        // expression is quoted so a profile author can find a typo the error names.
         Err(e) => (
             Severity::Information,
             "INVARIANT_SKIPPED".to_owned(),
-            format!("constraint {} not checked: {e}", constraint.key),
+            format!(
+                "constraint {} not checked: {e} (in '{expression}')",
+                constraint.key,
+            ),
         ),
     };
     diagnostics.push(Diagnostic {

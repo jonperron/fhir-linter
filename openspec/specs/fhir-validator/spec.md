@@ -497,7 +497,7 @@ Les enfants `id` des éléments imbriqués SHALL être vérifiés comme `string`
 
 ### Requirement: Validation des invariants FHIRPath (INVARIANT_<key>)
 
-Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur l'élément du snapshot de chaque nœud d'instance, ainsi que sur l'élément racine de son type, à toute profondeur (par ex. `qty-3` sur toute `Quantity`, `ext-1` sur toute `Extension`) ; chaque clé SHALL être évaluée une seule fois par nœud. Le `path` du Diagnostic SHALL être le chemin d'instance du nœud (ex. `Patient.contact[0]`) et sa localisation le span du nœud ; les contraintes de la ressource racine restent signalées au chemin du type de ressource, sans span. Les contraintes racine d’une ressource SHALL être celles de son élément racine et celles des éléments racine de ses ancêtres ressource (`DomainResource`, `Resource` ; `Base` exclu car son `ele-1` est une règle d’élément), chaque clé une seule fois ; le R5 publie 37 racines dérivées de `DomainResource` (ex. `ValueSet`, `CodeSystem`) sans `dom-2` à `dom-6`, qui SHALL quand même leur être appliquées par cet héritage. Un primitif SHALL être évalué avec son élément JSON `_nom`, appariés par indice ; un `_nom` sans valeur SHALL être évalué au chemin nu de l'élément (ex. `Patient.name[0].family`) ; le `_id` de la racine SHALL être apparié à l'`id` de la ressource, que le parseur extrait des champs ; un item JSON `null` n'est pas évalué. Chaque invariant (racine, imbriqué, profil de type) SHALL être évalué par `fhir_fhirpath::evaluate_parsed_with_environment` avec un `Environment` dont : `member_of` est construit depuis `Registry::value_set_contains` (`memberOf`) ; `is_subtype` est construit depuis `Registry::type_ancestors` (`is`, `as` et `ofType` répondent pour les sous-types FHIR : `canonical` et `url` sont des `uri`, `code` est un `string`) ; `%resource` est la ressource englobant le nœud à toute profondeur (une ressource contenue ou une entrée de Bundle est son propre `%resource`) ; `%rootResource` est le conteneur le plus externe pour une ressource contenue, sinon `%resource` (une entrée de Bundle est sa propre racine). Une valeur sans type FHIR (élément inconnu, STRUCTURE_001/TYPE_001) interrogée sur un sous-type FHIR de `string` SHALL donner `INVARIANT_SKIPPED`. Chaque expression SHALL être analysée une seule fois par contrainte (cache). La ressource SHALL être convertie par `fhir_fhirpath::resource_to_typed_value` (racine) ou `fhir_fhirpath::node_to_typed_value` (nœuds imbriqués, même typage) avec `Registry::child_element`, de sorte que les primitives `date`, `dateTime`, `instant` et `time` soient comparées comme des valeurs temporelles. Pour chaque contrainte dont l'expression ne retourne pas `[true]` (une seule valeur vraie, y compris un booléen FHIR portant des extensions), il SHALL émettre un `Diagnostic` avec code `INVARIANT_<key>` où `<key>` est la valeur du champ `key` de la contrainte. Le code `INVARIANT_SKIPPED` est réservé : il signale une contrainte non vérifiée et n'est jamais une violation. La severity R5 d'une contrainte est liée (binding required) à constraint-severity (`error | warning`) : seule la valeur exacte `warning` SHALL donner `Severity::Warning` ; toute autre valeur (`error`, mais aussi `information`, `Warning` ou un code inconnu) SHALL donner `Severity::Error`.
+Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur l'élément du snapshot de chaque nœud d'instance, ainsi que sur l'élément racine de son type, à toute profondeur (par ex. `qty-3` sur toute `Quantity`, `ext-1` sur toute `Extension`) ; chaque clé SHALL être évaluée une seule fois par nœud. Le `path` du Diagnostic SHALL être le chemin d'instance du nœud (ex. `Patient.contact[0]`) et sa localisation le span du nœud ; les contraintes de la ressource racine restent signalées au chemin du type de ressource, sans span. Les contraintes racine d’une ressource SHALL être celles de son élément racine et celles des éléments racine de ses ancêtres ressource (`DomainResource`, `Resource` ; `Base` exclu car son `ele-1` est une règle d’élément), chaque clé une seule fois ; le R5 publie 37 racines dérivées de `DomainResource` (ex. `ValueSet`, `CodeSystem`) sans `dom-2` à `dom-6`, qui SHALL quand même leur être appliquées par cet héritage. Un primitif SHALL être évalué avec son élément JSON `_nom`, appariés par indice ; un `_nom` sans valeur SHALL être évalué au chemin nu de l'élément (ex. `Patient.name[0].family`) ; le `_id` de la racine SHALL être apparié à l'`id` de la ressource, que le parseur extrait des champs ; un item JSON `null` n'est pas évalué. Chaque invariant (racine, imbriqué, profil de type) SHALL être évalué par `fhir_fhirpath::evaluate_parsed_with_environment` avec un `Environment` dont : `member_of` est construit depuis `Registry::value_set_contains` (`memberOf`) ; `is_subtype` est construit depuis `Registry::type_ancestors` (`is`, `as` et `ofType` répondent pour les sous-types FHIR : `canonical` et `url` sont des `uri`, `code` est un `string`) ; `%resource` est la ressource englobant le nœud à toute profondeur (une ressource contenue ou une entrée de Bundle est son propre `%resource`) ; `%rootResource` est le conteneur le plus externe pour une ressource contenue, sinon `%resource` (une entrée de Bundle est sa propre racine). Une valeur sans type FHIR (élément inconnu, STRUCTURE_001/TYPE_001) interrogée sur un sous-type FHIR de `string` SHALL donner `INVARIANT_SKIPPED`. Chaque expression SHALL être analysée une seule fois par contrainte (cache). La ressource SHALL être convertie par `fhir_fhirpath::resource_to_typed_value` (racine) ou `fhir_fhirpath::node_to_typed_value` (nœuds imbriqués, même typage) avec `Registry::child_element`, de sorte que les primitives `date`, `dateTime`, `instant` et `time` soient comparées comme des valeurs temporelles. Pour chaque contrainte dont l'expression ne retourne pas `[true]` (une seule valeur vraie, y compris un booléen FHIR portant des extensions), il SHALL émettre un `Diagnostic` avec code `INVARIANT_<key>` où `<key>` est la valeur du champ `key` de la contrainte. Le code `INVARIANT_SKIPPED` est réservé : il signale une contrainte non vérifiée et n'est jamais une violation. `fhir_validator::validate` SHALL toujours évaluer le FHIRPath avec la navigation stricte (N1 §3) : il construit un seul `fhir_fhirpath::Strict` par appel, à partir de `Registry::has_element`, partagé par toutes les évaluations de l'arbre de la ressource (racine et ressources imbriquées) : invariants racine du noyau, invariants d'éléments imbriqués, contraintes de profil (racine, élément, profils de type) et discriminateurs de découpage. Une expression nommant un élément que le type ne déclare pas échoue à l'évaluation et SHALL être signalée `INVARIANT_SKIPPED` (jamais une violation : la spécification FHIR ne rend pas l'instance invalide à cause d'une expression de profil invalide). Le message de `INVARIANT_SKIPPED` SHALL avoir la forme `constraint <key> not checked: <reason> (in '<expression>')`, nommant la clé, la raison (ex. `type error: familly is not an element of HumanName`) et l'expression. La severity R5 d'une contrainte est liée (binding required) à constraint-severity (`error | warning`) : seule la valeur exacte `warning` SHALL donner `Severity::Warning` ; toute autre valeur (`error`, mais aussi `information`, `Warning` ou un code inconnu) SHALL donner `Severity::Error`.
 
 #### Scenario: Contraintes racine héritées
 
@@ -518,7 +518,7 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 
 - **WHEN** l'évaluation FHIRPath d'une contrainte retourne une erreur
 - **THEN** aucun Diagnostic `INVARIANT_<key>` ne SHALL être émis pour cette contrainte
-- **AND** exactement un Diagnostic de severity `Information` avec code `INVARIANT_SKIPPED` SHALL être émis, au `path` du type de ressource pour une contrainte de la racine ou au chemin d'instance du nœud pour une contrainte imbriquée, avec un message nommant la `key` de la contrainte et la raison de l'erreur
+- **AND** exactement un Diagnostic de severity `Information` avec code `INVARIANT_SKIPPED` SHALL être émis, au `path` du type de ressource pour une contrainte de la racine ou au chemin d'instance du nœud pour une contrainte imbriquée, avec un message `constraint <key> not checked: <reason> (in '<expression>')` nommant la `key` de la contrainte, la raison de l'erreur et l'expression
 
 #### Scenario: Collection FHIRPath trop grande signalée INVARIANT_SKIPPED
 
@@ -579,7 +579,7 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 
 - **WHEN** l'expression FHIRPath d'une contrainte ne peut pas être analysée (par ex. une fonction non implémentée comme `timeOfDay`)
 - **THEN** la contrainte SHALL être ignorée tant que cette fonction n'est pas implémentée
-- **AND** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` nommant la `key` et la raison SHALL être émis, afin qu'un résultat sans erreur ne masque jamais une contrainte non vérifiée
+- **AND** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` nommant la `key`, la raison et l'expression SHALL être émis, afin qu'un résultat sans erreur ne masque jamais une contrainte non vérifiée
 
 #### Scenario: Invariants txt-1 et txt-2 évalués
 
@@ -658,6 +658,12 @@ Le système SHALL évaluer les expressions FHIRPath de contrainte définies sur 
 
 - **WHEN** l'expression d'une contrainte d'un nœud imbriqué ne s'analyse pas ou échoue
 - **THEN** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` SHALL être émis par nœud, au chemin de ce nœud
+
+#### Scenario: Élément inconnu dans une contrainte de profil
+
+- **WHEN** une contrainte de profil a l'expression `name.familly.exists()` sur une `Patient`
+- **THEN** exactement un Diagnostic `Information` `INVARIANT_SKIPPED` SHALL être émis, nommant `familly` et l'expression
+- **AND** aucun Diagnostic `INVARIANT_<key>` ne SHALL être émis pour cette contrainte
 
 ### Requirement: Validation terminologique — binding required (TERMINOLOGY_001)
 
@@ -911,7 +917,7 @@ Le système SHALL émettre, au chemin d'instance concerné :
 - `PROFILE_007` (erreur) : découpage fermé et un item ne correspond à aucune slice (au chemin de l'item) ;
 - `PROFILE_008` (erreur) : découpage ordonné et un item correspond à une slice déclarée avant la slice d'un item précédent ;
 - `PROFILE_009` (erreur) : slice `openAtEnd` et un item apparaît après un item non apparié ;
-- `SLICING_SKIPPED` (information) : un discriminateur ne peut être évalué (chemin fonction tel que `resolve()`, `ofType()`, `extension('url')` ; chemin non analysable ; type non supporté tel que `position` ; slice ne donnant aucune valeur au chemin ; profil inconnu ; erreur d'évaluation). Il SHALL être émis seulement s'il existe des items ou une slice avec `min>0`, et le découpage n'est alors pas évalué.
+- `SLICING_SKIPPED` (information) : un discriminateur ne peut être évalué (chemin fonction tel que `resolve()`, `ofType()`, `extension('url')` ; chemin non analysable ; type non supporté tel que `position` ; slice ne donnant aucune valeur au chemin ; profil inconnu ; erreur d'évaluation, y compris un chemin nommant un élément que le type ne déclare pas, la navigation étant stricte ; la raison est alors `cannot evaluate discriminator '<path>': <error>`). Il SHALL être émis seulement s'il existe des items ou une slice avec `min>0`, et le découpage n'est alors pas évalué.
 
 Exception : dans un découpage fermé, une slice `max=0` ne donnant aucune valeur de discriminateur (ex. `patch` du Bundle d'historique R5) SHALL ne correspondre à rien.
 
@@ -955,6 +961,11 @@ Limites connues : les re-slices comptent comme des slices ; les chemins de discr
 - **THEN** elle SHALL ne correspondre à aucun item
 
 ---
+
+#### Scenario: Chemin de discriminateur inconnu
+
+- **WHEN** un discriminateur a pour chemin `systen` sur un `Identifier`
+- **THEN** un Diagnostic `SLICING_SKIPPED` (information) SHALL être émis, nommant `systen` (`cannot evaluate discriminator 'systen': ...`), et le découpage SHALL ne pas être évalué
 
 ### Requirement: Validation de profil — profils de type (type.profile)
 
@@ -1673,7 +1684,6 @@ Pour toute StructureDefinition ayant un `differential`, le système SHALL émett
 - **WHEN** le `min` de l'enfant de tranche ne dépasse pas le `max` de l'homologue
 - **THEN** aucun Diagnostic `DEFINITION_003` SHALL être émis
 
-
 ### Requirement: Validation des profils — cible d'un canonical (DEFINITION_004)
 
 Pour toute StructureDefinition dont `derivation` vaut `constraint`, le système SHALL émettre une erreur `DEFINITION_004` à `<ressource>.differential.element[<i>].type[<j>].targetProfile[<k>]` pour chaque `targetProfile` (suffixe de version retiré) d'un type de code `canonical` d'un élément du différentiel qui désigne une définition du Registry de `kind` = `resource`, non abstraite, et qui n'atteint pas `CanonicalResource` par ses extensions `structuredefinition-implements` (`StructureDefinition.implements`) ni par sa chaîne `baseDefinition` (R5 references.html, « Canonical URLs » : seules les ressources canoniques peuvent être la cible d'une référence canonical). Les cibles abstraites (`Resource` = canonical(Any), `CanonicalResource`, `MetadataResource`) SHALL passer. Une définition absente du Registry, sur la cible ou durant la marche, laisse le cas indécis : aucun Diagnostic. Les spécialisations (`derivation` = `specialization`) SHALL NOT être contrôlées, la spécialisation R5 NutritionIntake listant `ClinicalUseDefinition`, non canonique, comme cible d'`instantiatesCanonical`.
@@ -1734,3 +1744,4 @@ Le système SHALL émettre une erreur `STRUCTURE_007` pour un couple system+code
 
 - **WHEN** deux codings de `meta.tag` n’ont pas de `code`
 - **THEN** aucun Diagnostic `STRUCTURE_007` SHALL être émis
+

@@ -230,7 +230,9 @@ fn address(value: &Value) -> Option<usize> {
 /// `resourceType`; the first path recorded for an object wins.
 fn index_paths(node: &Value, path: &str, paths: &mut InstancePaths) {
     let (fields, is_object) = match node {
-        Value::Object(fields, _) => (fields, true),
+        // An untyped object (an unknown element) is never asked by its path; a resource
+        // below one is left to lenient lookups rather than store a path per object.
+        Value::Object(fields, Some(_)) => (fields, true),
         // A primitive's `extension` may hold a backbone (`valueTiming.repeat`).
         Value::Primitive(_, fields, _) => (fields, false),
         _ => return,
@@ -258,5 +260,35 @@ fn index_paths(node: &Value, path: &str, paths: &mut InstancePaths) {
     }
     if is_object {
         paths.entry(address).or_insert(path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use indexmap::IndexMap;
+
+    #[test]
+    fn objects_of_an_unknown_element_are_not_indexed() {
+        // Each indexed object holds its own copy of its path: under a long unknown key,
+        // many empty objects used to cost key length times count (a 137 KB Patient, 1 GB).
+        let unknown: Vec<Value> = (0..3)
+            .map(|_| Value::Object(Arc::default(), None))
+            .collect();
+        let contact = Value::Object(Arc::default(), Some(Arc::from("BackboneElement")));
+        let fields = IndexMap::from([
+            (
+                Arc::from("resourceType"),
+                vec![Value::String(Arc::from("Patient"))],
+            ),
+            (Arc::from("contact"), vec![contact.clone()]),
+            (Arc::from("k".repeat(64)), unknown),
+        ]);
+        let patient = Value::Object(Arc::new(fields), Some(Arc::from("Patient")));
+        let mut paths = InstancePaths::new();
+        index_paths(&patient, "", &mut paths);
+        let mut indexed: Vec<&str> = paths.values().map(|path| &**path).collect();
+        indexed.sort_unstable();
+        assert_eq!(indexed, ["Patient", "Patient.contact"]);
     }
 }

@@ -111,7 +111,8 @@ pub(crate) fn assign<'r>(
         let mut no_value = None;
         for discriminator in &slicing.discriminators {
             let found = parse(discriminator).and_then(|expr| {
-                Ok(rule(slice, children, discriminator)?.map(|rule| (expr, rule)))
+                let path = &discriminator.path;
+                Ok(rule(slice, children, discriminator)?.map(|rule| (expr, rule, path)))
             });
             match found {
                 Ok(Some(found)) => slice_rules.push(found),
@@ -151,7 +152,7 @@ pub(crate) fn assign<'r>(
                 continue;
             };
             let mut all = true;
-            for (expr, rule) in slice_rules {
+            for (expr, rule, discriminator_path) in slice_rules {
                 let selected = match expr {
                     None => Ok(value.clone()),
                     Some(expr) => fhir_fhirpath::evaluate_parsed_with_environment(
@@ -164,7 +165,9 @@ pub(crate) fn assign<'r>(
                 let selected = match selected {
                     Ok(selected) => selected,
                     Err(e) => {
-                        skip(format!("cannot evaluate a discriminator: {e}"), diagnostics);
+                        let reason =
+                            format!("cannot evaluate discriminator '{discriminator_path}': {e}");
+                        skip(reason, diagnostics);
                         return unassigned();
                     }
                 };
