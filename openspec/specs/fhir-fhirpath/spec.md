@@ -1013,7 +1013,7 @@ Le système SHALL définir la constante `MAX_EVAL_STRING_CHARS` = 16 777 216 (`c
 
 ### Requirement: Variables d'environnement
 
-Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` suivi d'un identifiant délimité par accents graves, et `%'chaîne'` en un nœud `Expr::External` (nom sans le `%`), et les évaluer comme suit. Il SHALL exposer `pub struct Environment { resource: Option<&Value>, root_resource: Option<&Value>, is_subtype: Option<&IsSubtype>, member_of: Option<&MemberOf>, strict: Option<&HasElement> }` où `pub type IsSubtype = dyn Fn(&str, &str) -> bool` est construit par l'appelant à partir de `Registry::type_ancestors` (`is_subtype(nom, nom)` signifie « nom est un type FHIR »), `pub type MemberOf = dyn Fn(&str, Option<&str>, &str) -> Option<bool>` (valueset, système, code ; `None` = indécidable) est construit par l'appelant à partir de `Registry::value_set_contains`, et `evaluate_parsed_with_environment(expr, context, is_choice_variant, &Environment)`. `evaluate`, `evaluate_parsed` et `evaluate_parsed_with_choices` SHALL conserver leur signature et utiliser les valeurs par défaut.
+Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` suivi d'un identifiant délimité par accents graves, et `%'chaîne'` en un nœud `Expr::External` (nom sans le `%`), et les évaluer comme suit. Il SHALL exposer `pub struct Environment { resource: Option<&Value>, root_resource: Option<&Value>, is_subtype: Option<&IsSubtype>, member_of: Option<&MemberOf>, strict: Option<&Strict> }` où `pub type IsSubtype = dyn Fn(&str, &str) -> bool` est construit par l'appelant à partir de `Registry::type_ancestors` (`is_subtype(nom, nom)` signifie « nom est un type FHIR »), `pub type MemberOf = dyn Fn(&str, Option<&str>, &str) -> Option<bool>` (valueset, système, code ; `None` = indécidable) est construit par l'appelant à partir de `Registry::value_set_contains`, et `evaluate_parsed_with_environment(expr, context, is_choice_variant, &Environment)`. `evaluate`, `evaluate_parsed` et `evaluate_parsed_with_choices` SHALL conserver leur signature et utiliser les valeurs par défaut.
 
 - `%context` SHALL être la collection d'entrée d'origine, inchangée à l'intérieur de `where`, `select`, etc.
 - `%ucum` = `http://unitsofmeasure.org`, `%sct` = `http://snomed.info/sct`, `%loinc` = `http://loinc.org`, `%vs-[nom]` = `http://hl7.org/fhir/ValueSet/[nom]`, `%ext-[nom]` = `http://hl7.org/fhir/StructureDefinition/[nom]` (un nom vide est une erreur).
@@ -1052,7 +1052,11 @@ Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` 
 
 ### Requirement: Navigation stricte opt-in
 
-`Environment::strict: Option<&HasElement>` (défaut `None`), où `pub type HasElement = dyn Fn(&str, &str) -> Option<bool>` (type, nom ; `None` = indécidable) est exporté et construit par l'appelant à partir de `Registry::has_element`, SHALL activer l'erreur de navigation (N1 §3 : « If the identifier cannot be resolved, the evaluation will end and signal an error »). Lorsqu'il est fourni, une étape de chemin SHALL retourner `Err(EvalError::Type("<nom> is not an element of <type>"))` si et seulement si l'entrée est non vide et que chaque élément est un objet typé dont le type ne déclare pas l'élément et, pour un identifiant initial, n'est ni ce type ni un sous-type. Un objet typé dont le type ne peut pas trancher (`has_element(type) == None` : `BackboneElement`, `Element`) SHALL être interrogé par son chemin d'instance depuis sa ressource (ex. `Patient.contact`, `Questionnaire.item.item`, `MedicationRequest.dosageInstruction.timing.repeat`) ; le message est alors `<nom> is not an element of <chemin d'instance>`. Ce chemin SHALL provenir d'un index des arbres de l'entrée (`%context`), de `%resource` et de `%rootResource`, construit une seule fois par évaluation à la première étape qui en a besoin ; une ressource (racine, `contained`, entrée de Bundle) SHALL redémarrer le chemin à son `resourceType`. Il n'y a pas de recherche de suffixe de choix : `Observation.component.valueString` SHALL donner une erreur en mode strict. Les backbones hors de ces arbres, les primitives et les nœuds non typés SHALL NOT provoquer d'erreur, de sorte que les collections mixtes (ex. `descendants()`) n'échouent pas. Sans `strict`, un nom inconnu SHALL donner une collection vide. Le validateur SHALL rester non strict (`strict: None`).
+`Environment::strict: Option<&Strict>` (défaut `None`) SHALL activer l'erreur de navigation (N1 §3 : « If the identifier cannot be resolved, the evaluation will end and signal an error »). `pub struct Strict` est exporté et construit par `Strict::new(&has_element)`, où `pub type HasElement = dyn Fn(&str, &str) -> Option<bool>` (type, nom ; `None` = indécidable, toujours exporté) est construit par l'appelant à partir de `Registry::has_element`. Un seul `Strict` SHALL être partagé par les évaluations d'une même ressource : il met en cache `has_element` par (définition, nom) et indexe une fois les chemins d'instance de `%rootResource`/`%resource` (il détient ces racines) ; les évaluations avec d'autres racines, et les nœuds de contexte hors de celles-ci, utilisent un index construit une fois par évaluation. Le coût strict SHALL rester linéaire (une `List` de 32k références SHALL coûter le même temps qu'en non strict).
+
+Lorsqu'il est fourni, une étape de chemin SHALL retourner `Err(EvalError::Type("<nom> is not an element of <type>"))` si et seulement si l'entrée est non vide et que chaque élément est un objet typé dont le type ne déclare pas l'élément et, pour un identifiant initial, n'est ni ce type ni un sous-type. Un objet typé dont le type ne peut pas trancher (`has_element(type) == None` : `BackboneElement`, `Element`) SHALL être interrogé par son chemin d'instance depuis sa ressource (ex. `Patient.contact`, `Questionnaire.item.item`) ; le message est alors `<nom> is not an element of <chemin d'instance>`. Une ressource (racine, `contained`, entrée de Bundle) SHALL redémarrer le chemin à son `resourceType`. Il n'y a pas de recherche de suffixe de choix : `Observation.component.valueString` SHALL donner une erreur en mode strict. Les backbones hors des arbres indexés, les primitives et les nœuds non typés SHALL NOT provoquer d'erreur. Une ressource imbriquée dans une autre (`contained`, entrée de Bundle, ...) qui n'est ni l'entrée ni `%resource`/`%rootResource` SHALL NOT provoquer d'erreur (son élément est typé `Resource`) ; `ofType()` ne la restreint pas à nouveau (limitation).
+
+Dans un paramètre d'expression (`where`, `select`, `exists`, `all`, `repeat`, `aggregate`, `sort`, ...), un identifiant initial SHALL être résolu contre toute la collection d'entrée dont provient `$this` (erreur seulement si aucun élément ne le résout) ; dans `repeat()`, cette collection est l'entrée plus toutes les projections déjà produites. Les étapes suivantes restent vérifiées sur les valeurs de l'élément (limitation documentée). Sans `strict`, un nom inconnu SHALL donner une collection vide. `fhir_validator::validate` SHALL rester non strict ; un `validate_strict` caché, réservé aux tests, l'active, et le test ignoré `corpus_diagnostics_are_identical_with_strict_navigation` SHALL constater des diagnostics identiques sur `tests/fixtures` avec et sans strict.
 
 #### Scenario: Élément inconnu en mode strict
 
@@ -1073,6 +1077,31 @@ Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` 
 
 - **WHEN** `descendants().bogus` est évalué avec `strict` sur une collection mêlant objets typés et éléments backbone, primitives ou nœuds hors des arbres indexés
 - **THEN** aucune erreur SHALL être retournée
+
+#### Scenario: Collection mixte avec unité
+
+- **WHEN** `descendants().where(unit = 'lbs')` est évalué avec `strict` sur une Observation
+- **THEN** le résultat SHALL être la Quantity, sans erreur
+
+#### Scenario: Identifiant inconnu dans un paramètre
+
+- **WHEN** `Observation.code.where(bogus.exists())` est évalué avec `strict`
+- **THEN** l'évaluateur SHALL retourner l'erreur « bogus is not an element of CodeableConcept »
+
+#### Scenario: repeat sur backbones
+
+- **WHEN** `QuestionnaireResponse.item.repeat(answer | item)` est évalué avec `strict`
+- **THEN** aucune erreur SHALL être retournée
+
+#### Scenario: Ressource contenue imbriquée
+
+- **WHEN** `contained.contained.empty()` est évalué avec `strict` sur une ressource contenant un Bundle contenu
+- **THEN** le résultat SHALL être `true`
+
+#### Scenario: dom-3 sous strict
+
+- **WHEN** l'invariant dom-3 du noyau est évalué avec `strict` sur un Patient dont un `Basic` contenu n'est pas référencé
+- **THEN** le validateur SHALL produire une Error `INVARIANT_dom-3`
 
 #### Scenario: Défaut non strict
 
