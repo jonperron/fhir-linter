@@ -9,20 +9,17 @@ mod files;
 mod output;
 
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
-use fhir_definitions::{DEFINITIONS_DIR_ENV, Registry};
+use fhir_definitions::{DEFINITIONS_DIR_ENV, MAX_INPUT_BYTES, Registry, read_capped};
 use fhir_linter::{Config, RuleRegistry};
 use fhir_parser::{ParseError, Resource, Span};
 use fhir_validator::{Diagnostic, Severity};
 
 use crate::output::Finding;
-
-/// Largest input file read, so one huge file cannot exhaust memory.
-const MAX_INPUT_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug, Parser)]
 #[command(name = "fhir-lint", version, about)]
@@ -149,31 +146,9 @@ fn lint_file(
 }
 
 /// Read an input file, refusing one over `MAX_INPUT_BYTES` before it is
-/// loaded. The read itself is bounded, so a file that grows after the check
-/// cannot slip past the limit.
+/// loaded (see [`read_capped`]).
 fn read_input(path: &Path) -> Result<Vec<u8>, String> {
-    let read_error = |e: std::io::Error| format!("cannot read '{}': {e}", path.display());
-    let too_large = || {
-        format!(
-            "cannot read '{}': file is larger than the {} MiB input limit",
-            path.display(),
-            MAX_INPUT_BYTES / (1024 * 1024)
-        )
-    };
-    let file = fs::File::open(path).map_err(read_error)?;
-    let len = file.metadata().map_err(read_error)?.len();
-    if len > MAX_INPUT_BYTES {
-        return Err(too_large());
-    }
-    // Sized up front so the read does not double the allocation of a large file.
-    let mut bytes = Vec::with_capacity(len as usize);
-    file.take(MAX_INPUT_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(read_error)?;
-    if bytes.len() as u64 > MAX_INPUT_BYTES {
-        return Err(too_large());
-    }
-    Ok(bytes)
+    read_capped(path, MAX_INPUT_BYTES).map_err(|e| format!("cannot read '{}': {e}", path.display()))
 }
 
 fn parse(path: &Path, text: &str) -> Result<Resource, Diagnostic> {

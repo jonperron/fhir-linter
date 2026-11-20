@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use crate::error::EvalError;
 use crate::value::Value;
+use crate::{Decimal, Rounding};
 
 /// Components from year (or hour for a Time) down to seconds, and the
 /// zone offset in minutes.
@@ -161,11 +162,19 @@ const DURATION_UNITS: [&[&str]; 7] = [
 /// from [`DURATION_UNITS`] index 2 on.
 const UNIT_MILLIS: [i64; 5] = [86_400_000, 3_600_000, 60_000, 1000, 1];
 
-/// `value + amount unit` for a Date, DateTime or Time (N2 §6.6.7; `-` passes
-/// a negated amount, §6.6.8). The result keeps the value's precision and
-/// zone text. Amounts above seconds lose their decimals, and a unit finer
-/// than the value converts to the value's precision, truncated.
-pub(super) fn add_duration(value: &Value, amount: f64, unit: &str) -> Result<Value, EvalError> {
+/// 1e18 ms is far past 9999 years yet keeps the sum inside i64.
+const MAX_SHIFT_MILLIS: u64 = 1_000_000_000_000_000_000;
+
+/// Days in a year and in a month when a year- or month-precision value takes
+/// a day or finer unit: N1 §6.7.1 (`@2016 + 365 days` is `@2017`, "a standard
+/// calendar year of 365 days") and the N2 conversion table (1 month = 30 days).
+const PARTIAL_DAYS: [i64; 2] = [365, 30];
+
+/// `value + amount unit` for a Date, DateTime or Time (N1 §6.7.1; `-` passes
+/// a negated amount, §6.7.2), in exact decimals. The result keeps the value's
+/// precision and zone text. Amounts above seconds lose their decimals, and a
+/// unit finer than the value converts to the value's precision, truncated.
+pub(super) fn add_duration(value: &Value, amount: Decimal, unit: &str) -> Result<Value, EvalError> {
     let (text, is_time) = match value {
         Value::Date(text) | Value::DateTime(text) => (text, false),
         Value::Time(text) => (text, true),
@@ -175,30 +184,60 @@ pub(super) fn add_duration(value: &Value, amount: f64, unit: &str) -> Result<Val
             ));
         }
     };
-    let bad_unit = || EvalError::Type(format!("'{unit}' is not a calendar duration"));
-    let (index, amount) = match unit {
-        "week" | "wk" => (2, amount.trunc() * 7.0),
+    let out_of_range = || EvalError::Type(format!("{text} + {amount} {unit} is out of range"));
+    let (index, factor) = match unit {
+        "week" | "wk" => (2, 7),
         _ => {
             let index = DURATION_UNITS
                 .iter()
                 .position(|names| names.contains(&unit))
-                .ok_or_else(bad_unit)?;
-            (index, if index < 5 { amount.trunc() } else { amount })
+                .ok_or_else(|| EvalError::Type(format!("'{unit}' is not a calendar duration")))?;
+            (index, 1)
         }
     };
+    // N1 §6.7.1: "For precisions above seconds, the decimal portion of the
+    // time-valued quantity is ignored".
+    let amount = if index < 5 {
+        amount
+            .to_i64(Rounding::TowardZero)
+            .and_then(|whole| whole.checked_mul(factor))
+            .map(Decimal::from)
+            .ok_or_else(out_of_range)?
+    } else {
+        amount
+    };
     if is_time && index < 3 {
-        // not settled by N2: a Time has no calendar to add days or months to.
+        // N2 §6.6: an error "includes attempting to add date components to a Time".
         return Err(EvalError::Type(format!("cannot add {unit} to a Time")));
+    }
+    if matches!(value, Value::Date(_)) && index > 2 {
+        // N1 §6.7.1: "For Date values, the quantity unit must be one of: years,
+        // months, weeks, or days".
+        return Err(EvalError::Type(format!("cannot add {unit} to a Date")));
     }
     let mut fields = TemporalFields::parse(text, is_time)
         .ok_or_else(|| EvalError::Type(format!("invalid date/time: {text}")))?;
-    let out_of_range = || EvalError::Type(format!("{text} + {amount} {unit} is out of range"));
-    if !amount.is_finite() {
-        return Err(out_of_range());
-    }
+    // Whole `step`s of milliseconds in a day-or-finer amount, truncated
+    // toward zero as the value's precision is coarser. A Time drops whole
+    // days, so its shift is reduced to under a day first.
+    let steps_of = |step: i64| {
+        amount
+            .checked_mul(Decimal::from(UNIT_MILLIS[index.saturating_sub(2)]))
+            .and_then(|millis| {
+                if is_time {
+                    millis.checked_rem(Decimal::from(UNIT_MILLIS[0]))
+                } else {
+                    Some(millis)
+                }
+            })
+            .and_then(|millis| millis.checked_div_integer(Decimal::from(step)))
+            .and_then(|steps| steps.to_i64(Rounding::TowardZero))
+            .ok_or_else(out_of_range)
+    };
     if index < 2 {
-        let months = (amount as i64)
-            .checked_mul(if index == 0 { 12 } else { 1 })
+        let months = amount
+            .to_i64(Rounding::TowardZero)
+            .and_then(|count| count.checked_mul(if index == 0 { 12 } else { 1 }))
             .ok_or_else(out_of_range)?;
         // A year-precision value takes whole years only.
         let months = if fields.precision == 0 {
@@ -208,26 +247,24 @@ pub(super) fn add_duration(value: &Value, amount: f64, unit: &str) -> Result<Val
         };
         fields.add_months(months).ok_or_else(out_of_range)?;
     } else if fields.precision < 2 {
-        // not settled by N2: a day has no fixed length in months or years.
-        return Err(EvalError::Type(format!(
-            "cannot add {unit} to {text}, which has no day"
-        )));
+        let count = steps_of(PARTIAL_DAYS[fields.precision] * UNIT_MILLIS[0])?;
+        let months = count
+            .checked_mul(if fields.precision == 0 { 12 } else { 1 })
+            .ok_or_else(out_of_range)?;
+        fields.add_months(months).ok_or_else(out_of_range)?;
     } else {
         // R5 allows second 60, but civil-time arithmetic would turn
         // 23:59:60 into the next day, so a shift past the day is an error.
-        // shortcut: leap seconds are refused, not carried; N2 is silent.
+        // shortcut: leap seconds are refused, not carried; N1 is silent.
         if fields.fields[5] == 60 {
             return Err(out_of_range());
         }
         let step = UNIT_MILLIS[fields.precision - 2];
-        // Rounding to a nano-step first keeps 1.005 s at 1005 ms, not 1004.
-        let steps = ((amount * UNIT_MILLIS[index - 2] as f64 / step as f64) * 1e9).round() / 1e9;
-        let steps = steps.trunc();
-        // 1e18 ms is far past 9999 years yet keeps the sum inside i64.
-        if !steps.is_finite() || (steps * step as f64).abs() > 1e18 {
-            return Err(out_of_range());
-        }
-        fields.add_millis(steps as i64 * step);
+        let shift = steps_of(step)?
+            .checked_mul(step)
+            .filter(|shift| shift.unsigned_abs() <= MAX_SHIFT_MILLIS)
+            .ok_or_else(out_of_range)?;
+        fields.add_millis(shift);
     }
     fields.format(text, is_time).map(Arc::from).map_or_else(
         || Err(out_of_range()),
