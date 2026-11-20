@@ -35,9 +35,7 @@ impl Registry {
     pub fn from_definitions_dir(dir: impl AsRef<Path>) -> Result<Self> {
         let dir = dir.as_ref();
 
-        let mut structure_definitions = HashMap::new();
-        let mut value_sets = HashMap::new();
-        let mut code_systems = HashMap::new();
+        let mut defs = loader::Definitions::default();
 
         for file in &[
             "profiles-resources.json",
@@ -46,19 +44,14 @@ impl Registry {
             "valuesets.json",
         ] {
             let path = dir.join(file);
-            loader::load_bundle(
-                &path,
-                &mut structure_definitions,
-                &mut value_sets,
-                &mut code_systems,
-            )?;
+            loader::load_bundle(&path, &mut defs)?;
         }
 
-        let choice_suffixes = index_choice_suffixes(&structure_definitions);
+        let choice_suffixes = index_choice_suffixes(&defs.structure_definitions);
         Ok(Self {
-            structure_definitions,
-            value_sets,
-            code_systems,
+            structure_definitions: defs.structure_definitions,
+            value_sets: defs.value_sets,
+            code_systems: defs.code_systems,
             choice_suffixes,
         })
     }
