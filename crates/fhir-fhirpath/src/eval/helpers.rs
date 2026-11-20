@@ -248,9 +248,24 @@ pub(super) fn as_quantity(v: &Value) -> Option<(f64, Option<&str>)> {
 /// N1 §6.1, §6.2 on two Quantities: `Some(Some((x, y, factor)))` when `b`'s
 /// unit converts into `a`'s (`y * factor` is `b` in `a`'s unit), `Some(None)`
 /// when they cannot be compared (no conversion, or a unit on one side only),
-/// `None` when either is not a Quantity.
+/// `None` when neither is a Quantity, or the other is not a number. N1 §5.5:
+/// Integer and Decimal convert implicitly to Quantity, with the default unit
+/// `'1'` (§5.5.7 toQuantity).
 fn quantity_operands(a: &Value, b: &Value, equivalent: bool) -> Option<Option<(f64, f64, f64)>> {
-    let ((x, x_unit), (y, y_unit)) = (as_quantity(a)?, as_quantity(b)?);
+    // shortcut: f64 like every Quantity amount, so integers past 2^53 lose
+    // digits; upgrade with the decimal Quantity type.
+    let number = |v: &Value| match v {
+        Value::Integer(_) | Value::Long(_) | Value::Decimal(_) => {
+            Some((v.as_decimal()?.to_f64(), Some("1")))
+        }
+        _ => None,
+    };
+    let ((x, x_unit), (y, y_unit)) = match (as_quantity(a), as_quantity(b)) {
+        (Some(x), Some(y)) => (x, y),
+        (Some(x), None) => (x, number(b)?),
+        (None, Some(y)) => (number(a)?, y),
+        (None, None) => return None,
+    };
     let factor = match (x_unit, y_unit) {
         (None, None) => Some(1.0),
         (Some(x_unit), Some(y_unit)) => quantity_unit_factor(y_unit, x_unit, equivalent)
@@ -274,7 +289,8 @@ fn convert_amount(x: f64, y: f64, factor: f64) -> f64 {
 }
 
 /// [`quantity_operands`] with `b` converted into `a`'s unit: `Some(Some((x, y)))`
-/// when comparable, `Some(None)` when not, `None` when either is not a Quantity.
+/// when comparable, `Some(None)` when not, `None` when neither is a Quantity
+/// or the other is not a number.
 pub(super) fn quantity_values(
     a: &Value,
     b: &Value,
@@ -590,11 +606,15 @@ pub(super) fn compare_values(a: &Value, b: &Value) -> Result<std::cmp::Ordering,
                 ))),
             }
         }
-        (a, b) => Err(EvalError::Type(format!(
-            "cannot compare {} and {}",
-            a.type_name(),
-            b.type_name()
-        ))),
+        // N1 §5.5: a number against a Quantity compares as unit '1'.
+        (a, b) => match quantity_values(a, b, false) {
+            Some(Some((x, y))) => Ok(x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal)),
+            _ => Err(EvalError::Type(format!(
+                "cannot compare {} and {}",
+                a.type_name(),
+                b.type_name()
+            ))),
+        },
     }
 }
 

@@ -4,13 +4,14 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use super::helpers::same_value;
+use super::helpers::{as_quantity, same_value};
 use crate::Decimal;
 use crate::value::{Collection, Value};
 
 /// The part of a value that decides its FHIRPath equality, for the kinds
 /// where that is exact: `values_equal` on two of them is `Some(key == key)`.
-/// A keyed value never equals an unkeyed one (temporal, Quantity, complex).
+/// A keyed value never equals an unkeyed one (temporal, Quantity, complex),
+/// except a number, which equals a dimensionless Quantity (N1 §5.5).
 #[derive(Hash, PartialEq, Eq)]
 enum EqualityKey {
     Bool(bool),
@@ -48,7 +49,8 @@ fn equality_key(value: &Value) -> Option<EqualityKey> {
     }
 }
 
-/// Whether [`ValueSet::contains`] answers `value` from the hash index.
+/// Whether [`ValueSet::contains`] answers `value` from the hash index (plus,
+/// for a number, a scan of the Quantity members).
 pub(super) fn is_keyed(value: &Value) -> bool {
     equality_key(value).is_some()
 }
@@ -59,11 +61,22 @@ pub(super) fn is_keyed(value: &Value) -> bool {
 pub(super) struct ValueSet {
     values: Collection,
     keys: HashSet<EqualityKey>,
+    /// Indices of the Quantity members, which a number can equal (`1 = 1 '1'`).
+    /// shortcut: a numeric miss scans them; key dimensionless Quantities if
+    /// large mixed sets show up.
+    quantities: Vec<usize>,
 }
 
 impl ValueSet {
     pub(super) fn contains(&self, value: &Value) -> bool {
         match equality_key(value) {
+            Some(key @ EqualityKey::Number(..)) => {
+                self.keys.contains(&key)
+                    || self
+                        .quantities
+                        .iter()
+                        .any(|&i| same_value(&self.values[i], value))
+            }
             Some(key) => self.keys.contains(&key),
             None => self.values.iter().any(|member| same_value(member, value)),
         }
@@ -73,6 +86,9 @@ impl ValueSet {
     pub(super) fn push(&mut self, value: Value) {
         if let Some(key) = equality_key(&value) {
             self.keys.insert(key);
+        }
+        if as_quantity(value.primitive_value()).is_some() {
+            self.quantities.push(self.values.len());
         }
         self.values.push(value);
     }

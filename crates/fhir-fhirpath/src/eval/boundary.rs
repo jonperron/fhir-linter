@@ -107,8 +107,15 @@ impl Evaluator<'_> {
         check_arity("comparable", args, 1)?;
         let other = self.eval(&args[0], ctx)?;
         let result = match (focus, other.as_slice()) {
-            ([a], [b]) => quantity_values(a.primitive_value(), b.primitive_value(), false)
-                .map(|values| Value::Bool(values.is_some())),
+            // `quantity_values` also converts a number; comparable() is on Quantities.
+            ([a], [b])
+                if [a, b]
+                    .iter()
+                    .all(|v| as_quantity(v.primitive_value()).is_some()) =>
+            {
+                quantity_values(a.primitive_value(), b.primitive_value(), false)
+                    .map(|values| Value::Bool(values.is_some()))
+            }
             _ => None,
         };
         Ok(result.into_iter().collect())
