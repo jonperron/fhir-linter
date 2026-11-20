@@ -137,7 +137,8 @@ fn validate_one<'a>(
         root_resource: Some(container.unwrap_or(root)),
         is_subtype: Some(&is_subtype),
         member_of: Some(&member_of),
-        // Not strict: `Registry::has_element` does not follow `contentReference`.
+        // Not strict: with `Registry::has_element` as the hook, core dom-3 is skipped
+        // (INVARIANT_SKIPPED) and `dom3_scale_tests` blows its time limit.
         strict: None,
         conforms_to: Some(&conforms_to),
     };
