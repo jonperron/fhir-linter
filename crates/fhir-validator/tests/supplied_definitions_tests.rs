@@ -110,6 +110,28 @@ fn meta_profile_without_snapshot_message_names_the_profile() {
 }
 
 #[test]
+fn supplied_profile_with_snapshot_is_validated() {
+    let layer = patient_layer(|elements| {
+        let gender = elements
+            .iter_mut()
+            .find(|e| e["path"] == "Patient.gender")
+            .unwrap();
+        gender["min"] = json!(1);
+    });
+    let registry = overlay("snapshot", &[layer]);
+    assert!(!registry.needs_snapshot(LAYER));
+    let patient = json!({"resourceType": "Patient", "meta": {"profile": [LAYER]}});
+    let resource = parse_json(&patient.to_string()).unwrap();
+    let found: Vec<_> = validate(&resource, &registry)
+        .iter()
+        .filter(|d| d.severity == Severity::Error || d.code.starts_with("PROFILE_"))
+        .map(|d| format!("{} {}", d.code, d.path))
+        .collect();
+    // The profile's own rule applies; it is neither unknown nor snapshotless.
+    assert_eq!(found, ["CARDINALITY_001 Patient.gender"]);
+}
+
+#[test]
 fn unknown_meta_profile_stays_profile_001() {
     let registry = overlay("unknown", &[snapshotless_profile("Patient")]);
     let patient = json!({

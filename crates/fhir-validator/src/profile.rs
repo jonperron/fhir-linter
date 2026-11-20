@@ -18,10 +18,10 @@ use fhir_definitions::capitalise;
 /// Profiles known to the registry are checked for resource-type match
 /// (`PROFILE_002`) and their cardinality, `fixed[x]`/`pattern[x]` and value-slice rules are
 /// applied at every depth (`check_profile_object`); `environment` evaluates discriminators and
-/// slice invariants. Unknown profiles
-/// produce a `PROFILE_001` warning because they cannot be validated against; a profile supplied
-/// without a snapshot (`Registry::needs_snapshot`) gives a `PROFILE_010` error. A `|version`
-/// other than the loaded definition's gives a `PROFILE_003` warning.
+/// slice invariants. Unknown profiles produce a `PROFILE_001` warning because they cannot be
+/// validated against; a profile supplied without a snapshot (`Registry::needs_snapshot`) gives
+/// a `PROFILE_010` error. A `|version` other than the loaded definition's gives a
+/// `PROFILE_003` warning.
 /// `resource_path` is the resource's instance path.
 pub fn validate(
     resource: &Resource,
