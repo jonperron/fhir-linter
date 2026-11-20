@@ -27,6 +27,9 @@ mod temporal;
 mod type_conv;
 mod value_set;
 
+use strict::Focus;
+pub use strict::Strict;
+
 use helpers::{
     as_type, bool_col, collections_equal, collections_equivalent, contains_value, is_type,
     numeric_op, singleton, three_valued_and, three_valued_implies, three_valued_or,
@@ -53,6 +56,7 @@ pub fn eval(
         string_chars: &Cell::new(0),
         now: &OnceCell::new(),
         instance_paths: &OnceCell::new(),
+        focus: None,
         variables: None,
     }
     .eval(expr, context)
@@ -85,16 +89,17 @@ pub struct Environment<'a> {
     /// undecided, `memberOf()` is an error.
     pub member_of: Option<&'a MemberOf<'a>>,
     /// Strict navigation (N1 §3: an identifier that cannot be resolved is an
-    /// error): `has_element(type, name)` tells whether the FHIR type declares
-    /// the element `name`, `None` when the type alone cannot tell (build it
-    /// from `Registry::has_element`). For a backbone, whose type cannot tell,
-    /// it is asked with the node's instance path from its resource instead
-    /// (`Patient.contact`). Set, a path step on a typed node that
+    /// error), answered by [`Strict::new`]`(has_element)`: `has_element(type, name)`
+    /// tells whether the FHIR type declares the element `name`, `None` when the
+    /// type alone cannot tell (build it from `Registry::has_element`). Share one
+    /// [`Strict`] across the evaluations on one resource. For a backbone, whose
+    /// type cannot tell, it is asked with the node's instance path from its
+    /// resource instead (`Patient.contact`). Set, a path step on a typed node that
     /// names neither an element nor (leading the expression) the node's type
     /// is an error, so `Observation.valueQuantity` fails. A leading supertype
     /// (`DomainResource.text`) is only known through `is_subtype`: set both.
     /// Unset, an unknown name yields empty.
-    pub strict: Option<&'a HasElement<'a>>,
+    pub strict: Option<&'a Strict<'a>>,
     /// Profiles for `conformsTo()`: `conforms_to(fhir_type, url)` is `None` when
     /// `url` names no known StructureDefinition (the result is empty, per
     /// fhirpath.html), `Some(None)` when an instance of `fhir_type` cannot be
@@ -136,8 +141,8 @@ pub(super) struct Evaluator<'a> {
     /// `now()` text, read once so every `now()` and `today()` of one
     /// evaluation agrees (N2 §5.10).
     now: &'a OnceCell<Arc<str>>,
-    /// Instance paths of the objects in the input and environment resources,
-    /// built on the first strict step on a backbone (see `strict.rs`).
+    /// Instance paths of the input objects outside the environment resources
+    /// [`Strict`] indexes, built on the first strict step that needs one.
     instance_paths: &'a OnceCell<strict::InstancePaths>,
     environment: &'a Environment<'a>,
     /// `%context`: the input collection the evaluation started from.
@@ -146,6 +151,10 @@ pub(super) struct Evaluator<'a> {
     total: Option<&'a [Value]>,
     /// `$index` while an expression parameter is evaluated for one item.
     index: Option<usize>,
+    /// `$this` and the input collection it was taken from while an expression
+    /// parameter is evaluated for one item: strict navigation resolves a leading
+    /// name on `$this` against that collection.
+    focus: Option<(&'a Value, &'a Focus<'a>)>,
     /// Variables of `defineVariable()` in scope, innermost first.
     variables: Scope,
 }
@@ -169,16 +178,29 @@ fn is_system_variable(name: &str) -> bool {
 }
 
 impl Evaluator<'_> {
-    /// Evaluate an expression parameter for the input item at `index`, which
+    /// Evaluate an expression parameter for the item at `index` of `focus`, which
     /// becomes `$this` and `$index` (N1 §5).
     pub(super) fn eval_item(
         &self,
         expr: &Expr,
+        focus: &Focus<'_>,
+        index: usize,
+    ) -> Result<Collection, EvalError> {
+        self.eval_member(expr, &focus.items[index], index, focus)
+    }
+
+    /// Evaluate an expression parameter with `item` as `$this` and `index` as
+    /// `$index`; `focus` is the collection strict navigation types `$this` by.
+    pub(super) fn eval_member(
+        &self,
+        expr: &Expr,
         item: &Value,
         index: usize,
+        focus: &Focus<'_>,
     ) -> Result<Collection, EvalError> {
         Evaluator {
             index: Some(index),
+            focus: Some((item, focus)),
             variables: self.variables.clone(),
             ..*self
         }

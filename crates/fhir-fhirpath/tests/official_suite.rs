@@ -419,6 +419,7 @@ fn run_case(
     // N1 §3: an unresolvable identifier is an error, except in `lenient` cases.
     let has_element = |type_name: &str, name: &str| registry.has_element(type_name, name);
     let conforms_to = |fhir_type: &str, url: &str| registry.conforms_to(fhir_type, url);
+    let navigation = fhir_fhirpath::Strict::new(&has_element);
     let lenient = case.modes.iter().any(|mode| mode.starts_with("lenient"));
     // The input file is `%resource`, also when `context` selects a node in it.
     let environment = Environment {
@@ -426,7 +427,7 @@ fn run_case(
         root_resource: None,
         is_subtype: Some(&is_subtype),
         member_of: Some(&member_of),
-        strict: (!lenient).then_some(&has_element as &fhir_fhirpath::HasElement<'_>),
+        strict: (!lenient).then_some(&navigation),
         conforms_to: Some(&conforms_to),
     };
     // Choice elements navigate as in the validator (`Observation.effective`).

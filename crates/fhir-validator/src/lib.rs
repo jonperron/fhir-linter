@@ -41,6 +41,22 @@ use std::sync::Arc;
 /// concrete resource known to the registry (abstract resources such as
 /// `DomainResource` and datatypes are rejected).
 pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
+    validate_with(resource, registry, false)
+}
+
+/// [`validate`] with FHIRPath strict navigation on (`Registry::has_element`), so an
+/// invariant naming an unknown element is skipped. Test-only: it proves strict mode
+/// changes no diagnostic on the corpus before the validator turns it on.
+#[doc(hidden)]
+pub fn validate_strict(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
+    validate_with(resource, registry, true)
+}
+
+fn validate_with(resource: &Resource, registry: &Registry, strict: bool) -> Vec<Diagnostic> {
+    let has_element = |fhir_type: &str, name: &str| registry.has_element(fhir_type, name);
+    // One for the whole tree: embedded resources share their container's path index.
+    let navigation = fhir_fhirpath::Strict::new(&has_element);
+    let strict = strict.then_some(&navigation);
     let resource_type = resource.resource_type.as_ref();
     let sd = match embedded::concrete_resource(registry, resource_type) {
         Ok(sd) => sd,
@@ -82,6 +98,7 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
         None,
         Arc::default(),
         &resource.number_texts,
+        strict,
         &mut diagnostics,
     );
     // Embedded resources (contained, Bundle entries) in document order, each after its
@@ -100,6 +117,7 @@ pub fn validate(resource: &Resource, registry: &Registry) -> Vec<Diagnostic> {
             embedded.bundle,
             // Embedded resources are nodes of the root: their numbers sit in its source.
             &resource.number_texts,
+            strict,
             &mut diagnostics,
         );
         inner.reverse();
@@ -123,6 +141,7 @@ fn validate_one<'a>(
     container_ids: Option<embedded::ContainedIds>,
     bundle: embedded::BundleEntries,
     number_texts: &HashMap<u32, Box<str>>,
+    strict: Option<&fhir_fhirpath::Strict<'_>>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<embedded::Embedded<'a>> {
     let is_subtype =
@@ -137,9 +156,7 @@ fn validate_one<'a>(
         root_resource: Some(container.unwrap_or(root)),
         is_subtype: Some(&is_subtype),
         member_of: Some(&member_of),
-        // Not strict: with `Registry::has_element` as the hook, core dom-3 is skipped
-        // (INVARIANT_SKIPPED) and `dom3_scale_tests` blows its time limit.
-        strict: None,
+        strict,
         conforms_to: Some(&conforms_to),
     };
     let embedded = nested::validate(
