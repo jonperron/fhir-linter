@@ -376,7 +376,12 @@ fn parse_value_set(resource: &Value) -> Option<ValueSet> {
 }
 
 fn parse_include(inc: &Value) -> Include {
-    let listed = inc["concept"].as_array().map_or(0, Vec::len);
+    // A `concept` that is not an array is unreadable too.
+    let listed = match &inc["concept"] {
+        Value::Null => 0,
+        Value::Array(list) => list.len(),
+        _ => usize::MAX,
+    };
     let concepts: Vec<_> = inc["concept"]
         .as_array()
         .into_iter()

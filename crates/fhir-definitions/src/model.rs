@@ -293,7 +293,8 @@ pub struct Include {
     pub version: Option<Arc<str>>,
     /// Explicitly enumerated concepts; empty means "the whole system" (unless `has_filter`).
     pub concepts: Vec<Concept>,
-    /// True when a `filter` restricts the system; membership is then not decidable.
+    /// True when a `filter` restricts the system, or a `concept` entry is unreadable;
+    /// membership is then not decidable.
     pub has_filter: bool,
     /// Canonical URLs of ValueSets this include is intersected with.
     pub value_sets: Vec<Arc<str>>,

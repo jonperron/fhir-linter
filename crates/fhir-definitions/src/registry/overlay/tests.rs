@@ -583,8 +583,10 @@ fn expand_reads_include_concepts_and_case_insensitive_systems_exactly() {
         ])
     );
     // A concept list that cannot be read is not "the whole system".
+    let malformed_url = "http://example.org/ValueSet/malformed";
+    assert_eq!(overlay.expand(malformed_url), None);
     assert_eq!(
-        overlay.expand("http://example.org/ValueSet/malformed"),
+        overlay.value_set_contains(malformed_url, Some(CODE_SYSTEM), "red"),
         None
     );
 }

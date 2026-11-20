@@ -118,9 +118,9 @@ impl Registry {
     /// `None` when the answer is not sure: unknown map; no `system` and groups
     /// from several source systems; a `system` and a group without `source`; a
     /// matching group without `target` whose element has targets; a matching
-    /// group pinned to a version (`source` or `target` as `url|version`); a matching element with a target that is
-    /// no plain code mapping (no `code` or `relationship`, or a `dependsOn`
-    /// condition); or a code a matching group does not list while it declares
+    /// group pinned to a version (`source` or `target` as `url|version`); a matching
+    /// element with a target that is no plain code mapping (no `code` or
+    /// `relationship`, or a `dependsOn` condition); or a code a matching group does not list while it declares
     /// `unmapped` (not applied) or keys an element by `valueSet`. `product`
     /// outputs are not returned.
     pub fn translate(

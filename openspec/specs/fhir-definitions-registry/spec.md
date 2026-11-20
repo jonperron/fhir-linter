@@ -616,7 +616,7 @@ Le `Registry` SHALL charger les ressources `ConceptMap` (via `load_resource`, do
 
 ### Requirement: Énumération exacte d'un ValueSet
 
-Le système SHALL fournir `Registry::expand(vs_url) -> Option<Vec<(system, code, display)>>`, limitée à l'énumération exacte : CodeSystem complet entier ou liste de concepts, imports de ValueSets intersectés avec la profondeur limitée à 8, dédoublonnage par `(system, code)`, ordre du `compose`. Le résultat SHALL être `None` en présence de `filter`, d'`exclude`, d'un CodeSystem inconnu, incomplet ou épinglé par une `version` différente pour un include sur le système entier, d'un code `notSelectable`, ou d'un cycle d'imports. `compose.inactive` SHALL NOT être lu. La recherche SHALL se replier sur la base de l'overlay.
+Le système SHALL fournir `Registry::expand(vs_url) -> Option<Vec<(system, code, display)>>`, limitée à l'énumération exacte : CodeSystem complet entier ou liste de concepts, imports de ValueSets intersectés avec la profondeur limitée à 8, dédoublonnage par `(system, code)`, ordre du `compose`. Le résultat SHALL être `None` en présence de `filter`, d'`exclude`, d'un CodeSystem inconnu, incomplet ou épinglé par une `version` différente pour un include sur le système entier, d'un code `notSelectable`, d'un include dont une entrée `concept` n'a pas de `code` (indécidable), ou d'un cycle d'imports. Un CodeSystem complet énuméré SHALL être listé quelle que soit sa règle de casse (`caseSensitive`) ; seules les preuves d'absence restent limitées aux systèmes sensibles à la casse. `compose.inactive` SHALL NOT être lu. La recherche SHALL se replier sur la base de l'overlay.
 
 #### Scenario: Liste de concepts
 
@@ -635,12 +635,12 @@ Le système SHALL fournir `Registry::expand(vs_url) -> Option<Vec<(system, code,
 
 #### Scenario: Énumération impossible
 
-- **WHEN** le ValueSet a un `filter` ou un `exclude`, référence un CodeSystem inconnu, incomplet ou à version différente (système entier), contient un code `notSelectable`, ou forme un cycle
+- **WHEN** le ValueSet a un `filter` ou un `exclude`, référence un CodeSystem inconnu, incomplet ou à version différente (système entier), contient un code `notSelectable`, a une entrée `concept` sans `code`, ou forme un cycle
 - **THEN** `expand` SHALL retourner `None`
 
 ### Requirement: Traduction par ConceptMap
 
-Le système SHALL fournir `Registry::translate(cm_url, system: Option<&str>, code) -> Option<Vec<(target_system, target_code, relationship)>>`. Le résultat SHALL être `None` lorsque le résultat est incertain : ConceptMap inconnu, code sans système avec plusieurs sources de groupe, système donné avec un groupe sans source, groupe sans `target` dont un élément correspondant porte des cibles, élément ou groupe indécidé. Les sorties de produit SHALL NOT être retournées. La recherche SHALL se replier sur la base de l'overlay.
+Le système SHALL fournir `Registry::translate(cm_url, system: Option<&str>, code) -> Option<Vec<(target_system, target_code, relationship)>>`. Le résultat SHALL être `None` lorsque le résultat est incertain : ConceptMap inconnu, code sans système avec plusieurs sources de groupe, système donné avec un groupe sans source, groupe sans `target` dont un élément correspondant porte des cibles, élément ou groupe indécidé, groupe dont la `source` ou la `target` est un canonical versionné (`url|version`). Les sorties de produit SHALL NOT être retournées. La recherche SHALL se replier sur la base de l'overlay.
 
 #### Scenario: Traduction décidable
 
@@ -656,4 +656,14 @@ Le système SHALL fournir `Registry::translate(cm_url, system: Option<&str>, cod
 
 - **WHEN** `system` est `None` et plusieurs groupes ont une source
 - **THEN** `translate` SHALL retourner `None`
+
+#### Scenario: Groupe versionné
+
+- **WHEN** la `source` ou la `target` du groupe est de la forme `url|version`
+- **THEN** `translate` SHALL retourner `None`
+
+#### Scenario: CodeSystem insensible à la casse
+
+- **WHEN** un include porte sur un CodeSystem complet énuméré dont `caseSensitive` est faux
+- **THEN** `expand` SHALL lister ses concepts
 
