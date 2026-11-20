@@ -1,10 +1,10 @@
 ## Context
 
-`add_duration` in `eval/temporal.rs` already implemented the behaviour (commit 2399f4c); the spec lagged.
+PR #180 changes `add_duration` in `eval/temporal.rs`: amounts move from f64 to exact decimals, clock units on a `Date` become an error, and day-or-finer units on year- or month-precision values convert instead of failing.
 
 ## Goals / Non-Goals
 
-- Goal: spec matches the code. Non-goal: new behaviour.
+- Goal: record these behaviour changes in the spec, per N1 §6.7.1/§6.7.2. Non-goal: other date/time behaviour.
 
 ## Decisions
 

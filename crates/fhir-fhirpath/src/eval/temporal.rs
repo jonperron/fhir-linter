@@ -218,10 +218,18 @@ pub(super) fn add_duration(value: &Value, amount: Decimal, unit: &str) -> Result
     let mut fields = TemporalFields::parse(text, is_time)
         .ok_or_else(|| EvalError::Type(format!("invalid date/time: {text}")))?;
     // Whole `step`s of milliseconds in a day-or-finer amount, truncated
-    // toward zero as the value's precision is coarser.
+    // toward zero as the value's precision is coarser. A Time drops whole
+    // days, so its shift is reduced to under a day first.
     let steps_of = |step: i64| {
         amount
             .checked_mul(Decimal::from(UNIT_MILLIS[index.saturating_sub(2)]))
+            .and_then(|millis| {
+                if is_time {
+                    millis.checked_rem(Decimal::from(UNIT_MILLIS[0]))
+                } else {
+                    Some(millis)
+                }
+            })
             .and_then(|millis| millis.checked_div_integer(Decimal::from(step)))
             .and_then(|steps| steps.to_i64(Rounding::TowardZero))
             .ok_or_else(out_of_range)

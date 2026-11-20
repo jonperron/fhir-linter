@@ -108,6 +108,16 @@ fn amounts_are_exact_decimals_not_f64() {
         "@2015-02-04 - -1000000.99999999999999999 days",
         "4753-01-01",
     );
+    // 38 significant digits: the digits below the millisecond cannot
+    // overflow the shift.
+    date_time(
+        "@2015-02-04T10:00:00.000Z + 1.0000000000000000000000000000000000001 's'",
+        "2015-02-04T10:00:01.000Z",
+    );
+    date_time(
+        "@2015-02-04T10:00:00.000Z - 1.0000000000000000000000000000000000001 's'",
+        "2015-02-04T09:59:59.000Z",
+    );
     // A large count past i64 is out of range, not saturated.
     fails("@2015-02-04 + 99999999999999999999 days");
 }
@@ -158,6 +168,13 @@ fn a_date_takes_no_clock_unit() {
     fails("@2019-03-01 - 1 'min'");
     fails("@2019-03-01 + 1 second");
     fails("@2019-03-01 + 1 'ms'");
+}
+
+#[test]
+fn time_shifts_past_the_shift_cap_wrap() {
+    // A Time drops whole days, so a shift past 1e18 ms still wraps.
+    time("@T10:00 + 1000000000000000 hours", "02:00");
+    time("@T10:00 - 1000000000000000 hours", "18:00");
 }
 
 #[test]
