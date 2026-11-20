@@ -120,11 +120,10 @@ pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collecti
     ) && matches!(op, ArithOp::Add | ArithOp::Sub)
         && let Some((amount, unit)) = as_quantity(rv)
     {
-        // shortcut: date arithmetic stays in f64 (`add_duration`); upgrade
-        // it to Decimal steps if sub-millisecond amounts need exactness.
-        let amount = amount.to_f64();
         let amount = if matches!(op, ArithOp::Sub) {
-            -amount
+            amount
+                .checked_neg()
+                .ok_or_else(|| EvalError::Type("duration out of range".into()))?
         } else {
             amount
         };
