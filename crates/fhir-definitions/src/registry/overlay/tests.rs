@@ -483,7 +483,14 @@ fn concept_map_in_base_is_a_conflict() {
 
 #[test]
 fn expand_follows_imports_and_takes_displays_from_the_compose_or_system() {
-    let colours_vs = |url: &str, include: Value| json!({"resourceType": "ValueSet", "url": url, "name": "V", "compose": {"include": include}});
+    let colours_vs = |url: &str, include: Value| {
+        json!({
+            "resourceType": "ValueSet",
+            "url": url,
+            "name": "V",
+            "compose": {"include": include},
+        })
+    };
     let overlay = overlay_with(
         "expand_imports",
         &[
@@ -539,4 +546,22 @@ fn expand_follows_imports_and_takes_displays_from_the_compose_or_system() {
         ])
     );
     assert_eq!(overlay.expand("http://x/cycle"), None);
+}
+
+#[test]
+fn translate_with_a_system_over_a_sourceless_group_is_none() {
+    let overlay = overlay_with(
+        "sourceless_group",
+        &[concept_map(json!([{
+            "target": "http://example.org/hex",
+            "element": [{"code": "red", "target": [
+                {"code": "#f00", "relationship": "equivalent"},
+            ]}],
+        }]))],
+    );
+    assert_eq!(
+        overlay.translate(CONCEPT_MAP, Some(CODE_SYSTEM), "red"),
+        None
+    );
+    assert!(overlay.translate(CONCEPT_MAP, None, "red").is_some());
 }
