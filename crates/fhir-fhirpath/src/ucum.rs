@@ -22,6 +22,7 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::{Reader, XmlVersion};
 
 pub(crate) use ratio::Ratio;
+pub(crate) use term::Dimension;
 use term::{AtomLookup, Unit, parse_unit};
 
 const ESSENCE: &str = include_str!("../data/ucum-essence.xml");
@@ -40,6 +41,13 @@ pub(crate) fn convert(from: &str, to: &str) -> Option<Ratio> {
         return None;
     }
     from.factor.div(to.factor)
+}
+
+/// `unit` reduced to base units: `1 unit = factor * base^dimension`, so two
+/// amounts are equal under [`convert`] exactly when their dimensions match
+/// and `amount * factor` agree. `None` as for [`convert`].
+pub(crate) fn base(unit: &str) -> Option<(Ratio, Dimension)> {
+    resolve(unit).map(|unit| (unit.factor, unit.dimension))
 }
 
 /// The unit of `left` times `right` (`power` 1) or `left` divided by

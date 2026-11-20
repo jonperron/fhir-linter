@@ -28,7 +28,9 @@ pub enum Value {
     Time(Arc<str>),
     /// Quantity with a UCUM unit, or a calendar duration unit given by its
     /// singular keyword (N1 §4.1.8: `4 days` has the unit `'day'`).
-    Quantity(f64, Arc<str>),
+    /// The amount is exact, with its written scale, as N1 §4.1.8 defines it
+    /// as a Decimal.
+    Quantity(Decimal, Arc<str>),
     /// An object node (maps field name → collection) and its FHIR type when
     /// known: the resource's `resourceType`, or the declared type code of a
     /// complex element (`Quantity`, `HumanName`, `BackboneElement`). `is`,

@@ -97,11 +97,11 @@ fn mixed_precision_boundaries_compare() {
 fn quantity_boundary_keeps_the_unit() {
     assert_eq!(
         eval("1.587 'cm'.lowBoundary(8)"),
-        [Value::Quantity(1.5865, text("cm"))],
+        [Value::Quantity("1.5865".parse().unwrap(), text("cm"))],
     );
     assert_eq!(
         eval("1.587 'm'.highBoundary(8)"),
-        [Value::Quantity(1.5875, text("m"))],
+        [Value::Quantity("1.5875".parse().unwrap(), text("m"))],
     );
 }
 

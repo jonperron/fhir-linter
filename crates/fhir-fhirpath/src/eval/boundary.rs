@@ -9,9 +9,8 @@ use crate::value::{Collection, Value};
 use crate::{Decimal, Rounding};
 
 use super::Evaluator;
-use super::helpers::{
-    as_quantity, check_arity, check_arity_range, optional_integer, quantity_values, singleton,
-};
+use super::helpers::{as_quantity, check_arity, check_arity_range, optional_integer, singleton};
+use super::quantity::quantity_operands;
 
 /// N2: "at least 8 for Decimal" when no precision is given.
 const DECIMAL_DEFAULT_PRECISION: i64 = 8;
@@ -107,14 +106,15 @@ impl Evaluator<'_> {
         check_arity("comparable", args, 1)?;
         let other = self.eval(&args[0], ctx)?;
         let result = match (focus, other.as_slice()) {
-            // `quantity_values` also converts a number; comparable() is on Quantities.
+            // Units only (`quantity_operands` also converts a number; comparable() is
+            // on Quantities), whatever the amounts.
             ([a], [b])
                 if [a, b]
                     .iter()
                     .all(|v| as_quantity(v.primitive_value()).is_some()) =>
             {
-                quantity_values(a.primitive_value(), b.primitive_value(), false)
-                    .map(|values| Value::Bool(values.is_some()))
+                quantity_operands(a.primitive_value(), b.primitive_value(), false)
+                    .map(|operands| Value::Bool(operands.is_some()))
             }
             _ => None,
         };
@@ -139,7 +139,7 @@ fn boundary(item: &Value, bound: Bound, precision: Option<i64>) -> Option<Value>
         other => {
             // N2: the Decimal boundary of the value, with the original unit.
             let (value, unit) = as_quantity(other)?;
-            let boundary = decimal_boundary(Decimal::from_f64(value)?, bound, precision)?.to_f64();
+            let boundary = decimal_boundary(value, bound, precision)?;
             // A unitless FHIR Quantity has unit '1', as in toQuantity().
             Some(Value::Quantity(boundary, Arc::from(unit.unwrap_or("1"))))
         }

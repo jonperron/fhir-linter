@@ -326,12 +326,14 @@ fn ucum_units_of_one_dimension_convert_for_comparison() {
 }
 
 #[test]
-fn an_overflowing_conversion_is_not_comparable() {
-    // The right operand is converted into the left unit: 1e300 'Gg' in 'mg' overflows f64.
+fn the_largest_amounts_convert_exactly() {
+    // 38 digits, the most a Decimal holds: 'Gg' is 10^12 'mg', a power of ten
+    // that moves the scale and cannot overflow the mantissa.
     let check = |expr: &str| boolean(expr, &[]);
-    let big = "9".repeat(300);
-    assert_eq!(check(&format!("{big} 'mg' = {big} 'Gg'")), None);
+    let big = "9".repeat(38);
+    assert_eq!(check(&format!("{big} 'mg' = {big} 'Gg'")), Some(false));
     assert_eq!(check(&format!("{big} 'Gg' = {big} 'mg'")), Some(false));
+    assert_eq!(check(&format!("{big} 'Gg' > {big} 'mg'")), Some(true));
 }
 
 #[test]

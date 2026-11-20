@@ -2,6 +2,7 @@ use std::sync::{Arc, LazyLock};
 
 use regex_lite::Regex;
 
+use super::quantity::whole;
 use crate::Decimal;
 use crate::ast::Expr;
 use crate::error::EvalError;
@@ -156,9 +157,10 @@ fn to_long(item: &Value) -> Option<Value> {
 fn to_quantity(item: &Value) -> Option<Value> {
     let (value, unit) = match item {
         Value::Quantity(..) => return Some(item.clone()),
-        Value::Integer(n) => (*n as f64, "1"),
-        Value::Decimal(d) if d.to_f64().is_finite() => (d.to_f64(), "1"),
-        Value::Bool(b) => (f64::from(u8::from(*b)), "1"),
+        Value::Integer(n) => (Decimal::from(*n), "1"),
+        Value::Decimal(d) => (*d, "1"),
+        // N1 §5.5.7: `1.0 '1'` or `0.0 '1'`.
+        Value::Bool(b) => (Decimal::new(i128::from(*b) * 10, 1), "1"),
         Value::String(s) => {
             let captures = QUANTITY.as_ref()?.captures(s)?;
             let unit = match (captures.get(3), captures.get(4)) {
@@ -166,7 +168,7 @@ fn to_quantity(item: &Value) -> Option<Value> {
                 (None, Some(keyword)) => calendar_unit(keyword.as_str())?,
                 (None, None) => "1",
             };
-            (finite(captures.get(1)?.as_str())?, unit)
+            (captures.get(1)?.as_str().parse().ok()?, unit)
         }
         _ => return super::helpers::object_quantity(item),
     };
@@ -175,12 +177,22 @@ fn to_quantity(item: &Value) -> Option<Value> {
 
 /// `amount` in unit `from` as a Quantity in unit `to`, by the same unit
 /// rules as `=` ([`quantity_unit_factor`]); `None` when they do not convert.
-fn convert_quantity(amount: f64, from: &str, to: &str) -> Option<Value> {
+/// The amount stays exact when the factor is whole (`1.0 'g'` is `1000 'mg'`,
+/// precise to 100 mg);
+/// otherwise it is divided as `/` divides Decimals, rounded to at least 8
+/// places, since `1 'cm'` in `[in_i]` (50/127) has no exact decimal (N1
+/// §5.5.7 leaves the precision of a conversion open).
+/// shortcut: the amount times the factor's numerator must fit 38 digits
+/// before the division, else the conversion is empty; upgrade with a wider
+/// Decimal.
+fn convert_quantity(amount: Decimal, from: &str, to: &str) -> Option<Value> {
     let factor = quantity_unit_factor(from, to, false)?;
-    let converted = amount * (factor.numer() as f64 / factor.denom() as f64);
-    converted
-        .is_finite()
-        .then(|| Value::Quantity(converted, Arc::from(to)))
+    let scaled = amount.checked_mul(whole(factor.numer()))?;
+    let converted = match factor.denom() {
+        1 => scaled,
+        denom => scaled.checked_div(whole(denom))?,
+    };
+    Some(Value::Quantity(converted, Arc::from(to)))
 }
 
 /// N1 §5.5.8: the String form of a String, Integer, Decimal, Date, Time,
@@ -196,11 +208,6 @@ fn to_string(item: &Value) -> Option<Value> {
         _ => return None,
     };
     Some(Value::String(Arc::from(text)))
-}
-
-/// A digit string as a Decimal; `None` beyond f64 instead of infinity.
-fn finite(digits: &str) -> Option<f64> {
-    digits.parse::<f64>().ok().filter(|d| d.is_finite())
 }
 
 /// A Decimal as `(\+|-)?\d+(.\d+)?` with its written places (`1.50` stays

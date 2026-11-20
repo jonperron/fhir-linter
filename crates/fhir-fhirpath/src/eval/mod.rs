@@ -325,9 +325,11 @@ impl Evaluator<'_> {
                         .checked_neg()
                         .map(|r| vec![Value::Decimal(r)])
                         .ok_or_else(|| EvalError::Type("decimal overflow in negation".into())),
-                    Value::Quantity(d, unit) => Ok(vec![Value::Quantity(-d, Arc::clone(unit))]),
                     v => match helpers::object_quantity(v) {
-                        Some(Value::Quantity(d, unit)) => Ok(vec![Value::Quantity(-d, unit)]),
+                        Some(Value::Quantity(d, unit)) => d
+                            .checked_neg()
+                            .map(|r| vec![Value::Quantity(r, unit)])
+                            .ok_or_else(|| EvalError::Type("decimal overflow in negation".into())),
                         _ => Err(EvalError::Type(format!("cannot negate {}", v.type_name()))),
                     },
                 }

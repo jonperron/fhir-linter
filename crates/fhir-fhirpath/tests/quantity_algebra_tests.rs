@@ -14,7 +14,7 @@ fn eval(expr: &str) -> Vec<Value> {
 /// The single Quantity `expr` gives, as `(value, unit)`.
 fn quantity(expr: &str) -> (f64, String) {
     match eval(expr).as_slice() {
-        [Value::Quantity(value, unit)] => (*value, unit.to_string()),
+        [Value::Quantity(value, unit)] => (value.to_f64(), unit.to_string()),
         other => panic!("{expr}: not a Quantity: {other:?}"),
     }
 }
@@ -88,7 +88,7 @@ fn fhir_quantity_multiplies_by_its_ucum_code() {
     })];
     let result = evaluate("Observation.valueQuantity * 2 'm'", &context).unwrap();
     assert!(
-        matches!(result.as_slice(), [Value::Quantity(v, u)] if *v == 6.0 && &**u == "kg.m"),
+        matches!(result.as_slice(), [Value::Quantity(v, u)] if v.to_f64() == 6.0 && &**u == "kg.m"),
         "{result:?}"
     );
 }
@@ -112,7 +112,7 @@ fn negation_abs_and_to_quantity_accept_a_fhir_quantity() {
         registry.child_element(parent, name)
     })];
     let one = |expr: &str| match evaluate(expr, &context).unwrap().as_slice() {
-        [Value::Quantity(v, u)] => (*v, u.to_string()),
+        [Value::Quantity(v, u)] => (v.to_f64(), u.to_string()),
         other => panic!("{expr}: {other:?}"),
     };
     assert_eq!(one("-Observation.valueQuantity"), (3.0, "kg".into()));
