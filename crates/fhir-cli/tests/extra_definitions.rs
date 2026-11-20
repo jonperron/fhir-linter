@@ -45,24 +45,32 @@ fn has(pairs: &[(String, String)], code: &str, path: &str) -> bool {
 
 #[test]
 fn supplied_profile_enforces_its_required_element() {
+    // Without the flag the profile is unknown: a warning only, so the run passes.
     let (code, pairs) = findings(&mut fhir_lint());
+    assert_eq!(code, Some(0), "{pairs:?}");
+    assert!(
+        has(&pairs, "PROFILE_001", "Patient.meta.profile[0]"),
+        "{pairs:?}"
+    );
     assert!(
         !has(&pairs, "CARDINALITY_001", "Patient.birthDate"),
         "{pairs:?}"
     );
 
-    let (code_with, pairs_with) =
-        findings(fhir_lint().arg("--extra-definitions").arg(extra("profile")));
-    assert_eq!(code_with, Some(1), "{pairs_with:?}");
+    let (code, pairs) = findings(fhir_lint().arg("--extra-definitions").arg(extra("profile")));
+    assert_eq!(code, Some(1), "{pairs:?}");
     assert!(
-        has(&pairs_with, "CARDINALITY_001", "Patient.birthDate"),
-        "{pairs_with:?}"
+        has(&pairs, "CARDINALITY_001", "Patient.birthDate"),
+        "{pairs:?}"
     );
     assert!(
-        !has(&pairs_with, "CARDINALITY_001", "Patient.active"),
-        "{pairs_with:?}"
+        !has(&pairs, "PROFILE_001", "Patient.meta.profile[0]"),
+        "{pairs:?}"
     );
-    assert_ne!((code, pairs), (code_with, pairs_with));
+    assert!(
+        !has(&pairs, "CARDINALITY_001", "Patient.active"),
+        "{pairs:?}"
+    );
 }
 
 #[test]

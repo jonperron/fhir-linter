@@ -23,7 +23,7 @@ fhir-lint [OPTIONS] <PATHS>...
 | `--format <text\|json\|sarif>` | `text` | Report format |
 | `--config <FILE>` | none | `fhir-linter.toml` rule configuration |
 | `--definitions <DIR>` | `$FHIR_DEFINITIONS_DIR`, else `definitions/r5` | FHIR definitions directory |
-| `--extra-definitions <PATH>` | none | Extra profiles, value sets, code systems and concept maps layered on the definitions: a `.json` file (resource or Bundle) or a directory of `*.json` files (not recursive). Repeatable; loaded once for the whole run |
+| `--extra-definitions <PATH>` | none | Extra profiles, value sets, code systems and concept maps layered on the definitions: a `.json` file (resource or Bundle) or a directory of `*.json` files (not recursive). Repeatable; loaded once for the whole run. A supplied profile needs a snapshot: one without is reported as `PROFILE_010` where a resource declares it |
 | `--fhir-version <r5>` | `r5` | FHIR version of the inputs; only `r5` exists |
 | `--strict` | off | Warnings also fail the run |
 | `-V`, `--version` | | Print the tool version |

@@ -70,7 +70,8 @@ cargo run -p fhir-cli -- [--format text|json|sarif] [--config fhir-linter.toml] 
 
 Directories are scanned recursively for `*.json` and `*.xml`. The definitions
 directory defaults to `definitions/r5` (or `$FHIR_DEFINITIONS_DIR`);
-`--extra-definitions` adds your own profiles and terminology on top of it.
+`--extra-definitions` adds your own profiles and terminology on top of it
+(profiles need a snapshot; one without is reported as `PROFILE_010`).
 Exit codes: `0` clean, `1` errors found (warnings too with `--strict`),
 `2` tool error (bad arguments, unreadable file, bad config or definitions).
 
