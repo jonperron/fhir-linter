@@ -31,6 +31,16 @@ fn equals_converts_a_number_to_a_quantity_with_unit_one() {
     assert_eq!(boolean("1 = 1 'mg'"), None);
 }
 
+/// FHIRPath v3 §5.5 table: Long -> Decimal is Implicit, Long -> Quantity is
+/// "-" (no conversion defined), so a Long never converts to a Quantity.
+#[test]
+fn long_does_not_convert_to_a_quantity() {
+    assert_eq!(boolean("1L = 1 '1'"), None);
+    assert_eq!(boolean("1L ~ 1 '1'"), Some(false));
+    assert_eq!(count("(1L | 1 '1').count()"), 2);
+    assert_eq!(count("(1 '1' | 1L).count()"), 2);
+}
+
 #[test]
 fn not_equals_is_the_converse() {
     assert_eq!(boolean("1 != 1 '1'"), Some(false));
@@ -81,8 +91,8 @@ fn set_operations_agree_with_equals() {
     assert_eq!(boolean("(1 '1').combine(1).isDistinct()"), Some(false));
     assert_eq!(boolean("1 in (1 '1')"), Some(true));
     assert_eq!(boolean("(1 '1') contains 1"), Some(true));
-    assert_eq!(count("(1 | 2).intersect(1 '1').count()"), 1);
-    assert_eq!(count("(1 | 2).exclude(100 '%').count()"), 1);
+    assert_eq!(boolean("(1 | 2).intersect(1 '1') = 1"), Some(true));
+    assert_eq!(boolean("(1 | 2).exclude(100 '%') = 2"), Some(true));
     assert_eq!(boolean("(1).subsetOf(1 '1' | 2 'mg')"), Some(true));
     assert_eq!(count("(1 | 2 'mg' | 1 '1').count()"), 2);
 }

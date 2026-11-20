@@ -255,9 +255,8 @@ fn quantity_operands(a: &Value, b: &Value, equivalent: bool) -> Option<Option<(f
     // shortcut: f64 like every Quantity amount, so integers past 2^53 lose
     // digits; upgrade with the decimal Quantity type.
     let number = |v: &Value| match v {
-        Value::Integer(_) | Value::Long(_) | Value::Decimal(_) => {
-            Some((v.as_decimal()?.to_f64(), Some("1")))
-        }
+        // v3 §5.5 table: Long -> Quantity has no conversion.
+        Value::Integer(_) | Value::Decimal(_) => Some((v.as_decimal()?.to_f64(), Some("1"))),
         _ => None,
     };
     let ((x, x_unit), (y, y_unit)) = match (as_quantity(a), as_quantity(b)) {
