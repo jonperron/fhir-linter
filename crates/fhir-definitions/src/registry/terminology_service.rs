@@ -117,6 +117,7 @@ fn resource(resource_type: &str, fields: Vec<(&str, Collection)>) -> Value {
     Value::object(resource_type, all)
 }
 
+/// A Parameters resource holding `parameter`.
 fn parameters(parameter: Collection) -> Value {
     resource("Parameters", vec![("parameter", parameter)])
 }

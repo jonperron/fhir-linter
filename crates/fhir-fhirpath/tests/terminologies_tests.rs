@@ -28,6 +28,7 @@ fn patient() -> Value {
     let resource = parse_json(
         r#"{"resourceType":"Patient","gender":"male","address":[{"use":"home"}],
         "contact":[{"relationship":[{"text":"friend"}]}],
+        "communication":[{"language":{"coding":[{"system":5,"code":"male"}]}}],
         "maritalStatus":{"coding":[
             {"system":"http://hl7.org/fhir/administrative-gender","code":"xyz"},
             {"system":"http://hl7.org/fhir/administrative-gender","code":"female"}]}}"#,
@@ -130,6 +131,8 @@ fn empty_multiple_or_invalid_parameters_give_empty() -> TestResult {
         format!("%terminologies.validateVS('{GENDER}', 'male')"),
         // A CodeableConcept with text alone has no code to validate.
         format!("%terminologies.validateVS('{GENDER}', contact.relationship)"),
+        // A Coding whose system is not a string is not valid, not system-less.
+        format!("%terminologies.validateVS('{GENDER}', communication.language.coding)"),
         format!("%terminologies.translate('{ADDRESS_USE_V2}', maritalStatus)"),
         "%terminologies.expand(1)".to_owned(),
         format!("%terminologies.expand('{GENDER}', 1)"),
@@ -156,6 +159,11 @@ fn empty_params_are_accepted_and_others_are_errors() -> TestResult {
 fn an_unset_or_undecided_service_is_an_error() {
     let expand = format!("%terminologies.expand('{GENDER}')");
     assert!(eval_with(&expand, None).is_err());
+    assert!(eval_with(&validate("gender"), None).is_err());
+    // Membership in a filtered ValueSet cannot be decided.
+    let filtered =
+        "%terminologies.validateVS('http://hl7.org/fhir/ValueSet/example-filter', gender)";
+    assert!(eval(filtered).is_err());
     // include.filter: the Registry cannot enumerate it.
     assert!(eval("%terminologies.expand('http://hl7.org/fhir/ValueSet/example-filter')").is_err());
     assert!(eval("%terminologies.expand('http://hl7.org/fhir/ValueSet/no-such')").is_err());

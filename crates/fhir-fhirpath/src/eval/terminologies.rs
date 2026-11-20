@@ -118,11 +118,13 @@ type Coding = (Option<Arc<str>>, Arc<str>);
 /// any other value, as fhirpath.html takes "a resource element that is a code",
 /// not a plain String.
 fn coded_codings(coded: &Value, codeable_concept: bool) -> Option<Vec<Coding>> {
-    let coding = |coding: &Value| {
-        Some((
-            field_string(coding, "system"),
-            field_string(coding, "code")?,
-        ))
+    let coding = |item: &Value| {
+        // A `system` that is not one string is not valid, never read as absent.
+        let system = match item.fields()?.get("system") {
+            Some(_) => Some(field_string(item, "system")?),
+            None => None,
+        };
+        Some((system, field_string(item, "code")?))
     };
     match (coded, coded_type(coded)) {
         (Value::Primitive(code, _, Some(fhir_type)), _) if &**fhir_type == "code" => {
