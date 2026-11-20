@@ -9,6 +9,7 @@ use std::sync::Arc;
 use super::ArithOp;
 use super::helpers::as_quantity;
 use crate::Decimal;
+use crate::error::EvalError;
 use crate::ucum::{Dimension, Ratio};
 use crate::value::{Collection, Value, quantity_unit_factor, ucum_unit};
 
@@ -17,23 +18,27 @@ use crate::value::{Collection, Value, quantity_unit_factor, ucum_unit};
 /// Integer or Decimal has unit `'1'`, which leaves the other unit as it is.
 /// A Long is not a number here: v3 §5.5 defines no Long to Quantity
 /// conversion ("-"), as for the comparison operators. Empty on
-/// division by zero, for a Quantity without a unit, and when the units have
-/// no UCUM product (unknown, or a year or month keyword). `None` when
-/// neither operand is a Quantity or one is not a number.
-pub(super) fn quantity_product(lv: &Value, rv: &Value, op: &ArithOp) -> Option<Collection> {
+/// division by zero (N1 §6.6), for a Quantity without a unit, and when the
+/// units have no UCUM product (unknown, or a year or month keyword); an
+/// amount past 38 digits is an overflow error, as for Decimal arithmetic.
+/// `None` when neither operand is a Quantity or one is not a number.
+pub(super) fn quantity_product(
+    lv: &Value,
+    rv: &Value,
+    op: &ArithOp,
+) -> Option<Result<Collection, EvalError>> {
     let (left, right) = (as_quantity(lv), as_quantity(rv));
     if left.is_none() && right.is_none() {
         return None;
     }
     let ((x, x_unit), (y, y_unit)) = (left.or_else(|| number(lv))?, right.or_else(|| number(rv))?);
-    let (Some(x_unit), Some(y_unit)) = (x_unit, y_unit) else {
-        return Some(vec![]);
-    };
-    // Exact, like Decimal `*` and `/`; a zero divisor or an overflow is empty.
-    let (amount, power) = match op {
-        ArithOp::Div => (x.checked_div(y), -1),
-        ArithOp::Mul => (x.checked_mul(y), 1),
+    let power = match op {
+        ArithOp::Div => -1,
+        ArithOp::Mul => 1,
         _ => return None,
+    };
+    let (Some(x_unit), Some(y_unit)) = (x_unit, y_unit) else {
+        return Some(Ok(vec![]));
     };
     let unit = match (x_unit, y_unit) {
         (unit, "1") => Some(unit.to_owned()),
@@ -42,12 +47,19 @@ pub(super) fn quantity_product(lv: &Value, rv: &Value, op: &ArithOp) -> Option<C
             .zip(ucum_unit(y_unit, false))
             .and_then(|(x_unit, y_unit)| crate::ucum::combine(x_unit, y_unit, power)),
     };
+    let Some(unit) = unit.filter(|_| !(power == -1 && y.is_zero())) else {
+        return Some(Ok(vec![]));
+    };
+    // Exact, like Decimal `*` and `/`.
+    let amount = if power == 1 {
+        x.checked_mul(y)
+    } else {
+        x.checked_div(y)
+    };
     Some(
         amount
-            .zip(unit)
-            .map(|(amount, unit)| Value::Quantity(amount, Arc::from(unit)))
-            .into_iter()
-            .collect(),
+            .map(|amount| vec![Value::Quantity(amount, Arc::from(unit))])
+            .ok_or_else(|| EvalError::Type("decimal overflow".into())),
     )
 }
 
@@ -107,6 +119,17 @@ pub(super) fn quantity_order(a: &Value, b: &Value) -> Option<Option<Ordering>> {
     Some(exact.or_else(|| {
         let (x, y) = (quantity_base(a)?, quantity_base(b)?);
         (x == y).then_some(Ordering::Equal)
+    }))
+}
+
+/// N1 §6.1.1 `=` with a Quantity operand: [`quantity_order`], except that
+/// amounts of one dimension whose cross products overflow are still known
+/// to differ when their amounts in base units differ.
+pub(super) fn quantities_equal(a: &Value, b: &Value) -> Option<Option<bool>> {
+    let order = quantity_order(a, b)?;
+    Some(order.map(Ordering::is_eq).or_else(|| {
+        let ((x, x_dimension), (y, y_dimension)) = (quantity_base(a)?, quantity_base(b)?);
+        (x_dimension == y_dimension).then_some(x == y)
     }))
 }
 

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::quantity::{quantities_equivalent, quantity_operands, quantity_order};
+use super::quantity::{quantities_equal, quantities_equivalent, quantity_operands, quantity_order};
 use super::value_set::{ValueSet, is_keyed};
 use super::{ArithOp, Evaluator};
 use crate::ast::Expr;
@@ -134,7 +134,7 @@ pub(super) fn numeric_op(lv: &Value, rv: &Value, op: ArithOp) -> Result<Collecti
     if matches!(op, ArithOp::Mul | ArithOp::Div)
         && let Some(result) = super::quantity::quantity_product(lv, rv, &op)
     {
-        return Ok(result);
+        return result;
     }
     let a = lv
         .as_decimal()
@@ -255,8 +255,8 @@ pub(super) fn as_quantity(v: &Value) -> Option<(Decimal, Option<&str>)> {
 
 pub(super) fn values_equal(a: &Value, b: &Value) -> Option<bool> {
     let (a, b) = (a.primitive_value(), b.primitive_value());
-    if let Some(order) = quantity_order(a, b) {
-        return order.map(std::cmp::Ordering::is_eq);
+    if let Some(equal) = quantities_equal(a, b) {
+        return equal;
     }
     match (a, b) {
         (Value::Null, _) | (_, Value::Null) => None,

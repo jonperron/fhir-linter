@@ -182,6 +182,9 @@ fn to_quantity(item: &Value) -> Option<Value> {
 /// otherwise it is divided as `/` divides Decimals, rounded to at least 8
 /// places, since `1 'cm'` in `[in_i]` (50/127) has no exact decimal (N1
 /// §5.5.7 leaves the precision of a conversion open).
+/// shortcut: the amount times the factor's numerator must fit 38 digits
+/// before the division, else the conversion is empty; upgrade with a wider
+/// Decimal.
 fn convert_quantity(amount: Decimal, from: &str, to: &str) -> Option<Value> {
     let factor = quantity_unit_factor(from, to, false)?;
     let scaled = amount.checked_mul(whole(factor.numer()))?;

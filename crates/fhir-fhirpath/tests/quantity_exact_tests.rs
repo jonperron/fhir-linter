@@ -58,6 +58,9 @@ fn unit_conversion_is_exact() {
     assert_eq!(boolean("1 'cm' < 1 '[in_i]'"), Some(true));
     assert_eq!(boolean("4 'g' ~ 4040 'mg'"), Some(true));
     assert_eq!(boolean("4 'g' ~ 4600 'mg'"), Some(false));
+    // As for Decimals, trailing zeros do not count as precision.
+    assert_eq!(boolean("1.0 ~ 1.49"), Some(true));
+    assert_eq!(boolean("1.0 'g' ~ 1.49 'g'"), Some(true));
     // Rounded half away from zero, on either sign.
     assert_eq!(boolean("4 'g' ~ 4500 'mg'"), Some(false));
     assert_eq!(boolean("4 'g' ~ 4499 'mg'"), Some(true));
@@ -153,4 +156,36 @@ fn an_overflowing_cross_product_still_finds_equal_amounts() {
         count(&format!("({metres} 'm' | {inches} '[in_i]').count()")),
         1
     );
+}
+
+/// Unequal amounts whose cross product overflows: `=` still knows they
+/// differ (their amounts in base units do), `comparable()` looks at the
+/// units only, and the order is the documented empty shortcut.
+#[test]
+fn an_overflowing_cross_product_keeps_unequal_amounts_apart() {
+    let metres = format!("508{}", "0".repeat(33));
+    let inches = format!("3{}", "0".repeat(37));
+    assert_eq!(
+        boolean(&format!("{metres} 'm' = {inches} '[in_i]'")),
+        Some(false)
+    );
+    assert_eq!(
+        boolean(&format!("{metres} 'm' != {inches} '[in_i]'")),
+        Some(true)
+    );
+    assert_eq!(
+        boolean(&format!("{metres} 'm'.comparable({inches} '[in_i]')")),
+        Some(true)
+    );
+    assert_eq!(boolean(&format!("{metres} 'm' < {inches} '[in_i]'")), None);
+}
+
+/// N1 §6.6 gives empty only for a division by zero; an amount past 38
+/// digits is an overflow error, as `*` on two Decimals is.
+#[test]
+fn an_overflowing_product_is_an_error() {
+    let big = "9".repeat(38);
+    assert!(evaluate(&format!("{big} 'g' * 10"), &[]).is_err());
+    assert!(evaluate(&format!("{big} 'g' * 10 'm'"), &[]).is_err());
+    assert_eq!(evaluate("1 'g' / 0", &[]).unwrap(), vec![]);
 }

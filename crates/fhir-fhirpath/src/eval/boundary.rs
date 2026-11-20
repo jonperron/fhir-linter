@@ -10,7 +10,7 @@ use crate::{Decimal, Rounding};
 
 use super::Evaluator;
 use super::helpers::{as_quantity, check_arity, check_arity_range, optional_integer, singleton};
-use super::quantity::quantity_order;
+use super::quantity::quantity_operands;
 
 /// N2: "at least 8 for Decimal" when no precision is given.
 const DECIMAL_DEFAULT_PRECISION: i64 = 8;
@@ -106,14 +106,15 @@ impl Evaluator<'_> {
         check_arity("comparable", args, 1)?;
         let other = self.eval(&args[0], ctx)?;
         let result = match (focus, other.as_slice()) {
-            // `quantity_order` also converts a number; comparable() is on Quantities.
+            // Units only (`quantity_operands` also converts a number; comparable() is
+            // on Quantities), whatever the amounts.
             ([a], [b])
                 if [a, b]
                     .iter()
                     .all(|v| as_quantity(v.primitive_value()).is_some()) =>
             {
-                quantity_order(a.primitive_value(), b.primitive_value())
-                    .map(|values| Value::Bool(values.is_some()))
+                quantity_operands(a.primitive_value(), b.primitive_value(), false)
+                    .map(|operands| Value::Bool(operands.is_some()))
             }
             _ => None,
         };
