@@ -6,6 +6,7 @@ use fhir_parser::{Decimal, Node, Value};
 use serde_json::Value as Json;
 
 use crate::diagnostic::Diagnostic;
+use crate::min_max_value;
 
 /// The non-null occurrences of `node` (instance `path`): the items of an array, or the node.
 pub(crate) fn occurrences<'a>(node: &'a Node, path: &str) -> Vec<(&'a Node, String)> {
@@ -23,17 +24,22 @@ pub(crate) fn occurrences<'a>(node: &'a Node, path: &str) -> Vec<(&'a Node, Stri
 
 /// Check each occurrence of `node` (instance `path`) against the `fixed[x]` of `elem`, which
 /// it SHALL be exactly (`PROFILE_004`), and its `pattern[x]`, which it SHALL follow
-/// (`PROFILE_005`).
+/// (`PROFILE_005`), and its `minValue[x]` / `maxValue[x]` (`PROFILE_011`).
 pub(crate) fn check_value(
     node: &Node,
     elem: &ElementDefinition,
     path: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    if elem.fixed.is_none() && elem.pattern.is_none() {
+    if elem.fixed.is_none()
+        && elem.pattern.is_none()
+        && elem.min_value.is_none()
+        && elem.max_value.is_none()
+    {
         return;
     }
     for (item, item_path) in occurrences(node, path) {
+        min_max_value::check(item, elem, &item_path, diagnostics);
         let values = fhir_fhirpath::from_parser_value(&item.value);
         if let Some(fixed) = elem.fixed.as_deref() {
             let mut parts = Vec::new();

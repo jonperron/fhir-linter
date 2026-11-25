@@ -14,6 +14,7 @@ mod diagnostic;
 mod embedded;
 mod fixed_pattern;
 mod invariants;
+mod min_max_value;
 mod narrative_refs;
 mod nested;
 mod profile;
