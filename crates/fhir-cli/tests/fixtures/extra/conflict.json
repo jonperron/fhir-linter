@@ -1,0 +1,14 @@
+{
+  "resourceType": "StructureDefinition",
+  "url": "http://hl7.org/fhir/StructureDefinition/Patient",
+  "name": "Patient",
+  "status": "draft",
+  "kind": "resource",
+  "abstract": false,
+  "type": "Patient",
+  "derivation": "constraint",
+  "baseDefinition": "http://hl7.org/fhir/StructureDefinition/DomainResource",
+  "snapshot": {
+    "element": [{ "id": "Patient", "path": "Patient", "min": 0, "max": "*" }]
+  }
+}

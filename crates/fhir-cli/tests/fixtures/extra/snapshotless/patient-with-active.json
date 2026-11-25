@@ -1,0 +1,16 @@
+{
+  "resourceType": "StructureDefinition",
+  "url": "http://example.org/fhir/StructureDefinition/patient-with-active",
+  "name": "PatientWithActive",
+  "status": "draft",
+  "kind": "resource",
+  "abstract": false,
+  "type": "Patient",
+  "derivation": "constraint",
+  "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Patient",
+  "differential": {
+    "element": [
+      { "id": "Patient.active", "path": "Patient.active", "min": 1 }
+    ]
+  }
+}
