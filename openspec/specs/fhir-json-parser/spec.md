@@ -84,6 +84,11 @@ Le système SHALL exposer une fonction `parse_json(source: &str) -> Result<Resou
 - **WHEN** `parse_json` reçoit `"\u{FEFF}{\"resourceType\":\"Patient\",\"active\":true}"`
 - **THEN** elle SHALL retourner `Ok(Resource)` de type `Patient` et le `Span.offset` de `active` SHALL être l'offset en octets de `true` dans la source, BOM compris
 
+#### Scenario: Échappement \u invalide
+
+- **WHEN** `parse_json` reçoit une chaîne contenant `\u` suivi d'autre chose que exactement quatre chiffres hexadécimaux ASCII (ex. `"\u+041"`, `"\u 041"`), y compris pour le second échappement d'une paire de substituts (RFC 8259 section 7)
+- **THEN** elle SHALL retourner `Err(ParseError::JsonError)`
+
 #### Scenario: BOM final ou second BOM
 
 - **WHEN** `parse_json` reçoit une source avec un BOM après le document, ou deux BOM en tête
