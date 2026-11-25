@@ -52,30 +52,18 @@ impl From<fhir_validator::Diagnostic> for Diagnostic {
     }
 }
 
-/// Resolve the definitions directory and return its shared registry.
-fn registry_for(definitions_dir: Option<String>) -> PyResult<Arc<Registry>> {
-    Registry::shared_or_env(definitions_dir)
-        .ok_or_else(|| {
-            PyValueError::new_err(format!(
-                "no FHIR definitions: pass definitions_dir or set {DEFINITIONS_DIR_ENV}"
-            ))
-        })?
-        .map_err(|e| PyRuntimeError::new_err(format!("cannot load definitions: {e}")))
-}
-
 /// The registry for one call: the shared base, with `extra_definitions` layered on top.
 fn registry_with_extra(
     definitions_dir: Option<String>,
     extra_definitions: Option<Vec<PathBuf>>,
 ) -> PyResult<Arc<Registry>> {
-    let base = registry_for(definitions_dir)?;
-    match extra_definitions {
-        Some(paths) if !paths.is_empty() => Registry::with_extra(base, &paths)
-            .map(Arc::new)
-            // fhir-definitions errors name the offending file, never its content.
-            .map_err(|e| PyRuntimeError::new_err(format!("cannot load extra definitions: {e}"))),
-        _ => Ok(base),
-    }
+    Registry::shared_or_env_with_extra(definitions_dir, &extra_definitions.unwrap_or_default())
+        .ok_or_else(|| {
+            PyValueError::new_err(format!(
+                "no FHIR definitions: pass definitions_dir or set {DEFINITIONS_DIR_ENV}"
+            ))
+        })?
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
 fn parse(json: &str) -> PyResult<fhir_parser::Resource> {
