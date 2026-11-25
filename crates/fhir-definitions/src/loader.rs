@@ -302,13 +302,13 @@ fn parse_type_profiles(t: &Value) -> Option<TypeProfiles> {
     })
 }
 
-/// A JSON array of canonical URLs, version suffixes stripped.
+/// A JSON array of canonical URLs, `|version` suffixes kept.
 fn canonicals(list: &Value) -> Vec<Arc<str>> {
     list.as_array()
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
-        .map(strip_version)
+        .map(Arc::from)
         .collect()
 }
 
@@ -345,7 +345,7 @@ fn strip_version(s: &str) -> Arc<str> {
 
 fn parse_binding(b: &Value) -> Option<Binding> {
     let strength: Arc<str> = b["strength"].as_str()?.into();
-    let value_set = b["valueSet"].as_str().map(strip_version);
+    let value_set = b["valueSet"].as_str().map(Arc::from);
     // Like a binding without strength, an entry without purpose or valueSet (both 1..1)
     // cannot be applied, so it is skipped rather than failing the whole load.
     let additional = b["additional"]
@@ -355,7 +355,7 @@ fn parse_binding(b: &Value) -> Option<Binding> {
         .filter_map(|a| {
             Some(AdditionalBinding {
                 purpose: a["purpose"].as_str()?.into(),
-                value_set: strip_version(a["valueSet"].as_str()?),
+                value_set: a["valueSet"].as_str()?.into(),
                 any: a["any"].as_bool().unwrap_or(false),
             })
         })
@@ -381,6 +381,7 @@ fn parse_value_set(resource: &Value) -> Option<ValueSet> {
     Some(ValueSet {
         url,
         name,
+        version: resource["version"].as_str().map(Arc::from),
         includes,
         has_exclude,
     })

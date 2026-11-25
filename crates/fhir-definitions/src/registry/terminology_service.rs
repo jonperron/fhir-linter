@@ -13,6 +13,8 @@ impl Terminologies for Registry {
     /// reads them.
     fn expand(&self, value_set: &str) -> Option<Value> {
         let codes = Registry::expand(self, value_set)?;
+        // The loaded ValueSet's own url and version, not the `url|version` reference.
+        let loaded = self.value_set(value_set)?;
         let total = i64::try_from(codes.len()).ok()?;
         let contains = codes
             .into_iter()
@@ -43,7 +45,16 @@ impl Terminologies for Registry {
         Some(resource(
             "ValueSet",
             vec![
-                ("url", vec![Value::fhir_string(value_set, "uri")]),
+                ("url", vec![Value::fhir_string(&loaded.url, "uri")]),
+                (
+                    "version",
+                    loaded
+                        .version
+                        .as_deref()
+                        .map(|v| Value::fhir_string(v, "string"))
+                        .into_iter()
+                        .collect(),
+                ),
                 ("expansion", vec![expansion]),
             ],
         ))

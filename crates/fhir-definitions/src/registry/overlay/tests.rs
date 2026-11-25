@@ -808,3 +808,57 @@ fn value_set_and_code_system_without_name_are_loaded() {
         );
     }
 }
+
+#[test]
+fn versioned_value_set_reference_is_undecided_against_another_loaded_version() {
+    // A canonical `url|version` names that version only (R5 3.1.3.2): the loaded 2.0
+    // cannot decide membership for a binding or an import pinned to 1.0.
+    let mut vs = value_set();
+    vs["version"] = json!("2.0");
+    let importer = json!({
+        "resourceType": "ValueSet",
+        "url": "http://example.org/ValueSet/importer",
+        "compose": {"include": [{"valueSet": [format!("{VALUE_SET}|1.0")]}]},
+    });
+    let mut bound = profile(PROFILE);
+    bound["snapshot"]["element"][1]["binding"] = json!({
+        "strength": "required",
+        "valueSet": format!("{VALUE_SET}|1.0"),
+        "additional": [{"purpose": "maximum", "valueSet": format!("{VALUE_SET}|2.0")}],
+    });
+    let overlay = overlay_with("versioned_value_set", &[vs, code_system(), importer, bound]);
+
+    let binding = overlay
+        .structure_definition(PROFILE)
+        .and_then(|sd| sd.element("Patient.colour[x]"))
+        .and_then(|element| element.binding.as_ref())
+        .unwrap();
+    let pinned = binding.value_set.as_deref().unwrap();
+    assert_eq!(pinned, format!("{VALUE_SET}|1.0"));
+    assert!(overlay.value_set(pinned).is_none());
+    assert_eq!(
+        overlay.value_set_contains(pinned, Some(CODE_SYSTEM), "green"),
+        None
+    );
+    assert_eq!(
+        overlay.value_set_contains("http://example.org/ValueSet/importer", None, "green"),
+        None
+    );
+    // The matching version and an unversioned reference still decide.
+    let matching = binding.additional[0].value_set.as_ref();
+    assert_eq!(
+        overlay.value_set_contains(matching, Some(CODE_SYSTEM), "green"),
+        Some(false)
+    );
+    assert_eq!(
+        overlay.value_set_contains(VALUE_SET, Some(CODE_SYSTEM), "red"),
+        Some(true)
+    );
+    // A versioned reference to a ValueSet loaded without a version is undecided too.
+    let unversioned = overlay_with("unversioned_value_set", &[value_set(), code_system()]);
+    let versioned = format!("{VALUE_SET}|2.0");
+    assert_eq!(
+        unversioned.value_set_contains(&versioned, Some(CODE_SYSTEM), "green"),
+        None
+    );
+}
