@@ -12,6 +12,7 @@ use serde_json::Value as Json;
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::embedded::child_element;
 use crate::fixed_pattern::matches_all;
+use crate::resolve::canonical_parts;
 
 /// One repetition of a sliced element: its node, instance path and, for a choice element,
 /// the type its key selects (`valueQuantity` gives `Quantity`).
@@ -275,7 +276,8 @@ fn url_rule<'r>(slice: &'r ElementDefinition, kind: &str, path: &str) -> Option<
     match slice.type_profiles.as_slice() {
         [t] if kind == "value" && path == "url" && &*t.code == "Extension" => {
             match t.profiles.as_slice() {
-                [url] => Some(Rule::Url(url)),
+                // Extension.url holds the bare canonical, never its `|version`.
+                [url] => Some(Rule::Url(canonical_parts(url).0)),
                 _ => None,
             }
         }

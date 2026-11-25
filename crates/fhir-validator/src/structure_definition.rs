@@ -32,6 +32,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
+use crate::resolve::canonical_parts;
 
 /// Check the StructureDefinition `resource` at instance `path`; other resources pass.
 pub(crate) fn validate(
@@ -156,7 +157,7 @@ fn base_definition<'a>(
     registry: &'a Registry,
 ) -> Option<&'a StructureDefinition> {
     let url = string(&resource.fields, "baseDefinition")?;
-    registry.structure_definition(url.split_once('|').map_or(url, |(url, _)| url))
+    registry.structure_definition(canonical_parts(url).0)
 }
 
 /// The base element of the same path as differential element `fields`. Elements the base
@@ -609,7 +610,7 @@ fn canonical_targets(
 /// True when `url` names a concrete resource definition (or a profile on one) that is not a
 /// canonical resource. Abstract definitions such as `Resource` (canonical(Any)) pass.
 fn names_non_canonical_resource(registry: &Registry, url: &str) -> bool {
-    let url = url.split_once('|').map_or(url, |(url, _)| url);
+    let url = canonical_parts(url).0;
     registry
         .structure_definition(url)
         .is_some_and(|sd| &*sd.kind == "resource" && !sd.is_abstract && !is_canonical(registry, sd))

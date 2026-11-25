@@ -1,5 +1,6 @@
 //! Profiles supplied through `Registry::with_extra` without a snapshot: every place that
 //! looks a profile up reports `PROFILE_010` instead of an unknown profile or nothing.
+//! Versioned references (`url|version`) to supplied profiles resolve on every lookup path.
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -33,22 +34,29 @@ fn snapshotless_profile(base_type: &str) -> Value {
 
 /// The core Patient definition as a constraint at `LAYER`, its snapshot changed by `edit`.
 fn patient_layer(edit: impl FnOnce(&mut Vec<Value>)) -> Value {
-    let text = std::fs::read_to_string(definitions_dir().join("profiles-resources.json")).unwrap();
+    core_constraint("profiles-resources.json", "Patient", LAYER, edit)
+}
+
+/// The core definition of `name` (in bundle `file`) as a constraint at `url`, its snapshot
+/// changed by `edit`.
+fn core_constraint(file: &str, name: &str, url: &str, edit: impl FnOnce(&mut Vec<Value>)) -> Value {
+    let text = std::fs::read_to_string(definitions_dir().join(file)).unwrap();
     let bundle: Value = serde_json::from_str(&text).unwrap();
-    let mut patient = bundle["entry"]
+    let core = format!("http://hl7.org/fhir/StructureDefinition/{name}");
+    let mut sd = bundle["entry"]
         .as_array()
         .unwrap()
         .iter()
         .map(|entry| &entry["resource"])
-        .find(|r| r["url"] == "http://hl7.org/fhir/StructureDefinition/Patient")
+        .find(|r| r["url"] == core.as_str())
         .unwrap()
         .clone();
-    patient["url"] = json!(LAYER);
-    patient["derivation"] = json!("constraint");
-    patient["baseDefinition"] = json!("http://hl7.org/fhir/StructureDefinition/Patient");
-    let elements = patient["snapshot"]["element"].as_array_mut().unwrap();
+    sd["url"] = json!(url);
+    sd["derivation"] = json!("constraint");
+    sd["baseDefinition"] = json!(core);
+    let elements = sd["snapshot"]["element"].as_array_mut().unwrap();
     edit(elements);
-    patient
+    sd
 }
 
 /// The registry with `resources` supplied as one Bundle file in a fresh directory.
@@ -204,4 +212,171 @@ fn supplied_core_namespace_url_creates_no_resource_type() {
         "{without_extras:?}"
     );
     assert_eq!(all_diagnostics(&resource, &registry), without_extras);
+}
+
+const IDENTIFIER: &str = "http://example.org/StructureDefinition/identifier-system";
+
+/// Identifier with `system` required, at version 1.0.
+fn identifier_profile() -> Value {
+    let mut sd = core_constraint(
+        "profiles-types.json",
+        "Identifier",
+        IDENTIFIER,
+        |elements| {
+            let system = elements
+                .iter_mut()
+                .find(|e| e["path"] == "Identifier.system")
+                .unwrap();
+            system["min"] = json!(1);
+        },
+    );
+    sd["version"] = json!("1.0");
+    sd
+}
+
+/// `LAYER` with `Patient.identifier` sliced by profile, slice `local` (1..*) typed by the
+/// profile `reference`.
+fn identifier_sliced_by(reference: &str) -> Value {
+    patient_layer(|elements| {
+        let at = elements
+            .iter()
+            .position(|e| e["path"] == "Patient.identifier")
+            .unwrap();
+        let mut slice = elements[at].clone();
+        elements[at]["slicing"] = json!({
+            "discriminator": [{"type": "profile", "path": "$this"}],
+            "rules": "open",
+        });
+        slice["id"] = json!("Patient.identifier:local");
+        slice["sliceName"] = json!("local");
+        slice["min"] = json!(1);
+        slice["type"] = json!([{"code": "Identifier", "profile": [reference]}]);
+        elements.insert(at + 1, slice);
+    })
+}
+
+/// `"<severity> <code> <path>"` for every diagnostic that is not information.
+fn findings(patient: Value, registry: &Registry) -> Vec<String> {
+    let resource = parse_json(&patient.to_string()).unwrap();
+    validate(&resource, registry)
+        .iter()
+        .filter(|d| d.severity != Severity::Information || &*d.code == "SLICING_SKIPPED")
+        // The test patients carry no narrative.
+        .filter(|d| &*d.code != "INVARIANT_dom-6")
+        .map(|d| format!("{:?} {} {}", d.severity, d.code, d.path))
+        .collect()
+}
+
+fn patient_with_identifier(identifier: Value) -> Value {
+    json!({
+        "resourceType": "Patient",
+        "meta": {"profile": [LAYER]},
+        "identifier": [identifier],
+    })
+}
+
+#[test]
+fn versioned_slice_profile_is_evaluated() {
+    let reference = format!("{IDENTIFIER}|1.0");
+    let registry = overlay(
+        "slice-version",
+        &[identifier_profile(), identifier_sliced_by(&reference)],
+    );
+    // The item conforms to the profile, so it fills the required slice.
+    let patient = patient_with_identifier(json!({"system": "urn:s", "value": "1"}));
+    assert_eq!(findings(patient, &registry), Vec::<String>::new());
+}
+
+#[test]
+fn versioned_slice_profile_of_another_version_is_profile_003() {
+    let reference = format!("{IDENTIFIER}|2.0");
+    let registry = overlay(
+        "slice-other-version",
+        &[identifier_profile(), identifier_sliced_by(&reference)],
+    );
+    let patient = json!({
+        "resourceType": "Patient",
+        "meta": {"profile": [LAYER]},
+        "identifier": [{"system": "urn:s", "value": "1"}, {"system": "urn:s", "value": "2"}],
+    });
+    // Named once for the slicing, not per item.
+    assert_eq!(
+        findings(patient, &registry),
+        ["Warning PROFILE_003 Patient.identifier"],
+    );
+}
+
+#[test]
+fn meta_profile_with_a_fragment_names_a_contained_profile() {
+    // references.html: `url|version#id` is the resource `id` contained in that version of
+    // `url`, not `url` itself; the Registry holds no contained definitions.
+    let registry = overlay("fragment", &[patient_layer(|_| {})]);
+    let patient = json!({
+        "resourceType": "Patient",
+        "meta": {"profile": [format!("{LAYER}|1.0#inner")]},
+    });
+    assert_eq!(
+        profile_diagnostics(patient, &registry),
+        ["Warning PROFILE_001 Patient.meta.profile[0]"],
+    );
+}
+
+#[test]
+fn versioned_slice_profile_without_snapshot_is_profile_010() {
+    let reference = format!("{SNAPSHOTLESS}|1.0");
+    let registry = overlay(
+        "slice-snapshotless-version",
+        &[
+            snapshotless_profile("Identifier"),
+            identifier_sliced_by(&reference),
+        ],
+    );
+    let patient = patient_with_identifier(json!({"value": "1"}));
+    assert_eq!(
+        profile_diagnostics(patient, &registry),
+        [
+            "Information SLICING_SKIPPED Patient.identifier",
+            "Error PROFILE_010 Patient.identifier",
+        ],
+    );
+}
+
+#[test]
+fn extension_slice_with_a_versioned_profile_matches_the_bare_url() {
+    // Extension.url holds the bare canonical: a `|version` on the slice's profile must not
+    // stop the `value` discriminator on `url` from matching.
+    let extension = "http://example.org/StructureDefinition/ext";
+    let layer = patient_layer(|elements| {
+        let at = elements
+            .iter()
+            .position(|e| e["path"] == "Patient.extension")
+            .unwrap();
+        let mut slice = elements[at].clone();
+        elements[at]["slicing"] = json!({
+            "discriminator": [{"type": "value", "path": "url"}],
+            "rules": "open",
+        });
+        slice["id"] = json!("Patient.extension:ext");
+        slice["sliceName"] = json!("ext");
+        slice["min"] = json!(1);
+        slice["type"] = json!([{"code": "Extension", "profile": [format!("{extension}|1.0")]}]);
+        elements.insert(at + 1, slice);
+    });
+    let registry = overlay("extension-version", &[layer]);
+    let patient = |url: &str| {
+        json!({
+            "resourceType": "Patient",
+            "meta": {"profile": [LAYER]},
+            "extension": [{"url": url, "valueString": "x"}],
+        })
+    };
+    assert_eq!(
+        findings(patient(extension), &registry),
+        Vec::<String>::new()
+    );
+    // Another URL leaves the required slice empty.
+    assert_eq!(
+        findings(patient("http://example.org/other"), &registry),
+        ["Error PROFILE_006 Patient.extension"],
+    );
 }

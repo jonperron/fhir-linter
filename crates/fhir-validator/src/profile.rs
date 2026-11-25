@@ -9,7 +9,7 @@ use crate::cardinality::{check_run_cardinality, own_descendants, subtree, withou
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::fixed_pattern::{self, occurrences};
 use crate::invariants;
-use crate::resolve::complex_type;
+use crate::resolve::{canonical_parts, complex_type};
 use crate::slicing::{self, Assigned, Item};
 use fhir_definitions::capitalise;
 
@@ -54,11 +54,7 @@ pub fn validate(
             continue;
         };
         let path = format!("{resource_path}.meta.profile[{i}]");
-        // references.html canonical form: `url|version#fragment`.
-        let (canonical, version) = match url.split_once('|') {
-            Some((canonical, rest)) => (canonical, rest.split('#').next()),
-            None => (url.as_ref(), None),
-        };
+        let (canonical, version) = canonical_parts(url);
         let Some(sd) = registry.structure_definition(canonical) else {
             let diagnostic = if registry.needs_snapshot(canonical) {
                 no_snapshot(url, path)
@@ -68,21 +64,8 @@ pub fn validate(
             diagnostics.push(diagnostic.with_location(node.span));
             continue;
         };
-        // The spec is silent on a version mismatch: warn, then validate against the loaded
-        // version (user decision, PLAN 11.7 V10).
-        if let Some(version) = version.filter(|v| sd.version.as_deref() != Some(*v)) {
-            let loaded = sd.version.as_deref().unwrap_or("none");
-            diagnostics.push(
-                Diagnostic::warning(
-                    "PROFILE_003",
-                    format!(
-                        "Profile '{url}' asks for version '{version}' but version '{loaded}' is \
-                         loaded; validated against the loaded version"
-                    ),
-                    path.clone(),
-                )
-                .with_location(node.span),
-            );
+        if let Some(warning) = version_mismatch(url, version, sd, &path) {
+            diagnostics.push(warning.with_location(node.span));
         }
         let profile_type = sd.snapshot.first().map(|e| e.path.as_ref());
         // Profiles on abstract parents (e.g. DomainResource) apply to every subtype.
@@ -153,11 +136,12 @@ pub(crate) fn check_type_profiles(
         .unwrap_or_default();
     let mut results = Vec::with_capacity(urls.profiles.len());
     for url in &urls.profiles {
+        let (canonical, version) = canonical_parts(url);
         let Some((profile, root)) = registry
-            .structure_definition(url)
+            .structure_definition(canonical)
             .and_then(|profile| Some((profile, profile.snapshot.first()?)))
         else {
-            diagnostics.push(if registry.needs_snapshot(url) {
+            diagnostics.push(if registry.needs_snapshot(canonical) {
                 no_snapshot(url, path.to_owned())
             } else {
                 let message = format!("Profile '{url}' of '{path}' is not known");
@@ -165,6 +149,7 @@ pub(crate) fn check_type_profiles(
             });
             continue;
         };
+        diagnostics.extend(version_mismatch(url, version, profile, path));
         let mut found = Vec::new();
         let known = |c: &Constraint| {
             base.iter()
@@ -297,6 +282,27 @@ pub(crate) fn check_profile_object(
     }
 }
 
+/// `PROFILE_003` when the canonical reference `url` asks for a `version` other than the
+/// loaded definition `sd`'s. The spec is silent on a version mismatch: warn, then validate
+/// against the loaded version (user decision, PLAN 11.7 V10).
+fn version_mismatch(
+    url: &str,
+    version: Option<&str>,
+    sd: &StructureDefinition,
+    path: &str,
+) -> Option<Diagnostic> {
+    let version = version.filter(|v| sd.version.as_deref() != Some(*v))?;
+    let loaded = sd.version.as_deref().unwrap_or("none");
+    Some(Diagnostic::warning(
+        "PROFILE_003",
+        format!(
+            "Profile '{url}' asks for version '{version}' but version '{loaded}' is loaded; \
+             validated against the loaded version"
+        ),
+        path.to_owned(),
+    ))
+}
+
 /// `PROFILE_010`: the profile at `url` was supplied without a snapshot, so it cannot be
 /// validated against (snapshot generation is not supported).
 fn no_snapshot(url: &str, path: String) -> Diagnostic {
@@ -328,14 +334,23 @@ fn check_slices(
     // rules of the core type are the base walk's.
     // Slice profiles supplied without a snapshot, reported once the assignment is done.
     let snapshotless = RefCell::new(Vec::<String>::new());
+    // Slice profiles of another version than the loaded one, also reported once.
+    let mismatched = RefCell::new(Vec::<Diagnostic>::new());
     let conforms = |fields: &IndexMap<Arc<str>, Node>, value: &[FhirPathValue], url: &str| {
-        let Some(profile) = layer.registry.structure_definition(url) else {
+        let (canonical, version) = canonical_parts(url);
+        let Some(profile) = layer.registry.structure_definition(canonical) else {
             let mut snapshotless = snapshotless.borrow_mut();
-            if layer.registry.needs_snapshot(url) && !snapshotless.iter().any(|u| u == url) {
+            if layer.registry.needs_snapshot(canonical) && !snapshotless.iter().any(|u| u == url) {
                 snapshotless.push(url.to_owned());
             }
             return None;
         };
+        if let Some(warning) = version_mismatch(url, version, profile, path) {
+            let mut mismatched = mismatched.borrow_mut();
+            if !mismatched.iter().any(|m| m.message == warning.message) {
+                mismatched.push(warning);
+            }
+        }
         let root = profile.snapshot.first()?;
         let core_root = root
             .path
@@ -364,6 +379,7 @@ fn check_slices(
     for url in snapshotless.into_inner() {
         diagnostics.push(no_snapshot(&url, path.to_owned()));
     }
+    diagnostics.extend(mismatched.into_inner());
     let is_choice_variant =
         |base: &str, suffix: &str| layer.registry.is_choice_variant(base, suffix);
     for (item, assigned) in items.iter().zip(assigned) {
@@ -517,14 +533,101 @@ mod tests {
         )
     }
 
+    fn definitions() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5")
+    }
+
+    /// The registry with `sd` supplied as one file.
+    fn supplied(name: &str, sd: &serde_json::Value) -> Registry {
+        let dir = std::env::temp_dir().join(format!("profile-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("sd.json");
+        std::fs::write(&file, sd.to_string()).unwrap();
+        let base = Arc::new(Registry::from_definitions_dir(definitions()).unwrap());
+        let registry = Registry::with_extra(base, &[file.as_path()]).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        registry
+    }
+
+    /// `(code, severity, message)` of the diagnostics `Patient.maritalStatus` gets (no value)
+    /// when its CodeableConcept type names the profile `reference`.
+    fn marital_status_profiled(registry: &Registry, reference: &str) -> Vec<Diagnostic> {
+        let mut elem = registry
+            .core("Patient")
+            .and_then(|sd| sd.element("Patient.maritalStatus"))
+            .unwrap()
+            .clone();
+        elem.type_profiles = vec![fhir_definitions::TypeProfiles {
+            code: Arc::from("CodeableConcept"),
+            profiles: vec![Arc::from(reference)],
+            target_profiles: vec![],
+        }];
+        let mut diagnostics = Vec::new();
+        check_type_profiles(
+            (&IndexMap::new(), &[], Span::default()),
+            &elem,
+            "CodeableConcept",
+            "Patient.maritalStatus",
+            registry,
+            &Environment::default(),
+            0,
+            &mut diagnostics,
+        );
+        diagnostics
+    }
+
+    fn summary(diagnostics: &[Diagnostic]) -> Vec<(&str, Severity, &str)> {
+        diagnostics
+            .iter()
+            .map(|d| (d.code.as_ref(), d.severity, d.message.as_str()))
+            .collect()
+    }
+
+    const CC: &str = "http://example.org/StructureDefinition/cc";
+
+    /// CodeableConcept with `text` required, at version 1.0, supplied in directory `name`.
+    fn cc_profile(name: &str) -> Registry {
+        let core = Registry::from_definitions_dir(definitions()).unwrap();
+        let mut elements: Vec<serde_json::Value> = core
+            .core("CodeableConcept")
+            .unwrap()
+            .snapshot
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "id": &*e.path,
+                    "path": &*e.path,
+                    "min": e.min,
+                    "max": &*e.max,
+                })
+            })
+            .collect();
+        for e in &mut elements {
+            if e["path"] == "CodeableConcept.text" {
+                e["min"] = serde_json::json!(1);
+            }
+        }
+        let sd = serde_json::json!({
+            "resourceType": "StructureDefinition",
+            "url": CC,
+            "version": "1.0",
+            "name": "TextCC",
+            "status": "draft",
+            "kind": "complex-type",
+            "abstract": false,
+            "type": "CodeableConcept",
+            "baseDefinition": "http://hl7.org/fhir/StructureDefinition/CodeableConcept",
+            "derivation": "constraint",
+            "snapshot": {"element": elements},
+        });
+        supplied(name, &sd)
+    }
+
     #[test]
     fn type_profile_without_snapshot_is_profile_010() {
         // No core element names a profile the bundle lacks, so only an edited element
         // reaches this path with a supplied snapshotless profile.
         let url = "http://example.org/StructureDefinition/no-snapshot-cc";
-        let dir = std::env::temp_dir().join(format!("profile-010-type-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("sd.json");
         let sd = serde_json::json!({
             "resourceType": "StructureDefinition",
             "url": url,
@@ -536,39 +639,42 @@ mod tests {
             "derivation": "constraint",
             "differential": {"element": [{"path": "CodeableConcept"}]},
         });
-        std::fs::write(&file, sd.to_string()).unwrap();
-        let definitions =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5");
-        let base = Arc::new(Registry::from_definitions_dir(definitions).unwrap());
-        let registry = Registry::with_extra(base, &[file.as_path()]).unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
-        let mut elem = registry
-            .core("Patient")
-            .and_then(|sd| sd.element("Patient.maritalStatus"))
-            .unwrap()
-            .clone();
-        elem.type_profiles = vec![fhir_definitions::TypeProfiles {
-            code: Arc::from("CodeableConcept"),
-            profiles: vec![Arc::from(url)],
-            target_profiles: vec![],
-        }];
-        let mut diagnostics = Vec::new();
-        check_type_profiles(
-            (&IndexMap::new(), &[], Span::default()),
-            &elem,
-            "CodeableConcept",
-            "Patient.maritalStatus",
-            &registry,
-            &Environment::default(),
-            0,
-            &mut diagnostics,
+        let registry = supplied("010-type", &sd);
+        for reference in [url.to_owned(), format!("{url}|1.0")] {
+            let diagnostics = marital_status_profiled(&registry, &reference);
+            // The diagnostic names the reference as written.
+            let message = format!("Profile '{reference}' has no snapshot; snapshot required");
+            assert_eq!(
+                summary(&diagnostics),
+                [("PROFILE_010", Severity::Error, message.as_str())]
+            );
+        }
+    }
+
+    #[test]
+    fn versioned_type_profile_of_the_loaded_version_is_applied() {
+        let registry = cc_profile("cc-loaded");
+        let diagnostics = marital_status_profiled(&registry, &format!("{CC}|1.0"));
+        let codes: Vec<_> = diagnostics.iter().map(|d| (&*d.code, &*d.path)).collect();
+        assert_eq!(codes, [("CARDINALITY_001", "Patient.maritalStatus.text")]);
+    }
+
+    #[test]
+    fn versioned_type_profile_of_another_version_is_profile_003() {
+        let registry = cc_profile("cc-other");
+        let reference = format!("{CC}|2.0");
+        let diagnostics = marital_status_profiled(&registry, &reference);
+        let codes: Vec<_> = diagnostics.iter().map(|d| (&*d.code, &*d.path)).collect();
+        // Validated against the loaded version, as for meta.profile.
+        assert_eq!(
+            codes,
+            [
+                ("PROFILE_003", "Patient.maritalStatus"),
+                ("CARDINALITY_001", "Patient.maritalStatus.text"),
+            ]
         );
-        let found: Vec<_> = diagnostics
-            .iter()
-            .map(|d| (d.code.as_ref(), d.severity, d.message.as_str()))
-            .collect();
-        let message = format!("Profile '{url}' has no snapshot; snapshot required");
-        assert_eq!(found, [("PROFILE_010", Severity::Error, message.as_str())]);
+        assert!(diagnostics[0].message.contains(&format!("'{reference}'")));
+        assert_eq!(diagnostics[0].severity, Severity::Warning);
     }
 
     #[test]

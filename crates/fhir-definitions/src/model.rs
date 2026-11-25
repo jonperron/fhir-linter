@@ -203,7 +203,8 @@ pub struct ChoiceValue {
     pub value: serde_json::Value,
 }
 
-/// The profiles an `ElementDefinition.type` entry declares (canonical URLs, version stripped).
+/// The profiles an `ElementDefinition.type` entry declares: canonical references as written,
+/// `|version` included.
 #[derive(Debug, Clone)]
 pub struct TypeProfiles {
     /// The type code, resolved like the entries of `ElementDefinition::types`.

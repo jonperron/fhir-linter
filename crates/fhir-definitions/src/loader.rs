@@ -284,8 +284,17 @@ fn choice_value(elem: &Value, prefix: &str) -> Option<Box<ChoiceValue>> {
 /// The profiles of one `ElementDefinition.type`; `None` when it declares none.
 fn parse_type_profiles(t: &Value) -> Option<TypeProfiles> {
     let code = type_code(t)?;
-    let profiles = canonicals(&t["profile"]);
-    let target_profiles = canonicals(&t["targetProfile"]);
+    // Kept as written: the validator resolves `|version` and warns on a version mismatch.
+    let references = |list: &Value| -> Vec<Arc<str>> {
+        list.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(Arc::from)
+            .collect()
+    };
+    let profiles = references(&t["profile"]);
+    let target_profiles = references(&t["targetProfile"]);
     (!profiles.is_empty() || !target_profiles.is_empty()).then(|| TypeProfiles {
         code: code.into(),
         profiles,
