@@ -51,14 +51,30 @@ worker thread, so it does not block the event loop.
 
 `definitionsDir` is read from disk: only pass paths you trust.
 
+### Extra definitions
+
+`extraDefinitions` adds your own conformance resources (profiles, ValueSets,
+CodeSystems, ConceptMaps) on top of the R5 definitions, as the CLI's
+`--extra-definitions` does. Each entry is a `.json` file holding one resource
+or a Bundle, or a directory whose `*.json` files are read (not recursively):
+
+```ts
+const diagnostics = await validate(json, undefined, ["./profiles"]);
+```
+
+A supplied canonical URL that clashes with the R5 definitions or another
+supplied file, or a StructureDefinition with `derivation = specialization`,
+is an error. A profile without a snapshot is not used. The files are read on
+every call (only the R5 definitions are cached); only pass paths you trust.
+
 ## API
 
-### `validate(json: string, definitionsDir?: string): Promise<Diagnostic[]>`
+### `validate(json: string, definitionsDir?: string, extraDefinitions?: string[]): Promise<Diagnostic[]>`
 
 Checks structure, cardinality, types, terminology and invariants (FHIRPath)
 against the R5 definitions.
 
-### `lint(json: string, configToml?: string, definitionsDir?: string): Promise<Diagnostic[]>`
+### `lint(json: string, configToml?: string, definitionsDir?: string, extraDefinitions?: string[]): Promise<Diagnostic[]>`
 
 Runs the lint rules. `configToml` is the **content** of a `fhir-linter.toml`
 file, not a path:
@@ -116,4 +132,6 @@ The returned promise rejects with an `Error` when:
 - the lint config is invalid (`invalid lint config: ...`) or names an
   unknown rule;
 - no definitions directory is given (`no FHIR definitions: ...`);
-- the definitions directory cannot be loaded (`cannot load definitions: ...`).
+- the definitions directory cannot be loaded (`cannot load definitions: ...`);
+- an extra definition cannot be loaded (`cannot load extra definitions: ...`,
+  naming the file, never its content).
