@@ -6,7 +6,7 @@ Addon Node.js natif (napi-rs) exposant le validateur et le linter. Paquet npm `@
 ## Requirements
 ### Requirement: Fonction validate
 
-Le module SHALL exposer `validate(json: string, definitionsDir?: string): Promise<Diagnostic[]>` qui analyse une ressource FHIR R5 JSON et résout avec les diagnostics de `fhir_validator::validate`. Le calcul SHALL s'exécuter hors de la boucle d'événements.
+Le module SHALL exposer `validate(json: string, definitionsDir?: string, extraDefinitions?: string[]): Promise<Diagnostic[]>` qui analyse une ressource FHIR R5 JSON et résout avec les diagnostics de `fhir_validator::validate`. Le calcul SHALL s'exécuter hors de la boucle d'événements.
 
 #### Scenario: Type de ressource inconnu
 
@@ -20,7 +20,7 @@ Le module SHALL exposer `validate(json: string, definitionsDir?: string): Promis
 
 ### Requirement: Fonction lint
 
-Le module SHALL exposer `lint(json: string, configToml?: string, definitionsDir?: string): Promise<Diagnostic[]>` qui exécute les règles intégrées de `fhir-linter`. `configToml` est le contenu d'un `fhir-linter.toml`.
+Le module SHALL exposer `lint(json: string, configToml?: string, definitionsDir?: string, extraDefinitions?: string[]): Promise<Diagnostic[]>` qui exécute les règles intégrées de `fhir-linter`. `configToml` est le contenu d'un `fhir-linter.toml`.
 
 #### Scenario: Configuration invalide
 
@@ -35,6 +35,27 @@ Les définitions FHIR R5 ne sont pas embarquées. `definitionsDir` SHALL proveni
 
 - **WHEN** aucun répertoire n'est défini, ou qu'il ne contient pas les définitions
 - **THEN** la promesse SHALL être rejetée avec une `Error`
+
+### Requirement: Définitions supplémentaires
+
+`validate` et `lint` SHALL accepter un paramètre optionnel `extraDefinitions: string[]`. Chaque entrée SHALL désigner un fichier `.json` (une ressource de conformité ou un Bundle) ou un répertoire dont les fichiers `*.json` sont lus de façon non récursive. Les définitions SHALL être chargées via `fhir_definitions::Registry::with_extra` au-dessus du registre de base partagé, une fois par appel et sans mise en cache ; le registre de base SHALL rester partagé et inchangé. Absent ou vide, le comportement SHALL être identique à celui d'avant.
+
+Toute erreur de chargement SHALL rejeter la promesse avec une `Error` dont le message est `cannot load extra definitions: <détail>`. Le détail SHALL nommer le fichier (et l'URL canonique en cas de conflit) et SHALL NOT contenir le contenu du fichier. Causes : URL canonique déjà présente dans la base ou fournie deux fois, StructureDefinition de dérivation `specialization`, fichier illisible, absent ou trop volumineux, JSON mal formé, Bundle mal formé, dépassement des limites.
+
+#### Scenario: Profil fourni
+
+- **WHEN** `validate` est appelé avec `extraDefinitions` fournissant un profil de contrainte avec snapshot, et une ressource le déclare dans `meta.profile`
+- **THEN** les diagnostics SHALL refléter ce profil et l'avertissement « not known » SHALL disparaître
+
+#### Scenario: Liste absente ou vide
+
+- **WHEN** `extraDefinitions` est omis ou `[]`
+- **THEN** les diagnostics SHALL être identiques à ceux d'un appel sans le paramètre
+
+#### Scenario: Erreur de chargement
+
+- **WHEN** une entrée redéfinit une URL canonique de la base, est manquante ou contient un JSON mal formé
+- **THEN** la promesse SHALL être rejetée avec une `Error` « cannot load extra definitions: » nommant le fichier sans en reproduire le contenu
 
 ### Requirement: Type Diagnostic
 

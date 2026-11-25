@@ -47,8 +47,29 @@ fn invalid_argument(message: impl Into<String>) -> Error {
     Error::new(Status::InvalidArg, message.into())
 }
 
+/// The shared registry for the definitions directory, overlaid with the supplied
+/// definitions when there are any (built per call, never cached).
+fn registry_for(
+    definitions_dir: Option<String>,
+    extra_definitions: Option<Vec<String>>,
+) -> Result<Arc<Registry>> {
+    let base = base_registry(definitions_dir)?;
+    match extra_definitions {
+        Some(paths) if !paths.is_empty() => Registry::with_extra(base, &paths)
+            .map(Arc::new)
+            // fhir-definitions errors name the offending file, never its content.
+            .map_err(|e| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!("cannot load extra definitions: {e}"),
+                )
+            }),
+        _ => Ok(base),
+    }
+}
+
 /// Resolve the definitions directory and return its shared registry.
-fn registry_for(definitions_dir: Option<String>) -> Result<Arc<Registry>> {
+fn base_registry(definitions_dir: Option<String>) -> Result<Arc<Registry>> {
     Registry::shared_or_env(definitions_dir)
         .ok_or_else(|| {
             invalid_argument(format!(
@@ -78,12 +99,19 @@ async fn off_event_loop<T: Send + 'static>(
 
 /// Validate a FHIR R5 JSON resource against the FHIR definitions.
 ///
-/// Rejects when the JSON cannot be parsed or no definitions are found.
+/// `extraDefinitions` lists `.json` files (one resource or a Bundle) or directories
+/// (read non-recursively) of conformance resources layered over the definitions.
+/// Rejects when the JSON cannot be parsed, no definitions are found or the extra
+/// definitions cannot be loaded.
 #[napi]
-pub async fn validate(json: String, definitions_dir: Option<String>) -> Result<Vec<Diagnostic>> {
+pub async fn validate(
+    json: String,
+    definitions_dir: Option<String>,
+    extra_definitions: Option<Vec<String>>,
+) -> Result<Vec<Diagnostic>> {
     off_event_loop(move || {
         let resource = parse(&json)?;
-        let registry = registry_for(definitions_dir)?;
+        let registry = registry_for(definitions_dir, extra_definitions)?;
         Ok(fhir_validator::validate(&resource, &registry)
             .into_iter()
             .map(Diagnostic::from)
@@ -95,12 +123,14 @@ pub async fn validate(json: String, definitions_dir: Option<String>) -> Result<V
 /// Run the lint rules on a FHIR R5 JSON resource.
 ///
 /// `configToml` is the content of a `fhir-linter.toml` file. Rejects on unparsable JSON,
-/// invalid configuration or missing definitions.
+/// invalid configuration, missing definitions or unloadable extra definitions
+/// (`extraDefinitions` as in `validate`).
 #[napi]
 pub async fn lint(
     json: String,
     config_toml: Option<String>,
     definitions_dir: Option<String>,
+    extra_definitions: Option<Vec<String>>,
 ) -> Result<Vec<Diagnostic>> {
     off_event_loop(move || {
         let config = config_toml
@@ -110,7 +140,7 @@ pub async fn lint(
             .map_err(|e| invalid_argument(format!("invalid lint config: {e}")))?
             .unwrap_or_default();
         let resource = parse(&json)?;
-        let registry = registry_for(definitions_dir)?;
+        let registry = registry_for(definitions_dir, extra_definitions)?;
         let diagnostics = RuleRegistry::default()
             .run(&resource, &registry, &config)
             .map_err(invalid_argument)?;

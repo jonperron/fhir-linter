@@ -1,6 +1,7 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { lint, validate } from "../index.js";
 
@@ -157,5 +158,65 @@ describe("event loop", () => {
       clearInterval(timer);
     }
     expect(ticks).toBeGreaterThan(0);
+  });
+});
+
+describe("extraDefinitions", () => {
+  const definitionsDir = process.env.FHIR_DEFINITIONS_DIR;
+  const extraDir = fileURLToPath(new URL("./fixtures/extra", import.meta.url));
+  const profileFile = join(extraDir, "patient-with-birthdate.json");
+  const profiled = JSON.stringify({
+    resourceType: "Patient",
+    meta: { profile: ["http://example.org/fhir/StructureDefinition/patient-with-birthdate"] },
+  });
+  const findings = (diagnostics: readonly { code: string; path: string }[]): string[] =>
+    diagnostics.map((d) => `${d.code} ${d.path}`);
+
+  it.each([
+    ["file", profileFile],
+    ["directory", extraDir],
+  ])("enforces a supplied profile given as a %s", async (_kind, extra) => {
+    const without = findings(await validate(profiled, definitionsDir));
+    expect(without).toContain("PROFILE_001 Patient.meta.profile[0]");
+    expect(without).not.toContain("CARDINALITY_001 Patient.birthDate");
+
+    const found = findings(await validate(profiled, definitionsDir, [extra]));
+    expect(found).toContain("CARDINALITY_001 Patient.birthDate");
+    expect(found).not.toContain("PROFILE_001 Patient.meta.profile[0]");
+  });
+
+  it("changes nothing when empty", async () => {
+    expect(await validate(profiled, definitionsDir, [])).toEqual(
+      await validate(profiled, definitionsDir),
+    );
+    expect(await lint(profiled, undefined, definitionsDir, [])).toEqual(
+      await lint(profiled, undefined, definitionsDir),
+    );
+  });
+
+  it.each([
+    ["validate", (extra: string[]) => validate(BARE_PATIENT, definitionsDir, extra)],
+    ["lint", (extra: string[]) => lint(BARE_PATIENT, undefined, definitionsDir, extra)],
+  ] as const)("%s names the file, not its content, on a load error", async (_name, call) => {
+    const dir = await mkdtemp(join(tmpdir(), "fhir-extra-"));
+    const broken = join(dir, "broken.json");
+    await writeFile(broken, '{"resourceType": "StructureDefinition", SECRET-CONTENT');
+    const error = await call([broken]).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(Error);
+    const message = error instanceof Error ? error.message : "";
+    expect(message).toMatch(/^cannot load extra definitions: /);
+    expect(message).toContain(broken);
+    expect(message).not.toContain("SECRET");
+  });
+
+  it("names a missing path", async () => {
+    const missing = join(tmpdir(), "fhir-extra-does-not-exist.json");
+    await expect(validate(BARE_PATIENT, definitionsDir, [missing])).rejects.toThrow(
+      `cannot load extra definitions: `,
+    );
+    await expect(validate(BARE_PATIENT, definitionsDir, [missing])).rejects.toThrow(missing);
   });
 });
