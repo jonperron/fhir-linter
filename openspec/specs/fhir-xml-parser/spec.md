@@ -192,7 +192,9 @@ Le système SHALL associer une position source (`Span`) à chaque `Node` produit
 - un élément hors du namespace `http://hl7.org/fhir` (un préfixe lié à ce namespace SHALL être accepté) ;
 - le div narratif, ou tout élément qu'il contient, hors du namespace XHTML `http://www.w3.org/1999/xhtml` ;
 - un attribut dans un namespace sur un élément FHIR, hors namespace XMLSchema-instance ;
-- plus de 8 déclarations de namespace sur un même élément.
+- plus de 8 déclarations de namespace sur un même élément ;
+- avant ou après l'élément racine (XML 1.0 section 2.8), tout autre contenu que des espaces XML (espace, tabulation, CR, LF), des commentaires et des instructions de traitement : avant la racine le message SHALL être « unexpected content before root element », après « unexpected content after root element » ;
+- une déclaration XML qui n'ouvre pas le document (offset 0 après le BOM retiré) : le message SHALL être « the XML declaration must be at the start of the document ».
 
 Le namespace XMLSchema-instance n'est pas une erreur de parse : il est enregistré dans `Resource::schema_instance` (voir « Namespace schema instance XML »).
 
@@ -246,6 +248,21 @@ Le namespace XMLSchema-instance n'est pas une erreur de parse : il est enregistr
 - **WHEN** un élément porte 9 déclarations de namespace
 - **THEN** `parse_xml` SHALL retourner `Err(ParseError::XmlError)`
 
+#### Scenario: Contenu avant la racine
+
+- **WHEN** du texte non blanc, une référence d'entité ou une section CDATA précède l'élément racine
+- **THEN** `parse_xml` SHALL retourner `Err(ParseError::XmlError)` « unexpected content before root element », alors que des espaces, commentaires et instructions de traitement SHALL être acceptés
+
+#### Scenario: Contenu après la racine
+
+- **WHEN** du texte non blanc (y compris U+00A0), une référence d'entité, une section CDATA ou une déclaration XML suit l'élément racine
+- **THEN** `parse_xml` SHALL retourner `Err(ParseError::XmlError)` « unexpected content after root element »
+
+#### Scenario: Déclaration XML hors du début
+
+- **WHEN** la déclaration XML est précédée d'un espace, d'un commentaire ou d'une instruction de traitement
+- **THEN** `parse_xml` SHALL retourner `Err(ParseError::XmlError)` « the XML declaration must be at the start of the document »
+
 ### Requirement: Épuration des valeurs d'attribut
 
 `parse_xml` SHALL retirer des valeurs d'attribut les blancs XML (espace, tabulation, CR, LF) en tête et en fin. Chaque attribut ainsi modifié SHALL être enregistré dans `Resource::trimmed_attributes` sous la forme d'un `TrimmedAttribute` (`Resource::trimmed_attributes` est un `Vec<TrimmedAttribute>`) : `TrimmedAttribute::Element(offset, name)` (position en octets de l'élément, nom de l'attribut) pour un attribut d'élément, et `TrimmedAttribute::ResourceId(span)` pour la valeur épurée du `<id>` racine, remontée dans `Resource::id`, portant le span de l'élément `<id>`. Exception : une valeur composée uniquement de blancs SHALL être conservée telle quelle (ni réduite à `""`, ni enregistrée dans `trimmed_attributes`, donc sans `TYPE_007`). Pour une ressource issue du JSON, `trimmed_attributes` SHALL être vide.
@@ -293,4 +310,3 @@ Le namespace XMLSchema-instance n'est pas une erreur de parse : il est enregistr
 
 - **WHEN** une ressource est produite par `parse_json`
 - **THEN** `schema_instance` SHALL être vide
-

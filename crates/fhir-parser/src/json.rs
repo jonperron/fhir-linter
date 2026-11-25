@@ -315,10 +315,9 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
         if self.pos + 4 > self.source.len() {
             return Err(self.error_at(err_offset, "incomplete unicode escape"));
         }
-        let hex = std::str::from_utf8(&self.source[self.pos..self.pos + 4])
-            .map_err(|_| self.error_at(err_offset, "invalid unicode escape sequence"))?;
-        let code_point = u32::from_str_radix(hex, 16)
-            .map_err(|_| self.error_at(err_offset, format!("invalid unicode hex: {}", hex)))?;
+        let code_point = hex4(&self.source[self.pos..self.pos + 4]).ok_or_else(|| {
+            self.error_at(err_offset, "invalid unicode escape: expected 4 hex digits")
+        })?;
 
         self.pos += 4;
 
@@ -340,10 +339,8 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
             return Err(self.error_at(err_offset, "unpaired high surrogate"));
         }
         self.pos += 2;
-        let hex = std::str::from_utf8(&self.source[self.pos..self.pos + 4])
-            .map_err(|_| self.error_at(err_offset, "invalid low surrogate hex"))?;
-        let low = u32::from_str_radix(hex, 16)
-            .map_err(|_| self.error_at(err_offset, "invalid low surrogate hex"))?;
+        let low = hex4(&self.source[self.pos..self.pos + 4])
+            .ok_or_else(|| self.error_at(err_offset, "invalid low surrogate hex"))?;
         if !(0xDC00..=0xDFFF).contains(&low) {
             return Err(self.error_at(err_offset, "invalid low surrogate value"));
         }
@@ -533,6 +530,15 @@ impl<'src, 'idx> Scanner<'src, 'idx> {
 
         Ok(arr)
     }
+}
+
+/// The value of exactly four ASCII hex digits (RFC 8259 section 7). `from_str_radix`
+/// alone would also take a leading `+`.
+fn hex4(bytes: &[u8]) -> Option<u32> {
+    if !bytes.iter().all(u8::is_ascii_hexdigit) {
+        return None;
+    }
+    u32::from_str_radix(std::str::from_utf8(bytes).ok()?, 16).ok()
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -769,5 +775,21 @@ mod tests {
         let source = "{\"resourceType\": \"Basic\", \"note\": \"\\uD800\"}";
         let result = parse_json(source);
         assert!(matches!(result, Err(ParseError::JsonError { .. })));
+    }
+
+    // RFC 8259 section 7: `\u` takes exactly four hex digits: no sign, no space.
+    #[test]
+    fn unicode_escape_without_four_hex_digits_returns_error() {
+        let accepted: Vec<&str> = [
+            r#"{"resourceType":"Basic","x":"\u+041"}"#,
+            r#"{"resourceType":"Basic","x":"\uD83D\u+E00"}"#,
+            r#"{"resourceType":"Basic","x":"\u00G0"}"#,
+            r#"{"resourceType":"Basic","x":"\u 041"}"#,
+            "{\"resourceType\":\"Basic\",\"x\":\"\\u00\u{e9}\"}",
+        ]
+        .into_iter()
+        .filter(|source| !matches!(parse_json(source), Err(ParseError::JsonError { .. })))
+        .collect();
+        assert!(accepted.is_empty(), "accepted: {accepted:?}");
     }
 }
