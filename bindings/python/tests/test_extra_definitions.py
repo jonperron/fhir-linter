@@ -33,7 +33,7 @@ def test_validate_enforces_supplied_profile(path):
 
 
 def test_lint_accepts_supplied_profile():
-    # Lint rules read only core types, which supplied definitions cannot replace.
+    # Lint rules read core types from the base; supplied definitions never reach them.
     plain = fhir_linter.lint(PROFILED_PATIENT)
     extra = fhir_linter.lint(PROFILED_PATIENT, extra_definitions=[PROFILE])
     assert codes(extra) == codes(plain)
@@ -68,6 +68,31 @@ def test_conflicting_extra_definition_raises(tmp_path):
     with pytest.raises(RuntimeError, match="already defined") as error:
         fhir_linter.validate(PROFILED_PATIENT, extra_definitions=[conflict])
     assert "conflict.json" in str(error.value)
+
+
+def test_lint_ignores_supplied_core_url_for_unknown_type(tmp_path):
+    # An unknown type has no core definition; a supplied one adds no lint rules.
+    unknown = json.dumps({"resourceType": "Zzz", "id": "z1"})
+    profile = json.loads(PROFILE.read_text())
+    zzz = tmp_path / "zzz.json"
+    zzz.write_text(
+        json.dumps(
+            {
+                **profile,
+                "url": "http://hl7.org/fhir/StructureDefinition/Zzz",
+                "type": "Zzz",
+                "snapshot": {
+                    "element": [
+                        {"id": "Zzz", "path": "Zzz", "min": 0, "max": "*"},
+                        {"id": "Zzz.text", "path": "Zzz.text", "min": 0, "max": "1"},
+                    ]
+                },
+            }
+        )
+    )
+    assert codes(fhir_linter.lint(unknown, extra_definitions=[zzz])) == codes(
+        fhir_linter.lint(unknown)
+    )
 
 
 def test_missing_extra_definition_names_path(tmp_path):

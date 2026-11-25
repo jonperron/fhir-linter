@@ -131,7 +131,10 @@ fn lint(
         .unwrap_or_default();
     py.detach(|| {
         let resource = parse(json)?;
-        let registry = registry_with_extra(definitions_dir, extra_definitions)?;
+        // Load the extras so bad ones still fail, but run the rules on the base: a
+        // supplied definition must not add `Registry::core` types the rules resolve.
+        registry_with_extra(definitions_dir.clone(), extra_definitions)?;
+        let registry = registry_for(definitions_dir)?;
         let diagnostics = RuleRegistry::default()
             .run(&resource, &registry, &config)
             .map_err(PyValueError::new_err)?;
