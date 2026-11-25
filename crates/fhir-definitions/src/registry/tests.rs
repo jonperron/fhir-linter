@@ -219,7 +219,7 @@ fn registry_code_system_has_url_and_name() {
         .code_system("http://hl7.org/fhir/administrative-gender")
         .expect("administrative-gender CodeSystem should be present");
     assert_eq!(cs.url.as_ref(), "http://hl7.org/fhir/administrative-gender");
-    assert!(!cs.name.is_empty(), "CodeSystem name should not be empty");
+    assert_eq!(cs.name.as_deref(), Some("AdministrativeGender"));
 }
 
 #[test]
@@ -228,7 +228,7 @@ fn registry_value_set_has_name() {
     let vs = registry
         .value_set("http://hl7.org/fhir/ValueSet/administrative-gender")
         .expect("administrative-gender ValueSet should be present");
-    assert!(!vs.name.is_empty(), "ValueSet name should not be empty");
+    assert_eq!(vs.name.as_deref(), Some("AdministrativeGender"));
 }
 
 #[test]

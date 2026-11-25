@@ -22,8 +22,9 @@ impl Registry {
     /// Only an exact enumeration is returned: every include must name a whole
     /// complete CodeSystem or list its concepts, possibly intersected with
     /// imported ValueSets that expand the same way. `None` for an unknown
-    /// ValueSet, a filter, an exclude, `compose.inactive = false`, a CodeSystem not
-    /// loaded, incomplete or in another version, a notSelectable code (it would need the expansion's
+    /// ValueSet, one with no `compose.include`, a filter, an exclude,
+    /// `compose.inactive = false`, a CodeSystem not loaded, incomplete or in
+    /// another version, a notSelectable code (it would need the expansion's
     /// `abstract` flag), or imports deeper than the cycle guard. A concept list
     /// stands alone, as in `value_set_contains`: its CodeSystem may be unknown,
     /// and its display comes from the include, else from the CodeSystem.
@@ -39,7 +40,8 @@ impl Registry {
             return None;
         }
         let vs = self.value_set(url)?;
-        if vs.has_exclude {
+        // No compose.include (compose is 0..1 in R5): the codes are not known, not empty.
+        if vs.has_exclude || vs.includes.is_empty() {
             return None;
         }
         let mut seen = HashSet::new();
