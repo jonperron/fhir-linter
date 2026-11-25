@@ -1033,11 +1033,12 @@ Le système SHALL définir la constante `MAX_EVAL_STRING_CHARS` = 16 777 216 (`c
 
 ### Requirement: Variables d'environnement
 
-Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` suivi d'un identifiant délimité par accents graves, et `%'chaîne'` en un nœud `Expr::External` (nom sans le `%`), et les évaluer comme suit. Il SHALL exposer `pub struct Environment { resource: Option<&Value>, root_resource: Option<&Value>, is_subtype: Option<&IsSubtype>, member_of: Option<&MemberOf>, strict: Option<&Strict> }` où `pub type IsSubtype = dyn Fn(&str, &str) -> bool` est construit par l'appelant à partir de `Registry::type_ancestors` (`is_subtype(nom, nom)` signifie « nom est un type FHIR »), `pub type MemberOf = dyn Fn(&str, Option<&str>, &str) -> Option<bool>` (valueset, système, code ; `None` = indécidable) est construit par l'appelant à partir de `Registry::value_set_contains`, et `evaluate_parsed_with_environment(expr, context, is_choice_variant, &Environment)`. `evaluate`, `evaluate_parsed` et `evaluate_parsed_with_choices` SHALL conserver leur signature et utiliser les valeurs par défaut.
+Le système SHALL analyser les constantes externes FHIRPath `%identifiant`, `%` suivi d'un identifiant délimité par accents graves, et `%'chaîne'` en un nœud `Expr::External` (nom sans le `%`), et les évaluer comme suit. Il SHALL exposer `pub struct Environment { resource: Option<&Value>, root_resource: Option<&Value>, is_subtype: Option<&IsSubtype>, member_of: Option<&MemberOf>, strict: Option<&Strict>, terminologies: Option<&dyn Terminologies> }` où `pub type IsSubtype = dyn Fn(&str, &str) -> bool` est construit par l'appelant à partir de `Registry::type_ancestors` (`is_subtype(nom, nom)` signifie « nom est un type FHIR »), `pub type MemberOf = dyn Fn(&str, Option<&str>, &str) -> Option<bool>` (valueset, système, code ; `None` = indécidable) est construit par l'appelant à partir de `Registry::value_set_contains`, `pub trait Terminologies { fn expand(value_set) -> Option<Value>; fn validate_vs(value_set, codings: &[(Option<&str>, &str)]) -> Option<Value>; fn translate(concept_map, system, code) -> Option<Value> }` (réexporté à la racine du crate ; `None` = indécidable) est implémenté par l'appelant (`Registry` l'implémente dans `fhir-definitions`), et `evaluate_parsed_with_environment(expr, context, is_choice_variant, &Environment)`. `evaluate`, `evaluate_parsed` et `evaluate_parsed_with_choices` SHALL conserver leur signature et utiliser les valeurs par défaut.
 
 - `%context` SHALL être la collection d'entrée d'origine, inchangée à l'intérieur de `where`, `select`, etc.
 - `%ucum` = `http://unitsofmeasure.org`, `%sct` = `http://snomed.info/sct`, `%loinc` = `http://loinc.org`, `%vs-[nom]` = `http://hl7.org/fhir/ValueSet/[nom]`, `%ext-[nom]` = `http://hl7.org/fhir/StructureDefinition/[nom]` (un nom vide est une erreur).
 - `%resource` et `%rootResource` (R5 fhirpath.html §2.1.9.1.5) proviennent d'`Environment`. Par défaut, `%resource` est l'entrée si c'est exactement un objet ressource (avec `resourceType`) et `%rootResource` vaut `%resource`.
+- `%terminologies` (R5 fhirpath.html §2.1.9.4) SHALL désigner le service de terminologie de `Environment.terminologies` (voir l'exigence « %terminologies »).
 - Tout autre `%nom` SHALL produire `Err(EvalError::Type(...))`.
 
 #### Scenario: %context dans un filtre
@@ -1133,9 +1134,43 @@ Dans un paramètre d'expression (`where`, `select`, `exists`, `all`, `repeat`, `
 - **WHEN** `Patient.bogus` est évalué sans `strict`
 - **THEN** le résultat SHALL être vide
 
+### Requirement: %terminologies
+
+Le système SHALL implémenter `%terminologies` (R5 fhirpath.html §2.1.9.4, Terminology Service API) via `Environment.terminologies`, avec les fonctions `expand(valueSet[, params])`, `validateVS(valueSet, coded[, params])` et `translate(conceptMap, coded[, params])`, qui délèguent à `Terminologies::expand`, `validate_vs` et `translate`. Une valeur vide, une collection de plus d'une valeur ou un argument non valide SHALL donner une collection vide (« All these functions return an empty value if any of the parameters are empty, or a collection with more than one value, or one or more of the parameters are not valid »). `coded` est un élément `code`, un Coding ou (`validateVS` seulement) un CodeableConcept ayant au moins un coding ; une `String` simple, ou un Coding dont le `system`, s'il est présent, n'est pas une chaîne, n'est pas valide. Les résultats sont des ressources FHIR typées construites par `Value::object(fhir_type, fields)` (qui omet les champs vides) et `Value::fhir_string(text, fhir_type)`. Le système SHALL retourner `Err(EvalError::Type(...))`, sans jamais deviner, pour : `Environment.terminologies` non défini, réponse indécidable (le service retourne `None`), `params` non vide (la chaîne vide est acceptée), ressource en ligne du bon type comme premier argument (ValueSet pour `expand` et `validateVS`, ConceptMap pour `translate` : valide, mais seule une URL canonique est prise en charge). Une ressource d'un autre type (autre que ValueSet, ou autre que ConceptMap pour `translate`) comme premier argument n'est pas valide et SHALL donner une collection vide. Les autres noms (`lookup`, `validateCS`, `subsumes`) SHALL produire `EvalError::UndefinedFunction`. Le validateur ne branche pas encore ce service (`terminologies: None`) : `%terminologies` n'y est pas pris en charge et l'invariant est `INVARIANT_SKIPPED`.
+
+#### Scenario: Argument vide ou multiple
+
+- **WHEN** `%terminologies.expand({})` ou `%terminologies.validateVS(vs, coded)` avec plusieurs valeurs est évalué
+- **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: String simple non valide
+
+- **WHEN** `validateVS` reçoit une `String` simple ou un Coding dont le `system` n'est pas une chaîne comme `coded`
+- **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: Service absent ou indécidable
+
+- **WHEN** `%terminologies.expand(url)` est évalué sans service, ou que le service retourne `None`
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))`
+
+#### Scenario: Paramètres ou ressource en ligne
+
+- **WHEN** `params` est non vide, ou le premier argument est une ressource ValueSet en ligne (ConceptMap pour `translate`)
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))`
+
+#### Scenario: Ressource d'un autre type
+
+- **WHEN** le premier argument est une ressource qui n'est pas un ValueSet (ou pas un ConceptMap pour `translate`), par exemple `%terminologies.expand(%resource)` sur un Patient
+- **THEN** le résultat SHALL être une collection vide
+
+#### Scenario: Fonction non définie
+
+- **WHEN** `%terminologies.lookup(...)`, `validateCS` ou `subsumes` est évalué
+- **THEN** l'évaluateur SHALL retourner `EvalError::UndefinedFunction`
+
 ### Requirement: defineVariable
 
-Le système SHALL implémenter `defineVariable(name [, expr])`. Elle retourne sa collection d'entrée inchangée. `name` est une expression qui SHALL donner une seule `String`, sinon `Err(EvalError::Type(...))`. La valeur est `expr` évaluée sur toute la collection d'entrée, ou l'entrée elle-même sans `expr`. La variable se lit `%name` dans le reste de sa chaîne d'expression (étapes suivantes et leurs arguments, y compris les arguments itérants `where`, `select`, `aggregate`), mais pas à travers les branches d'un `|` ni hors de l'argument de fonction où elle est définie. Redéfinir une variable déjà dans la portée ou une variable système (`context`, `resource`, `rootResource`, `ucum`, `sct`, `loinc`, `vs-*`, `ext-*`) SHALL retourner `Err(EvalError::Type(...))`.
+Le système SHALL implémenter `defineVariable(name [, expr])`. Elle retourne sa collection d'entrée inchangée. `name` est une expression qui SHALL donner une seule `String`, sinon `Err(EvalError::Type(...))`. La valeur est `expr` évaluée sur toute la collection d'entrée, ou l'entrée elle-même sans `expr`. La variable se lit `%name` dans le reste de sa chaîne d'expression (étapes suivantes et leurs arguments, y compris les arguments itérants `where`, `select`, `aggregate`), mais pas à travers les branches d'un `|` ni hors de l'argument de fonction où elle est définie. Redéfinir une variable déjà dans la portée ou une variable système (`context`, `resource`, `rootResource`, `terminologies`, `ucum`, `sct`, `loinc`, `vs-*`, `ext-*`) SHALL retourner `Err(EvalError::Type(...))`.
 
 #### Scenario: Variable lue dans la suite de la chaîne
 
@@ -1279,16 +1314,16 @@ Le système SHALL documenter les limitations suivantes de l'implémentation actu
 
 ### Requirement: Exécution de la suite de tests officielle FHIRPath
 
-Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5, et avec le crochet `is_subtype` issu du Registry (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda`, `tx` ou `custom` SHALL être ignorés et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1226, 121) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 1201 cas réussissent (plancher de régression) ou si l'un des cas de la liste `REQUIRED_PASSING` échoue ou n'est pas exécuté (absent ou ignoré), quel que soit le total. Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
+Le crate `fhir-fhirpath` SHALL fournir un test d'intégration exécutant `r5/fhirpath/tests-fhir-r5.xml` de `fhir-test-cases`. Chaque cas SHALL être évalué avec `evaluate_parsed_with_environment` sur son `inputfile` (passé aussi comme `%resource` ; un nom de fichier nu, sans partie répertoire, sous `r5/`, JSON ou XML analysé par `fhir-parser` puis converti par `resource_to_typed_value` avec `Registry::child_element` du Registry R5, et avec le crochet `is_subtype` issu du Registry (les éléments choix naviguent par le Registry comme dans le validateur)) ou sur un contexte vide ; un attribut `context` SHALL être évalué d'abord et son résultat sert de contexte. Un cas réussit quand les sorties correspondent en type et en valeur (ordre conservé sauf `ordered="false"` ; `predicate="true"` convertit le résultat en booléen), ou, pour une expression `invalid`, quand l'analyse ou l'évaluation échoue avec une erreur autre que `EvalError::UndefinedFunction` (une fonction absente ne prouve pas l'invalidité). Une panique, une entrée non chargeable, un `inputfile` comportant une partie répertoire ou une erreur de contexte compte comme un échec. Les cas dont le mode (du test ou du groupe) est `cda` ou `custom` SHALL être ignorés (le mode `tx` est exécuté : le Registry R5 est branché comme `terminologies`) et comptés. Le test SHALL afficher réussites/exécutés, ignorés, total et chaque cas en échec, et SHALL échouer si les nombres de cas exécutés et ignorés diffèrent exactement de (1229, 118) (dérive du chargeur ou du filtre d'ignorance) ou si moins de 1204 cas réussissent (plancher de régression) ou si l'un des cas de la liste `REQUIRED_PASSING` échoue ou n'est pas exécuté (absent ou ignoré), quel que soit le total ; `REQUIRED_PASSING` contient notamment `txTest01` à `txTest03`. Le répertoire de fixtures SHALL pouvoir être surchargé par `FHIR_FIXTURES_DIR` ; si le fichier de la suite est introuvable, le test SHALL être ignoré, sauf en CI (`CI` défini) où il SHALL échouer ; toute autre erreur de lecture de ce fichier SHALL faire échouer le test.
 
 #### Scenario: Réussites sous le plancher
 
-- **WHEN** moins de 1201 cas de la suite réussissent
+- **WHEN** moins de 1204 cas de la suite réussissent
 - **THEN** le test SHALL échouer
 
 #### Scenario: Dérive du nombre de cas
 
-- **WHEN** le nombre de cas exécutés diffère de 1226 ou le nombre de cas ignorés diffère de 121
+- **WHEN** le nombre de cas exécutés diffère de 1229 ou le nombre de cas ignorés diffère de 118
 - **THEN** le test SHALL échouer
 
 #### Scenario: Expression invalide évaluée sans erreur
