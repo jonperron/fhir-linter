@@ -6,7 +6,7 @@ Bindings Python (PyO3 + maturin) exposant le validateur et le linter. Paquet `fh
 ## Requirements
 ### Requirement: Fonction validate
 
-Le module SHALL exposer `validate(json: str, definitions_dir: str | None = None) -> list[Diagnostic]` qui analyse une ressource FHIR R5 JSON et retourne les diagnostics de `fhir_validator::validate`.
+Le module SHALL exposer `validate(json: str, definitions_dir: str | None = None, extra_definitions: list[str | os.PathLike] | None = None) -> list[Diagnostic]` qui analyse une ressource FHIR R5 JSON et retourne les diagnostics de `fhir_validator::validate`.
 
 #### Scenario: Type de ressource inconnu
 
@@ -20,7 +20,7 @@ Le module SHALL exposer `validate(json: str, definitions_dir: str | None = None)
 
 ### Requirement: Fonction lint
 
-Le module SHALL exposer `lint(json: str, config_toml: str | None = None, definitions_dir: str | None = None) -> list[Diagnostic]` qui exécute les règles intégrées de `fhir-linter`. `config_toml` est le contenu d'un `fhir-linter.toml`.
+Le module SHALL exposer `lint(json: str, config_toml: str | None = None, definitions_dir: str | None = None, extra_definitions: list[str | os.PathLike] | None = None) -> list[Diagnostic]` qui exécute les règles intégrées de `fhir-linter`. `config_toml` est le contenu d'un `fhir-linter.toml`.
 
 #### Scenario: Configuration invalide
 
@@ -40,6 +40,35 @@ Les définitions FHIR R5 ne sont pas embarquées dans le wheel. Le répertoire S
 
 - **WHEN** le répertoire ne contient pas les définitions
 - **THEN** une `RuntimeError` SHALL être levée
+
+### Requirement: Définitions supplémentaires
+
+`validate` et `lint` SHALL accepter `extra_definitions`, liste optionnelle de chemins (`str` ou `os.PathLike` ; un `str` seul lève `TypeError`). Chaque chemin est un fichier `.json` contenant une ressource ou un Bundle, ou un répertoire dont les fichiers `*.json` sont lus sans récursion. La surcouche SHALL être construite avec `Registry::with_extra` sur le `Registry` de base partagé, à chaque appel, sans mise en cache. `None` ou une liste vide SHALL se comporter exactement comme sans le paramètre. Une erreur de chargement (chemin absent, JSON mal formé, conflit d'URL canonique, spécialisation, limites de taille) SHALL lever une `RuntimeError` « cannot load extra definitions: ... » nommant le fichier, jamais son contenu. Les règles de `lint` ne lisent que les types du noyau : les définitions fournies ne changent pas la sortie de `lint`, mais les erreurs de chargement sont levées.
+
+#### Scenario: Profil fourni
+
+- **WHEN** `validate` est appelé avec `extra_definitions` pointant vers une StructureDefinition valide
+- **THEN** la ressource SHALL être validée avec la surcouche et le `Registry` de base SHALL rester inchangé
+
+#### Scenario: Liste vide
+
+- **WHEN** `extra_definitions` vaut `None` ou `[]`
+- **THEN** le résultat SHALL être identique à un appel sans le paramètre
+
+#### Scenario: Chaîne seule
+
+- **WHEN** `extra_definitions` est un `str` et non une liste
+- **THEN** une `TypeError` SHALL être levée
+
+#### Scenario: Erreur de chargement
+
+- **WHEN** un chemin est absent ou contient un JSON mal formé
+- **THEN** une `RuntimeError` « cannot load extra definitions: ... » SHALL être levée, nommant le fichier sans son contenu
+
+#### Scenario: Lint
+
+- **WHEN** `lint` est appelé avec des `extra_definitions` valides
+- **THEN** la sortie SHALL être identique à celle sans, et un chemin invalide SHALL lever la `RuntimeError`
 
 ### Requirement: Type Diagnostic
 
