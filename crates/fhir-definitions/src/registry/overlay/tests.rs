@@ -321,6 +321,61 @@ fn value_set_and_code_system_in_base_are_conflicts() {
 }
 
 #[test]
+fn url_of_a_base_definition_of_another_type_is_a_conflict() {
+    let dir = TempDir::new("conflict_base_cross_type");
+    // (base url and its type, supplied resource of another type)
+    let cases = [
+        (
+            "http://hl7.org/fhir/StructureDefinition/Patient",
+            value_set(),
+        ),
+        (
+            "http://hl7.org/fhir/ValueSet/administrative-gender",
+            code_system(),
+        ),
+        (
+            "http://hl7.org/fhir/administrative-gender",
+            concept_map(json!([])),
+        ),
+        (
+            "http://hl7.org/fhir/ConceptMap/cm-address-use-v2",
+            profile(PROFILE),
+        ),
+    ];
+    for (base_url, mut resource) in cases {
+        resource["url"] = json!(base_url);
+        let path = dir.write("extra.json", &resource);
+        let error = Registry::with_extra(Arc::clone(&BASE), &[&path])
+            .err()
+            .unwrap();
+        assert!(
+            matches!(&error, Error::Conflict { url, file }
+                if url == base_url && file.ends_with("extra.json")),
+            "{base_url}: {error}"
+        );
+    }
+}
+
+#[test]
+fn url_shared_by_two_extras_of_different_types_is_a_conflict() {
+    let dir = TempDir::new("conflict_extras_cross_type");
+    let first = dir.write("a.json", &code_system());
+    let mut vs = value_set();
+    vs["url"] = json!(CODE_SYSTEM);
+    let second = dir.write("b.json", &vs);
+    let error = Registry::with_extra(Arc::clone(&BASE), &[&first, &second])
+        .err()
+        .unwrap();
+    assert!(
+        matches!(
+            &error,
+            Error::Conflict { url, file } if url == CODE_SYSTEM && file.ends_with("b.json")
+        ),
+        "{error}"
+    );
+}
+
+#[test]
 fn bundle_entry_that_is_not_an_array_is_malformed() {
     let dir = TempDir::new("entry_not_array");
     let file = dir.write(

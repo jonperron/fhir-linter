@@ -11,6 +11,7 @@ use crate::type_code::capitalise;
 mod navigation;
 mod overlay;
 mod terminology;
+mod terminology_service;
 
 /// Canonical URL prefix of the core definitions; a type code appended gives its URL.
 pub const CORE_PREFIX: &str = "http://hl7.org/fhir/StructureDefinition/";

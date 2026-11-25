@@ -79,8 +79,9 @@ use quick_xml::events::{BytesStart, Event};
 /// decimals that keep their written scale (#165), then to 1199 by a Date
 /// against a zoned DateTime answering when every offset agrees (testNow1,
 /// testDateTimeGreaterThanDate1), then to 1201 by sort() with several keys
-/// and a `-` prefix on any orderable key (testSort8, testSort10).
-const MIN_PASSED: u32 = 1201;
+/// and a `-` prefix on any orderable key (testSort8, testSort10), then to
+/// 1204 by `%terminologies` answered by the Registry (txTest01-03).
+const MIN_PASSED: u32 = 1204;
 
 /// Cases that must pass whatever the total: the boundary functions behind
 /// the FHIR per-1, rng-2 and ratrng-2 invariants, exact decimals (#165),
@@ -88,9 +89,9 @@ const MIN_PASSED: u32 = 1201;
 /// conformsTo() (#164), UCUM in comparable() (Comparable1), the sign of a
 /// negated zero (HighBoundaryDecimal16) and a Date against a zoned DateTime
 /// (testNow1, testDateTimeGreaterThanDate1), and multi-key sort()
-/// (testSort8, testSort10). Not listed: `@2014` as a
-/// dateTime (N2 returns a Date for a Date).
-const REQUIRED_PASSING: [&str; 91] = [
+/// (testSort8, testSort10), and `%terminologies` (txTest01-03). Not listed:
+/// `@2014` as a dateTime (N2 returns a Date for a Date).
+const REQUIRED_PASSING: [&str; 94] = [
     "Comparable1",
     "Comparable2",
     "Comparable3",
@@ -182,14 +183,17 @@ const REQUIRED_PASSING: [&str; 91] = [
     "testSimpleWithWrongContext",
     "testSort8",
     "testSort10",
+    "txTest01",
+    "txTest02",
+    "txTest03",
 ];
 
 /// (run, skipped) case counts on the pinned fixtures, so loader drift or a
 /// broken skip filter cannot hide behind the floor.
-const EXPECTED_RUN_SKIPPED: (u32, u32) = (1226, 121);
+const EXPECTED_RUN_SKIPPED: (u32, u32) = (1229, 118);
 
 /// Modes that need infrastructure beyond FHIRPath and FHIR R5.
-const SKIPPED_MODES: [&str; 3] = ["cda", "tx", "custom"];
+const SKIPPED_MODES: [&str; 2] = ["cda", "custom"];
 
 fn fixtures_dir() -> PathBuf {
     std::env::var_os("FHIR_FIXTURES_DIR").map_or_else(
@@ -429,6 +433,7 @@ fn run_case(
         member_of: Some(&member_of),
         strict: (!lenient).then_some(&navigation),
         conforms_to: Some(&conforms_to),
+        terminologies: Some(registry),
     };
     // Choice elements navigate as in the validator (`Observation.effective`).
     let is_choice_variant = |base: &str, suffix: &str| registry.is_choice_variant(base, suffix);
