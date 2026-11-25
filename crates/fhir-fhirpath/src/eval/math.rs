@@ -4,7 +4,7 @@ use crate::value::{Collection, Value};
 use crate::{Decimal, Rounding};
 
 use super::Evaluator;
-use super::helpers::{check_arity, single_integer};
+use super::helpers::{check_arity, single_integer, singleton};
 
 impl Evaluator<'_> {
     /// Handle mathematical functions.
@@ -29,7 +29,7 @@ impl Evaluator<'_> {
         let col: Collection = match name {
             "abs" => {
                 check_arity(name, args, 0)?;
-                match focus.first() {
+                match singleton(focus, name)? {
                     Some(Value::Integer(n)) => {
                         vec![Value::Integer(n.checked_abs().ok_or_else(|| {
                             EvalError::Type("integer overflow in abs()".into())
@@ -60,7 +60,7 @@ impl Evaluator<'_> {
             }
             "ceiling" => {
                 check_arity(name, args, 0)?;
-                match focus.first() {
+                match singleton(focus, name)? {
                     Some(Value::Integer(n)) => vec![Value::Integer(*n)],
                     Some(Value::Decimal(d)) => {
                         vec![Value::Integer(
@@ -78,7 +78,7 @@ impl Evaluator<'_> {
             }
             "floor" => {
                 check_arity(name, args, 0)?;
-                match focus.first() {
+                match singleton(focus, name)? {
                     Some(Value::Integer(n)) => vec![Value::Integer(*n)],
                     Some(Value::Decimal(d)) => {
                         vec![Value::Integer(
@@ -107,7 +107,7 @@ impl Evaluator<'_> {
                 } else {
                     single_integer(&self.eval(&args[0], ctx)?, "round precision")?
                 };
-                match focus.first() {
+                match singleton(focus, name)? {
                     Some(Value::Integer(n)) => vec![Value::Integer(*n)],
                     Some(Value::Decimal(d)) => {
                         let places = i32::try_from(precision).map_err(|_| overflow())?;
@@ -129,7 +129,7 @@ impl Evaluator<'_> {
             }
             "sqrt" => {
                 check_arity(name, args, 0)?;
-                match focus.first() {
+                match singleton(focus, name)? {
                     Some(Value::Integer(n)) => representable((*n as f64).sqrt()),
                     Some(Value::Decimal(d)) => representable(d.to_f64().sqrt()),
                     Some(v) => {
@@ -143,7 +143,7 @@ impl Evaluator<'_> {
             }
             "exp" => {
                 check_arity(name, args, 0)?;
-                match focus.first() {
+                match singleton(focus, name)? {
                     Some(Value::Integer(n)) => representable((*n as f64).exp()),
                     Some(Value::Decimal(d)) => representable(d.to_f64().exp()),
                     Some(v) => {
@@ -157,7 +157,7 @@ impl Evaluator<'_> {
             }
             "ln" => {
                 check_arity(name, args, 0)?;
-                match focus.first() {
+                match singleton(focus, name)? {
                     Some(Value::Integer(n)) => representable((*n as f64).ln()),
                     Some(Value::Decimal(d)) => representable(d.to_f64().ln()),
                     Some(v) => {
@@ -171,14 +171,14 @@ impl Evaluator<'_> {
             }
             "log" => {
                 check_arity(name, args, 1)?;
-                let base = match self.eval(&args[0], ctx)?.first() {
+                let base = match singleton(&self.eval(&args[0], ctx)?, name)? {
                     Some(v) => v
                         .as_decimal()
                         .ok_or_else(|| EvalError::Type("log() base must be a number".into()))?
                         .to_f64(),
                     None => return Ok(Some(vec![])),
                 };
-                match focus.first() {
+                match singleton(focus, name)? {
                     Some(Value::Integer(n)) => representable((*n as f64).log(base)),
                     Some(Value::Decimal(d)) => representable(d.to_f64().log(base)),
                     Some(v) => {
@@ -192,15 +192,26 @@ impl Evaluator<'_> {
             }
             "power" => {
                 check_arity(name, args, 1)?;
-                let exp = match self.eval(&args[0], ctx)?.first() {
-                    Some(v) => v
-                        .as_decimal()
-                        .ok_or_else(|| EvalError::Type("power() exponent must be a number".into()))?
-                        .to_f64(),
-                    None => return Ok(Some(vec![])),
+                let exponent = self.eval(&args[0], ctx)?;
+                let Some(exponent) = singleton(&exponent, name)? else {
+                    return Ok(Some(vec![]));
                 };
-                match focus.first() {
-                    Some(Value::Integer(n)) => representable((*n as f64).powf(exp)),
+                let exp = exponent
+                    .as_decimal()
+                    .ok_or_else(|| EvalError::Type("power() exponent must be a number".into()))?
+                    .to_f64();
+                match singleton(focus, name)? {
+                    // N1 §5.7.8: used with Integers, the result is an Integer.
+                    Some(Value::Integer(n)) => match exponent {
+                        Value::Integer(e) if *e >= 0 => {
+                            // Past u32::MAX only 0, 1 and -1 fit, so keep the parity.
+                            let e = u32::try_from(*e).unwrap_or(u32::MAX - 1 + (*e % 2) as u32);
+                            vec![Value::Integer(n.checked_pow(e).ok_or_else(|| {
+                                EvalError::Type("integer overflow in power()".into())
+                            })?)]
+                        }
+                        _ => representable((*n as f64).powf(exp)),
+                    },
                     Some(Value::Decimal(d)) => representable(d.to_f64().powf(exp)),
                     Some(v) => {
                         return Err(EvalError::Type(format!(
@@ -213,7 +224,7 @@ impl Evaluator<'_> {
             }
             "truncate" => {
                 check_arity(name, args, 0)?;
-                match focus.first() {
+                match singleton(focus, name)? {
                     Some(Value::Integer(n)) => vec![Value::Integer(*n)],
                     Some(Value::Decimal(d)) => {
                         vec![Value::Integer(

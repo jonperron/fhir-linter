@@ -1142,10 +1142,11 @@ fn math_log_base_ten() {
 
 #[test]
 fn math_power_two_to_ten() {
-    match evaluate("2.power(10)", &[]).unwrap().as_slice() {
-        [Value::Decimal(d)] => assert!((d.to_f64() - 1024.0).abs() < 1e-10),
-        other => panic!("expected Decimal(1024.0), got: {other:?}"),
-    }
+    // N1 §5.7.8: used with Integers, the result is an Integer.
+    assert_eq!(
+        evaluate("2.power(10)", &[]).unwrap(),
+        vec![Value::Integer(1024)]
+    );
 }
 
 #[test]
