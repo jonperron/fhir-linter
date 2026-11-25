@@ -369,7 +369,7 @@ fn parse_binding(b: &Value) -> Option<Binding> {
 
 fn parse_value_set(resource: &Value) -> Option<ValueSet> {
     let url: Arc<str> = resource["url"].as_str()?.into();
-    let name: Arc<str> = resource["name"].as_str()?.into();
+    let name = resource["name"].as_str().map(Arc::from);
     let compose = &resource["compose"];
     let includes = compose["include"]
         .as_array()
@@ -413,7 +413,7 @@ fn parse_include(inc: &Value) -> Include {
 
 fn parse_code_system(resource: &Value) -> Option<CodeSystem> {
     let url: Arc<str> = resource["url"].as_str()?.into();
-    let name: Arc<str> = resource["name"].as_str()?.into();
+    let name = resource["name"].as_str().map(Arc::from);
     let mut concepts = Vec::new();
     let mut not_selectable = HashSet::new();
     let flag = not_selectable_property_code(resource);

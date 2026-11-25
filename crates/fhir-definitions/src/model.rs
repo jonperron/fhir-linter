@@ -280,7 +280,8 @@ pub struct AdditionalBinding {
 #[derive(Debug, Clone)]
 pub struct ValueSet {
     pub url: Arc<str>,
-    pub name: Arc<str>,
+    /// `ValueSet.name` (0..1).
+    pub name: Option<Arc<str>>,
     pub includes: Vec<Include>,
     /// True when the compose has `exclude` entries or `inactive = false`; membership is then
     /// not decidable.
@@ -313,7 +314,8 @@ pub struct Concept {
 #[derive(Debug, Clone)]
 pub struct CodeSystem {
     pub url: Arc<str>,
-    pub name: Arc<str>,
+    /// `CodeSystem.name` (0..1).
+    pub name: Option<Arc<str>>,
     /// Business version (`CodeSystem.version`), if any.
     pub version: Option<Arc<str>>,
     pub codes: HashSet<Arc<str>>,

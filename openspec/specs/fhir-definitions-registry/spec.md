@@ -58,6 +58,11 @@ Le système SHALL permettre de résoudre un `ValueSet` par son URL canonique exa
 - **WHEN** `registry.value_set(url)` est appelé avec l'URL canonique d'un ValueSet chargé
 - **THEN** il SHALL retourner `Some(&ValueSet)` avec les champs `url` et `name` correctement renseignés
 
+#### Scenario: ValueSet ou CodeSystem sans name
+
+- **WHEN** un bundle contient un `ValueSet` ou un `CodeSystem` sans `name` (0..1 en R5)
+- **THEN** il SHALL être chargé avec `name` à `None` (`Option<Arc<str>>`), et non ignoré ; fourni via `with_extra`, il SHALL être soumis au contrôle de conflit d'URL (`Error::Conflict` si l'URL existe déjà dans la base)
+
 #### Scenario: URL inconnue retourne None pour ValueSet
 
 - **WHEN** `registry.value_set(url)` est appelé avec une URL non présente
@@ -223,7 +228,7 @@ Le système SHALL fournir `Registry::conforms_to(fhir_type, url) -> Option<Optio
 
 ### Requirement: Appartenance d'un code à un ValueSet
 
-Le système SHALL fournir `Registry::value_set_contains(url, system: Option<&str>, code) -> Option<bool>`. Le résultat SHALL être `Some(true)` / `Some(false)` lorsque l'appartenance est décidable depuis les définitions chargées, et `None` sinon : ValueSet ou CodeSystem inconnu, `filter`, `exclude`, CodeSystem incomplet, imports de ValueSets cycliques (profondeur limitée), ou code correspondant à un concept de `CodeSystem.not_selectable`. Avec `system == None`, le système du code est inconnu : `Some(false)` reste valable si aucun système ne contient le code, mais `Some(true)` SHALL être donné seulement si les codes du ValueSet (imports compris) viennent d'un seul système, sinon `None`. Un include dont la `version` est renseignée, différente de `"*"` et de `CodeSystem.version` SHALL NOT utiliser le CodeSystem chargé, qui est alors traité comme non chargé : un include sur le système entier SHALL donner `None`, un include énumérant ses codes SHALL décider d'après sa liste.
+Le système SHALL fournir `Registry::value_set_contains(url, system: Option<&str>, code) -> Option<bool>`. Le résultat SHALL être `Some(true)` / `Some(false)` lorsque l'appartenance est décidable depuis les définitions chargées, et `None` sinon : ValueSet ou CodeSystem inconnu, ValueSet sans `compose.include` (`compose` est 0..1 en R5) ou important un tel ValueSet, `filter`, `exclude`, CodeSystem incomplet, imports de ValueSets cycliques (profondeur limitée), ou code correspondant à un concept de `CodeSystem.not_selectable`. Avec `system == None`, le système du code est inconnu : `Some(false)` reste valable si aucun système ne contient le code, mais `Some(true)` SHALL être donné seulement si les codes du ValueSet (imports compris) viennent d'un seul système, sinon `None`. Un include dont la `version` est renseignée, différente de `"*"` et de `CodeSystem.version` SHALL NOT utiliser le CodeSystem chargé, qui est alors traité comme non chargé : un include sur le système entier SHALL donner `None`, un include énumérant ses codes SHALL décider d'après sa liste.
 
 #### Scenario: Code énuméré
 
@@ -530,7 +535,7 @@ Le système SHALL fournir `Registry::with_extra(base: Arc<Registry>, paths)` qui
 
 ### Requirement: Erreurs de chargement de l'overlay
 
-`with_extra` SHALL nommer le fichier fautif dans chaque erreur et SHALL NOT en reproduire le contenu : `Error::Conflict{url,file}` si une URL existe déjà dans la base (toute version, quel que soit le type de ressource parmi StructureDefinition, ValueSet, CodeSystem et ConceptMap, car les URL canoniques FHIR R5 sont globalement uniques ; y compris une StructureDefinition de base sans snapshot) ou apparaît deux fois parmi les extras dans deux fichiers distincts, liens physiques inclus (même type ou types différents) ; `Error::Unsupported{file,message}` pour une StructureDefinition `derivation=specialization` ou un chemin qui n'est ni un fichier `.json` ni un répertoire ; `Error::Read{file,source}` pour un fichier illisible ou de plus de 64 MiB (`io::ErrorKind::FileTooLarge`) ; `Error::Limit{file,message}` au-delà de 256 MiB au total ou de 10 000 fichiers `.json` dans un répertoire ; `Error::Json` pour un JSON invalide ; `Error::MalformedBundle` pour un Bundle dont `entry` est présent mais n'est pas un tableau. Un Bundle sans `entry` ne charge rien, sans erreur.
+`with_extra` SHALL nommer le fichier fautif dans chaque erreur et SHALL NOT en reproduire le contenu : `Error::Conflict{url,file}` si une URL existe déjà dans la base (toute version, quel que soit le type de ressource parmi StructureDefinition, ValueSet, CodeSystem et ConceptMap, car les URL canoniques FHIR R5 sont globalement uniques ; y compris une StructureDefinition de base sans snapshot) ou apparaît deux fois parmi les extras dans deux fichiers distincts, liens physiques inclus (même type ou types différents) ; `Error::Unsupported{file,message}` pour une StructureDefinition `derivation=specialization` ou un chemin qui n'est ni un fichier `.json` ni un répertoire ; `Error::Read{file,source}` pour un fichier illisible ou de plus de 64 MiB (`io::ErrorKind::FileTooLarge`) ; `Error::Limit{file,message}` au-delà de 256 MiB au total ou de 10 000 fichiers `.json` dans un répertoire ; `Error::Json` pour un JSON invalide ; `Error::MalformedBundle` pour un Bundle dont `entry` est présent mais n'est pas un tableau. Un Bundle sans `entry` ne charge rien, sans erreur. Un ValueSet ou CodeSystem sans `name` (0..1 en R5) SHALL être chargé et soumis au contrôle de conflit d'URL comme les autres.
 
 #### Scenario: Conflit avec la base
 
@@ -668,6 +673,11 @@ Le système SHALL fournir `Registry::expand(vs_url) -> Option<Vec<(system, code,
 - **WHEN** un ValueSet déclare `compose.inactive` à `false`
 - **THEN** `expand` et `value_set_contains` SHALL retourner `None` (indécidé)
 - **AND** si `compose.inactive` est absent ou à `true`, les concepts inactifs SHALL être inclus
+
+#### Scenario: ValueSet sans compose.include
+
+- **WHEN** un ValueSet n'a aucun `compose.include` (`compose` est 0..1 en R5, ex. ValueSet à `expansion` seule), ou importe un tel ValueSet
+- **THEN** `expand` et `value_set_contains` SHALL retourner `None` (indécidé), et non `Some([])` / `Some(false)`
 
 ### Requirement: Traduction par ConceptMap
 

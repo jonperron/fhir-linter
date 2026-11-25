@@ -709,3 +709,102 @@ fn translate_declines_a_group_pinned_to_a_version() {
         assert_eq!(overlay.translate(CONCEPT_MAP, None, "red"), None, "{key}");
     }
 }
+
+#[test]
+fn value_set_without_compose_include_is_undecided() {
+    // R5 ValueSet.compose is 0..1: a ValueSet may carry only an expansion.
+    let mut expansion_only = value_set();
+    expansion_only.as_object_mut().unwrap().remove("compose");
+    expansion_only["expansion"] = json!({
+        "timestamp": "2026-01-01",
+        "contains": [{"system": CODE_SYSTEM, "code": "red"}],
+    });
+    let mut empty_compose = value_set();
+    empty_compose["url"] = json!("http://example.org/ValueSet/empty-compose");
+    empty_compose["compose"] = json!({"include": []});
+    let mut importer = value_set();
+    importer["url"] = json!("http://example.org/ValueSet/importer");
+    importer["compose"] = json!({"include": [{"valueSet": [VALUE_SET]}]});
+    let imports = |url: &str, include: Value| json!({"resourceType": "ValueSet", "url": url, "compose": {"include": include}});
+    let whole = "http://example.org/ValueSet/whole";
+    let control = "http://example.org/ValueSet/imports-whole";
+    let mixed = "http://example.org/ValueSet/mixed";
+    let overlay = overlay_with(
+        "no_compose_include",
+        &[
+            code_system(),
+            expansion_only,
+            empty_compose,
+            importer,
+            imports(whole, json!([{"system": CODE_SYSTEM}])),
+            imports(control, json!([{"valueSet": [whole]}])),
+            imports(
+                mixed,
+                json!([{"system": CODE_SYSTEM}, {"valueSet": [VALUE_SET]}]),
+            ),
+        ],
+    );
+    // Control: the import path itself resolves when the imported ValueSet is decidable.
+    assert_eq!(
+        overlay.value_set_contains(control, Some(CODE_SYSTEM), "red"),
+        Some(true)
+    );
+    assert_eq!(overlay.value_set_contains(control, None, "red"), Some(true));
+    // The code is in the known include, but the expansion-only import may draw from
+    // other systems, so a code without a system cannot be placed.
+    assert_eq!(
+        overlay.value_set_contains(mixed, Some(CODE_SYSTEM), "red"),
+        Some(true)
+    );
+    assert_eq!(overlay.value_set_contains(mixed, None, "red"), None);
+    for url in [
+        VALUE_SET,
+        "http://example.org/ValueSet/empty-compose",
+        "http://example.org/ValueSet/importer",
+    ] {
+        assert_eq!(
+            overlay.value_set_contains(url, Some(CODE_SYSTEM), "red"),
+            None,
+            "{url}"
+        );
+        assert_eq!(
+            overlay.value_set_contains(url, None, "anything"),
+            None,
+            "{url}"
+        );
+        assert_eq!(overlay.expand(url), None, "{url}");
+    }
+}
+
+#[test]
+fn value_set_and_code_system_without_name_are_loaded() {
+    // R5 ValueSet.name and CodeSystem.name are 0..1.
+    let mut vs = value_set();
+    vs.as_object_mut().unwrap().remove("name");
+    let mut cs = code_system();
+    cs.as_object_mut().unwrap().remove("name");
+    let overlay = overlay_with("nameless_terminology", &[vs.clone(), cs.clone()]);
+    assert_eq!(
+        overlay.value_set_contains(VALUE_SET, Some(CODE_SYSTEM), "red"),
+        Some(true)
+    );
+    assert_eq!(
+        overlay.value_set_contains(VALUE_SET, Some(CODE_SYSTEM), "green"),
+        Some(false)
+    );
+
+    // A nameless resource still goes through the URL-conflict check.
+    let dir = TempDir::new("nameless_conflict");
+    vs["url"] = json!("http://hl7.org/fhir/ValueSet/administrative-gender");
+    cs["url"] = json!("http://hl7.org/fhir/administrative-gender");
+    for (name, resource) in [("vs.json", vs), ("cs.json", cs)] {
+        let file = dir.write(name, &resource);
+        let error = Registry::with_extra(Arc::clone(&BASE), &[&file])
+            .err()
+            .unwrap();
+        assert!(
+            matches!(&error, Error::Conflict { file, .. } if file.ends_with(name)),
+            "{name}: {error}"
+        );
+    }
+}

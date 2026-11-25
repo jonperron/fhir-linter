@@ -212,7 +212,8 @@ impl Registry {
     /// Whether `code` (optionally qualified by `system`) belongs to the ValueSet.
     ///
     /// Returns `None` when membership cannot be decided from the loaded
-    /// definitions (unknown ValueSet/CodeSystem, filters, excludes, fragments).
+    /// definitions (unknown ValueSet/CodeSystem, no `compose.include`, filters,
+    /// excludes, fragments).
     /// With `system == None` the code's system is unknown: `Some(false)` still
     /// holds when no system has the code, but `Some(true)` is given only when the
     /// ValueSet draws its codes from a single system (else `None`, as the code
@@ -229,11 +230,15 @@ impl Registry {
     }
 
     /// Gathers the code systems a ValueSet includes; `false` when they cannot be told
-    /// (unknown ValueSet or an include with no system and no ValueSet).
+    /// (unknown ValueSet, one with no `compose.include`, or an include with no system and no
+    /// ValueSet).
     fn collect_systems<'a>(&'a self, url: &str, depth: u8, systems: &mut HashSet<&'a str>) -> bool {
         let Some(vs) = self.value_set(url).filter(|_| depth <= MAX_IMPORT_DEPTH) else {
             return false;
         };
+        if vs.includes.is_empty() {
+            return false;
+        }
         vs.includes.iter().all(|inc| {
             systems.extend(inc.system.as_deref());
             let nested = inc
@@ -250,6 +255,10 @@ impl Registry {
             return None;
         }
         let vs = self.value_set(url)?;
+        // No compose.include (compose is 0..1 in R5): the codes are not known, not empty.
+        if vs.includes.is_empty() {
+            return None;
+        }
         let mut undecided = false;
         for inc in &vs.includes {
             match self.include_contains(inc, system, code, depth) {
