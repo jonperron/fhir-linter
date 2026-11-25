@@ -43,7 +43,7 @@ Les définitions FHIR R5 ne sont pas embarquées dans le wheel. Le répertoire S
 
 ### Requirement: Définitions supplémentaires
 
-`validate` et `lint` SHALL accepter `extra_definitions`, liste optionnelle de chemins (`str` ou `os.PathLike` ; un `str` seul lève `TypeError`). Chaque chemin est un fichier `.json` contenant une ressource ou un Bundle, ou un répertoire dont les fichiers `*.json` sont lus sans récursion. La surcouche SHALL être construite avec `Registry::with_extra` sur le `Registry` de base partagé, à chaque appel, sans mise en cache. `None` ou une liste vide SHALL se comporter exactement comme sans le paramètre. Une erreur de chargement (chemin absent, JSON mal formé, conflit d'URL canonique, spécialisation, limites de taille) SHALL lever une `RuntimeError` « cannot load extra definitions: ... » nommant le fichier, jamais son contenu. Les règles de `lint` ne lisent que les types du noyau : les définitions fournies ne changent pas la sortie de `lint`, mais les erreurs de chargement sont levées.
+`validate` et `lint` SHALL accepter `extra_definitions`, liste optionnelle de chemins (`str` ou `os.PathLike` ; un `str` seul lève `TypeError`). Chaque chemin est un fichier `.json` contenant une ressource ou un Bundle, ou un répertoire dont les fichiers `*.json` sont lus sans récursion. La surcouche SHALL être construite avec `Registry::with_extra` sur le `Registry` de base partagé, à chaque appel, sans mise en cache. `None` ou une liste vide SHALL se comporter exactement comme sans le paramètre. Une erreur de chargement (chemin absent, JSON mal formé, conflit d'URL canonique, spécialisation, limites de taille) SHALL lever une `RuntimeError` « cannot load extra definitions: ... » nommant le fichier, jamais son contenu. `lint` SHALL exécuter ses règles sur la surcouche, comme `validate`, le binding TypeScript et la CLI, et non sur le `Registry` de base ; une définition fournie n'ajoute aucun type (`Registry::core` ne lit que la base), et les erreurs de chargement sont levées.
 
 #### Scenario: Profil fourni
 
@@ -68,7 +68,7 @@ Les définitions FHIR R5 ne sont pas embarquées dans le wheel. Le répertoire S
 #### Scenario: Lint
 
 - **WHEN** `lint` est appelé avec des `extra_definitions` valides
-- **THEN** la sortie SHALL être identique à celle sans, et un chemin invalide SHALL lever la `RuntimeError`
+- **THEN** les règles SHALL s'exécuter sur la surcouche, et un chemin invalide SHALL lever la `RuntimeError`
 
 ### Requirement: Type Diagnostic
 

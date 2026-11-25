@@ -23,8 +23,10 @@ impl Registry {
     ///
     /// Each path is a `.json` file holding one resource or a Bundle, or a directory
     /// whose `*.json` files are read (not recursively; symlinks and other files are
-    /// skipped). StructureDefinitions, ValueSets, CodeSystems and ConceptMaps are loaded; every
-    /// lookup reads them first, then falls back to `base`, which is left untouched.
+    /// skipped); a file named more than once, directly or through its directory, is read
+    /// once. StructureDefinitions, ValueSets, CodeSystems and ConceptMaps are loaded; every
+    /// lookup except `core` (which reads only `base`, so supplied files never create a
+    /// type) reads them first, then falls back to `base`, which is left untouched.
     /// The overlay is not cached: build it once per validation context.
     /// Other resources, and definitions the registry skips (no url, name or kind),
     /// are ignored, as in the bundled definitions.
@@ -41,9 +43,15 @@ impl Registry {
     pub fn with_extra(base: Arc<Registry>, paths: &[impl AsRef<Path>]) -> Result<Registry> {
         let mut defs = Definitions::default();
         let mut seen = HashSet::new();
+        // Canonical paths already read: a file named twice (itself and its directory) is
+        // one file, not a URL conflict with itself.
+        let mut read = HashSet::new();
         let mut total_bytes = 0;
         for path in paths {
             for file in definition_files(path.as_ref())? {
+                if !read.insert(file.clone()) {
+                    continue;
+                }
                 let name = file.display().to_string();
                 let bytes = read_capped(&file, MAX_INPUT_BYTES).map_err(|source| Error::Read {
                     file: name.clone(),

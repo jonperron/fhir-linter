@@ -169,3 +169,39 @@ fn slice_profile_without_snapshot_is_profile_010() {
         ],
     );
 }
+
+/// Every diagnostic of `resource` as `"<severity> <code> <path> <message>"`.
+fn all_diagnostics(resource: &Value, registry: &Registry) -> Vec<String> {
+    let resource = parse_json(&resource.to_string()).unwrap();
+    validate(&resource, registry)
+        .iter()
+        .map(|d| format!("{:?} {} {} {}", d.severity, d.code, d.path, d.message))
+        .collect()
+}
+
+#[test]
+fn supplied_core_namespace_url_creates_no_resource_type() {
+    let zzz = json!({
+        "resourceType": "StructureDefinition",
+        "url": "http://hl7.org/fhir/StructureDefinition/Zzz",
+        "name": "Zzz",
+        "status": "draft",
+        "kind": "resource",
+        "abstract": false,
+        "type": "Zzz",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/DomainResource",
+        "derivation": "constraint",
+        "snapshot": {"element": [{"id": "Zzz", "path": "Zzz", "min": 0, "max": "*"}]},
+    });
+    let registry = overlay("core-namespace", &[zzz]);
+    let base = Registry::from_definitions_dir(definitions_dir()).unwrap();
+    let resource = json!({"resourceType": "Zzz"});
+    let without_extras = all_diagnostics(&resource, &base);
+    assert!(
+        without_extras
+            .iter()
+            .any(|d| d.contains("Unknown resource type 'Zzz'")),
+        "{without_extras:?}"
+    );
+    assert_eq!(all_diagnostics(&resource, &registry), without_extras);
+}
