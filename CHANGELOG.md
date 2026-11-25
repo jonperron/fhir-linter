@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.4.0](https://github.com/jonperron/fhir-linter/compare/fhir-linter-v1.3.0...fhir-linter-v1.4.0) (2026-11-25)
+
+
+### Features
+
+* **cli:** add --extra-definitions for supplied conformance resources ([6ff9984](https://github.com/jonperron/fhir-linter/commit/6ff998469e5657df76b364d8f7ecaec80fe8f4f6))
+* **cli:** add --extra-definitions for supplied conformance resources ([#184](https://github.com/jonperron/fhir-linter/issues/184)) ([04889aa](https://github.com/jonperron/fhir-linter/commit/04889aab071e6a804687c8e53f00184046fe518f))
+* **definitions:** add an immutable overlay registry for extra definitions ([ed28f3b](https://github.com/jonperron/fhir-linter/commit/ed28f3bae835f188b3900c4c8d01812cd307392b))
+* **definitions:** add an immutable overlay registry for extra definitions ([#179](https://github.com/jonperron/fhir-linter/issues/179)) ([aaebe36](https://github.com/jonperron/fhir-linter/commit/aaebe36bd811f0900bb365b21851123a83bdcc6c))
+* **definitions:** load conceptmaps and add expand and translate ([160bc2b](https://github.com/jonperron/fhir-linter/commit/160bc2b7bfa4ec46b1c863bf3ded4a0f1f1a5a33))
+* **definitions:** load conceptmaps and add expand and translate ([#182](https://github.com/jonperron/fhir-linter/issues/182)) ([427691c](https://github.com/jonperron/fhir-linter/commit/427691c9daa8f74d00c34f18a9e54a5c5ba90f6a))
+* **fhirpath:** add conformsTo() through an environment hook ([#164](https://github.com/jonperron/fhir-linter/issues/164)) ([6a014fd](https://github.com/jonperron/fhir-linter/commit/6a014fdeebb701a630f0047e7baf3eb3ef2ea66e))
+* **fhirpath:** add opt-in strict navigation ([#163](https://github.com/jonperron/fhir-linter/issues/163)) ([4ef24ea](https://github.com/jonperron/fhir-linter/commit/4ef24ea461c0be755e8a1a2bd094a8040631020b))
+* **fhirpath:** answer %terminologies calls through a registry hook ([#185](https://github.com/jonperron/fhir-linter/issues/185)) ([22e7aa2](https://github.com/jonperron/fhir-linter/commit/22e7aa201f85d8aaed7d0ff3eac2ec56f86d7d9c))
+* **fhirpath:** check backbone children under strict navigation ([#172](https://github.com/jonperron/fhir-linter/issues/172)) ([60ba197](https://github.com/jonperron/fhir-linter/commit/60ba197f946efa9faa233f4d4496162db4fc2d2a))
+* **fhirpath:** exact decimals that keep their written scale ([#165](https://github.com/jonperron/fhir-linter/issues/165)) ([3361a56](https://github.com/jonperron/fhir-linter/commit/3361a566675318fa853e68226e7de23ab1642802))
+* **python:** add extra_definitions to validate and lint ([#193](https://github.com/jonperron/fhir-linter/issues/193)) ([8d5427d](https://github.com/jonperron/fhir-linter/commit/8d5427df72aa5c70b5b15745fb20507e4a319a3a))
+* **typescript:** accept supplied conformance resources ([#194](https://github.com/jonperron/fhir-linter/issues/194)) ([299702f](https://github.com/jonperron/fhir-linter/commit/299702f21d17c2aca4117612f0c88b26c3818107))
+* **validator:** answer %terminologies from the registry in use ([#196](https://github.com/jonperron/fhir-linter/issues/196)) ([66baa09](https://github.com/jonperron/fhir-linter/commit/66baa0985fb18c8bd4862c65a7219364cba084e6))
+* **validator:** check contentReferenceProfile element references ([#186](https://github.com/jonperron/fhir-linter/issues/186)) ([678ff91](https://github.com/jonperron/fhir-linter/commit/678ff91c5cccfa8b13e714f337d49d30b92d503b))
+* **validator:** evaluate invariants with fhirpath strict navigation ([9679706](https://github.com/jonperron/fhir-linter/commit/9679706a6acec32ade2ba0910458adc287f0a01b))
+* **validator:** evaluate invariants with fhirpath strict navigation ([#181](https://github.com/jonperron/fhir-linter/issues/181)) ([5c05a68](https://github.com/jonperron/fhir-linter/commit/5c05a684b0d0621cc5abb2a44b8e032bc4716d6e))
+* **validator:** report snapshotless profiles and judge supplied cases ([2b874c9](https://github.com/jonperron/fhir-linter/commit/2b874c9d31682b7cb0617891432c414d1624cb1b))
+* **validator:** report snapshotless profiles and judge supplied cases ([#183](https://github.com/jonperron/fhir-linter/issues/183)) ([931f65c](https://github.com/jonperron/fhir-linter/commit/931f65c97d3dad46d37e368dfd3c8513ec5e6c70))
+
+
+### Bug Fixes
+
+* **definitions:** decline versioned and unreadable concept map and include data ([c411bc8](https://github.com/jonperron/fhir-linter/commit/c411bc8f4ba5aba460c31432d09c34a53396cde9))
+* **definitions:** harden overlay loading after review ([767766c](https://github.com/jonperron/fhir-linter/commit/767766c32749d0b5e3d42ba155322f9990ad5d6d))
+* **definitions:** keep supplied files out of core types and dedup paths ([#197](https://github.com/jonperron/fhir-linter/issues/197)) ([2f4ed98](https://github.com/jonperron/fhir-linter/commit/2f4ed989bd2cd1b5404b744724a2a17f267daa89))
+* **definitions:** reject canonical url conflicts across resource types ([#195](https://github.com/jonperron/fhir-linter/issues/195)) ([3786cc4](https://github.com/jonperron/fhir-linter/commit/3786cc40852cf596b1839dd2cc9354235f3be176))
+* **definitions:** treat a non-array concept as unreadable and sync spec ([7f73ad9](https://github.com/jonperron/fhir-linter/commit/7f73ad9fe4248ff0157a4046d48eb1d44a991514))
+* **fhirpath:** close small function gaps from the official suite ([#158](https://github.com/jonperron/fhir-linter/issues/158)) ([3fe0cf7](https://github.com/jonperron/fhir-linter/commit/3fe0cf7e7b78ae516763a50ead0f197792098efd))
+* **fhirpath:** complex values keep their fhir type ([#162](https://github.com/jonperron/fhir-linter/issues/162)) ([8ee716d](https://github.com/jonperron/fhir-linter/commit/8ee716d73425ab8e2696dca5f14f533d677dd769))
+* **fhirpath:** convert numbers to quantities with unit '1' in equality ([#175](https://github.com/jonperron/fhir-linter/issues/175)) ([29459b4](https://github.com/jonperron/fhir-linter/commit/29459b4f741a235cc7e06fb4bec4e59e93900eec))
+* **fhirpath:** decimal hash key for set operations, division without guard-digit overflow ([#173](https://github.com/jonperron/fhir-linter/issues/173)) ([bc306bd](https://github.com/jonperron/fhir-linter/commit/bc306bd5667290beb3b61ee0bdae681136c0e262))
+* **fhirpath:** hash index for set operations on primitive values ([#168](https://github.com/jonperron/fhir-linter/issues/168)) ([f7d159c](https://github.com/jonperron/fhir-linter/commit/f7d159c4d7a3fd0ae45e726f8f839e4dd6383f85))
+* **fhirpath:** index only typed objects for strict navigation ([8ad3e00](https://github.com/jonperron/fhir-linter/commit/8ad3e0069b61c03167b9780f0491ff56f0842007))
+* **fhirpath:** keep 38-digit amounts and huge time shifts in range ([92b2f97](https://github.com/jonperron/fhir-linter/commit/92b2f97ab70a80ecb61cf9ce0576b01c5b5c83a1))
+* **fhirpath:** make date/time arithmetic exact decimals ([2399f4c](https://github.com/jonperron/fhir-linter/commit/2399f4c9e19367cbf0d2c69c7e3db14b077460fa))
+* **fhirpath:** make date/time arithmetic exact decimals ([#180](https://github.com/jonperron/fhir-linter/issues/180)) ([7b590dc](https://github.com/jonperron/fhir-linter/commit/7b590dcf1b1160a1ef73ac21d23a034564531d89))
+* **fhirpath:** make quantity amounts exact decimals ([f747e31](https://github.com/jonperron/fhir-linter/commit/f747e31956d038b447e4e065b2129ee4e39888e9))
+* **fhirpath:** make quantity amounts exact decimals ([#178](https://github.com/jonperron/fhir-linter/issues/178)) ([8044d70](https://github.com/jonperron/fhir-linter/commit/8044d70862626efe272857eb3e8e1dac3a92a6a8))
+* **fhirpath:** report quantity overflow, compare units in comparable ([eeb9fa9](https://github.com/jonperron/fhir-linter/commit/eeb9fa9cb13459bbd0d11a76b6f28d262dc26c40))
+* **fhirpath:** sort() without panics, dates by value, several keys ([#171](https://github.com/jonperron/fhir-linter/issues/171)) ([f1e3b2d](https://github.com/jonperron/fhir-linter/commit/f1e3b2dd1861fda7e4773a901f2eded2179a696e))
+* **fhirpath:** type strict steps by their input, index paths once ([#177](https://github.com/jonperron/fhir-linter/issues/177)) ([459e6a9](https://github.com/jonperron/fhir-linter/commit/459e6a9c91371bfa36f1835dbb4dc92d421ea247))
+* **fhirpath:** zoned date comparison, typed memberof, suite floors ([#167](https://github.com/jonperron/fhir-linter/issues/167)) ([6249973](https://github.com/jonperron/fhir-linter/commit/62499730f07c53d8c67a93058830adbc6b0f2c34))
+* **validator:** close spec-backed manifest error-count gaps ([#174](https://github.com/jonperron/fhir-linter/issues/174)) ([25e6d01](https://github.com/jonperron/fhir-linter/commit/25e6d0176898c1b9536f67909355152e7bc47ef5))
+* **validator:** exact decimals for json digit limits, fixed values and division ([#169](https://github.com/jonperron/fhir-linter/issues/169)) ([924eb16](https://github.com/jonperron/fhir-linter/commit/924eb164596724b9177e4f42af33fd41c7e4bc25))
+* **validator:** resolve versioned type and slice profile references ([#198](https://github.com/jonperron/fhir-linter/issues/198)) ([eebefdb](https://github.com/jonperron/fhir-linter/commit/eebefdb232610934d1558710dce16ad904c1d563))
+* **validator:** spec-backed rules for the official suite (json +3, xml +3) ([#159](https://github.com/jonperron/fhir-linter/issues/159)) ([0e39bf6](https://github.com/jonperron/fhir-linter/commit/0e39bf61bd0a3808a3a911cc8dd89777f9c86582))
+
 ## [1.3.0](https://github.com/jonperron/fhir-linter/compare/fhir-linter-v1.2.0...fhir-linter-v1.3.0) (2026-11-18)
 
 
