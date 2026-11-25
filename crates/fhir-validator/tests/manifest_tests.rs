@@ -69,12 +69,12 @@ const MIN_ERROR_COUNT_MATCHES: (u32, u32) = (78, 79);
 const EXPECTED_SUPPORTING_COUNTS: (u32, u32, u32, u32, u32) = (42, 0, 0, 68, 69);
 /// Passing and error-count-matching cases of the `supporting` tally, measured on the pinned
 /// fixtures with no slack.
-// 31/42: every case that expects no error passes (26 mapping-validation, cs-val-vs, cs-val-cm,
-// ns-instance, AppointmentWithCodingFromFragmentCS, sd-reusable-section); the 7
-// content-reference-profile cases miss their unresolvable-contentReference error, and
-// q-derived-complies/extends, measure-report-ihe-r5 and supplement-reserved-nested miss theirs.
-const MIN_SUPPORTING_PASSED: u32 = 31;
-const MIN_SUPPORTING_COUNT_MATCHES: u32 = 31;
+// 38/42: every case that expects no error passes (26 mapping-validation, cs-val-vs, cs-val-cm,
+// ns-instance, AppointmentWithCodingFromFragmentCS, sd-reusable-section), and so do the 7
+// content-reference-profile cases (DEFINITION_009); q-derived-complies/extends,
+// measure-report-ihe-r5 and supplement-reserved-nested miss their errors.
+const MIN_SUPPORTING_PASSED: u32 = 38;
+const MIN_SUPPORTING_COUNT_MATCHES: u32 = 38;
 
 /// Manifest keys that make a case supply definitions of its own.
 const SUPPLY_KEYS: [&str; 5] = ["supporting", "profile", "profiles", "packages", "logical"];
