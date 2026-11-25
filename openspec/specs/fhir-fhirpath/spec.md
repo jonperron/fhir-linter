@@ -392,6 +392,11 @@ Les fonctions de chaînes de N1 §5.6 (`indexOf`, `lastIndexOf`, `substring`, `s
 - **WHEN** `'Hello'.matches('hello', 'i')` est évalué
 - **THEN** le résultat SHALL être `[Bool(true)]`
 
+#### Scenario: matchesFull valide le motif seul
+
+- **WHEN** `'b'.matchesFull('a)|(?:b')` est évalué
+- **THEN** le motif SHALL d'abord être compilé seul et l'évaluateur SHALL retourner une erreur, sans échapper aux ancres `\A..\z`
+
 #### Scenario: matchesFull exige correspondance complète
 
 - **WHEN** `'hello world'.matchesFull('hello')` est évalué
@@ -481,7 +486,7 @@ Les fonctions de chaînes de N1 §5.6 (`indexOf`, `lastIndexOf`, `substring`, `s
 
 ### Requirement: Fonctions mathématiques
 
-Le système SHALL implémenter `abs()`, `ceiling()`, `floor()`, `round()`, `round(precision)`, `sqrt()`, `exp()`, `ln()`, `log(base)`, `power(exponent)`, `truncate()`. Conformément à FHIRPath N2, `sqrt()`, `exp()`, `ln()`, `log(base)` et `power(exponent)` SHALL retourner une collection vide lorsque le résultat n'est pas représentable (NaN ou infini).
+Le système SHALL implémenter `abs()`, `ceiling()`, `floor()`, `round()`, `round(precision)`, `sqrt()`, `exp()`, `ln()`, `log(base)`, `power(exponent)`, `truncate()`. Conformément à FHIRPath N2, `sqrt()`, `exp()`, `ln()`, `log(base)` et `power(exponent)` SHALL retourner une collection vide lorsque le résultat n'est pas représentable (NaN ou infini). Ces fonctions et `abs()`, `ceiling()`, `floor()`, `round()`, `truncate()` SHALL rejeter plusieurs éléments en entrée, ou plusieurs éléments dans la base de `log` ou l'exposant de `power`, par `Err(EvalError::Type(...))` (N1 §5.7) ; aucune ne SHALL lire seulement le premier élément. `power()` d'une base `Integer` avec un exposant `Integer` non négatif SHALL retourner un `Integer` (calcul vérifié, un dépassement est une erreur) ; un exposant négatif ou `Decimal`, ou une base `Decimal`, donne un `Decimal` (vide si non représentable).
 
 #### Scenario: abs sur valeur négative
 
@@ -512,6 +517,11 @@ Le système SHALL implémenter `abs()`, `ceiling()`, `floor()`, `round()`, `roun
 
 - **WHEN** `4.sqrt()` est évalué
 - **THEN** le résultat SHALL être `[Decimal(2.0)]`
+
+#### Scenario: power entier et entrées multiples
+
+- **WHEN** `2.power(3)`, `2.power(64)` et `(1 | 2).abs()` sont évalués
+- **THEN** les résultats SHALL être `[Integer(8)]`, `Err(EvalError::Type(...))` et `Err(EvalError::Type(...))`
 
 #### Scenario: Résultat non représentable
 

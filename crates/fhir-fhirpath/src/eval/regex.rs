@@ -50,8 +50,12 @@ pub(super) fn regex_matches_full(
     pattern: &str,
     flags: &str,
 ) -> Result<bool, EvalError> {
+    let flags = single_line(flags);
+    // A pattern valid on its own has balanced groups, so it cannot close the
+    // anchoring group below and escape `\A..\z`.
+    build_regex(pattern, &flags, "matchesFull()")?;
     let anchored = format!(r"\A(?:{pattern})\z");
-    build_regex(&anchored, &single_line(flags), "matchesFull()").map(|re| re.is_match(text))
+    build_regex(&anchored, &flags, "matchesFull()").map(|re| re.is_match(text))
 }
 
 /// The FHIRPath spec has matches() and matchesFull() "use 'single line'
