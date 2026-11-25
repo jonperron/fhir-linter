@@ -1,4 +1,6 @@
 //! Black-box tests for the `fhir-lint` binary.
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 use std::path::PathBuf;
 
 use assert_cmd::Command;
@@ -428,4 +430,85 @@ fn closed_stdout_does_not_panic() {
     let status = child.wait().unwrap();
     // Exit 1 (the resource is invalid), not the panic status 101.
     assert_eq!(status.code(), Some(1), "{status:?}");
+}
+
+#[cfg(unix)]
+type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+/// Files the JSON output reports for `path`, one entry per diagnostic.
+#[cfg(unix)]
+fn linted_files(path: &std::path::Path) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let assert = fhir_lint()
+        .timeout(std::time::Duration::from_secs(20))
+        .args(["--format", "json"])
+        .arg(path)
+        .assert()
+        .code(0);
+    let diags: Vec<serde_json::Value> = serde_json::from_slice(&assert.get_output().stdout)?;
+    Ok(diags
+        .iter()
+        .map(|d| d["file"].as_str().unwrap_or_default().to_owned())
+        .collect())
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_directories_are_skipped_so_a_link_cycle_ends() -> TestResult {
+    // create_dir fails if the path exists, so nothing planted in /tmp is followed.
+    let base = temp_path("symlink-dirs");
+    std::fs::create_dir(&base)?;
+    let root = base.join("root");
+    let other = base.join("other");
+    std::fs::create_dir(&root)?;
+    std::fs::create_dir(&other)?;
+    std::fs::copy(fixture("warnings.json"), root.join("patient.json"))?;
+    std::fs::copy(fixture("warnings.json"), other.join("outside.json"))?;
+    symlink(&root, root.join("loop"))?;
+    symlink(&other, root.join("elsewhere"))?;
+
+    let files = linted_files(&root);
+    let _ = std::fs::remove_dir_all(&base);
+    let files = files?;
+    // As many diagnostics as warnings.json alone gives: linted exactly once.
+    assert_eq!(
+        files.len(),
+        linted_files(&fixture("warnings.json"))?.len(),
+        "{files:?}"
+    );
+    assert!(
+        files
+            .iter()
+            .all(|f| f.ends_with("symlink-dirs/root/patient.json")),
+        "{files:?}"
+    );
+    Ok(())
+}
+
+/// Pins current behaviour: unlike a symlinked directory, a file link is followed.
+#[cfg(unix)]
+#[test]
+fn symlinked_file_inside_a_directory_is_linted() -> TestResult {
+    let base = temp_path("symlink-file");
+    std::fs::create_dir(&base)?;
+    let root = base.join("root");
+    let target = base.join("target.json");
+    std::fs::create_dir(&root)?;
+    std::fs::copy(fixture("warnings.json"), &target)?;
+    symlink(&target, root.join("linked.json"))?;
+
+    let files = linted_files(&root);
+    let _ = std::fs::remove_dir_all(&base);
+    let files = files?;
+    assert_eq!(
+        files.len(),
+        linted_files(&fixture("warnings.json"))?.len(),
+        "{files:?}"
+    );
+    assert!(
+        files
+            .iter()
+            .all(|f| f.ends_with("symlink-file/root/linked.json")),
+        "{files:?}"
+    );
+    Ok(())
 }
