@@ -53,35 +53,13 @@ fn registry_for(
     definitions_dir: Option<String>,
     extra_definitions: Option<Vec<String>>,
 ) -> Result<Arc<Registry>> {
-    let base = base_registry(definitions_dir)?;
-    match extra_definitions {
-        Some(paths) if !paths.is_empty() => Registry::with_extra(base, &paths)
-            .map(Arc::new)
-            // fhir-definitions errors name the offending file, never its content.
-            .map_err(|e| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("cannot load extra definitions: {e}"),
-                )
-            }),
-        _ => Ok(base),
-    }
-}
-
-/// Resolve the definitions directory and return its shared registry.
-fn base_registry(definitions_dir: Option<String>) -> Result<Arc<Registry>> {
-    Registry::shared_or_env(definitions_dir)
+    Registry::shared_or_env_with_extra(definitions_dir, &extra_definitions.unwrap_or_default())
         .ok_or_else(|| {
             invalid_argument(format!(
                 "no FHIR definitions: pass definitionsDir or set {DEFINITIONS_DIR_ENV}"
             ))
         })?
-        .map_err(|e| {
-            Error::new(
-                Status::GenericFailure,
-                format!("cannot load definitions: {e}"),
-            )
-        })
+        .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
 }
 
 fn parse(json: &str) -> Result<fhir_parser::Resource> {
