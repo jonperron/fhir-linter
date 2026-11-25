@@ -1,4 +1,6 @@
 //! Black-box tests for the `fhir-lint` binary.
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 use std::path::PathBuf;
 
 use assert_cmd::Command;
@@ -452,19 +454,20 @@ fn linted_files(path: &std::path::Path) -> Result<Vec<String>, Box<dyn std::erro
 #[cfg(unix)]
 #[test]
 fn symlinked_directories_are_skipped_so_a_link_cycle_ends() -> TestResult {
-    use std::os::unix::fs::symlink;
-    let root = temp_path("symlink-dirs");
-    let other = temp_path("symlink-dirs-other");
-    std::fs::create_dir_all(&root)?;
-    std::fs::create_dir_all(&other)?;
+    // create_dir fails if the path exists, so nothing planted in /tmp is followed.
+    let base = temp_path("symlink-dirs");
+    std::fs::create_dir(&base)?;
+    let root = base.join("root");
+    let other = base.join("other");
+    std::fs::create_dir(&root)?;
+    std::fs::create_dir(&other)?;
     std::fs::copy(fixture("warnings.json"), root.join("patient.json"))?;
     std::fs::copy(fixture("warnings.json"), other.join("outside.json"))?;
     symlink(&root, root.join("loop"))?;
     symlink(&other, root.join("elsewhere"))?;
 
     let files = linted_files(&root);
-    let _ = std::fs::remove_dir_all(&root);
-    let _ = std::fs::remove_dir_all(&other);
+    let _ = std::fs::remove_dir_all(&base);
     let files = files?;
     // As many diagnostics as warnings.json alone gives: linted exactly once.
     assert_eq!(
@@ -475,7 +478,7 @@ fn symlinked_directories_are_skipped_so_a_link_cycle_ends() -> TestResult {
     assert!(
         files
             .iter()
-            .all(|f| f.ends_with("symlink-dirs/patient.json")),
+            .all(|f| f.ends_with("symlink-dirs/root/patient.json")),
         "{files:?}"
     );
     Ok(())
@@ -485,16 +488,16 @@ fn symlinked_directories_are_skipped_so_a_link_cycle_ends() -> TestResult {
 #[cfg(unix)]
 #[test]
 fn symlinked_file_inside_a_directory_is_linted() -> TestResult {
-    use std::os::unix::fs::symlink;
-    let root = temp_path("symlink-file");
-    let target = temp_path("symlink-file-target.json");
-    std::fs::create_dir_all(&root)?;
+    let base = temp_path("symlink-file");
+    std::fs::create_dir(&base)?;
+    let root = base.join("root");
+    let target = base.join("target.json");
+    std::fs::create_dir(&root)?;
     std::fs::copy(fixture("warnings.json"), &target)?;
     symlink(&target, root.join("linked.json"))?;
 
     let files = linted_files(&root);
-    let _ = std::fs::remove_dir_all(&root);
-    let _ = std::fs::remove_file(&target);
+    let _ = std::fs::remove_dir_all(&base);
     let files = files?;
     assert_eq!(
         files.len(),
@@ -504,7 +507,7 @@ fn symlinked_file_inside_a_directory_is_linted() -> TestResult {
     assert!(
         files
             .iter()
-            .all(|f| f.ends_with("symlink-file/linked.json")),
+            .all(|f| f.ends_with("symlink-file/root/linked.json")),
         "{files:?}"
     );
     Ok(())
