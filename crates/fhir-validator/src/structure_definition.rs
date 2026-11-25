@@ -275,9 +275,10 @@ fn reference_problem(
     views: &[(&str, Vec<(usize, &Fields)>)],
     value: &str,
 ) -> Option<String> {
+    // A canonical's `|version` is a string: it cannot be empty.
     let Some((canonical, id)) = value
         .split_once('#')
-        .filter(|(c, id)| !c.is_empty() && !id.is_empty())
+        .filter(|(c, id)| !c.is_empty() && !id.is_empty() && !c.ends_with('|'))
     else {
         return Some(
             "is not a valid element reference: the value must be a canonical URL for the \
@@ -291,24 +292,29 @@ fn reference_problem(
     if id.contains(':') {
         return None;
     }
-    let found = if own_url.map(|url| url.split_once('|').map_or(url, |(url, _)| url))
-        == Some(canonical)
-    {
-        let stated = views
-            .iter()
-            .flat_map(|(_, elements)| elements)
-            .any(|&(_, fields)| string(fields, "id") == Some(id));
-        // A base the Registry does not hold leaves the answer undecided.
-        stated || base_definition(resource, registry).is_none_or(|base| base.element(id).is_some())
-    } else if let Some(profile) = registry.structure_definition(canonical) {
-        profile.element(id).is_some()
-    } else if registry.needs_snapshot(canonical) {
-        true
-    } else {
-        return Some(format!(
-            "refers to the profile {canonical}, which could not be found"
-        ));
-    };
+    let found =
+        if own_url.map(|url| url.split_once('|').map_or(url, |(url, _)| url)) == Some(canonical) {
+            let stated = views
+                .iter()
+                .flat_map(|(_, elements)| elements)
+                .any(|&(_, fields)| string(fields, "id") == Some(id));
+            // No declared base: the definition holds all its elements. A declared base the
+            // Registry does not hold leaves the answer undecided.
+            stated
+                || match string(&resource.fields, "baseDefinition") {
+                    None => false,
+                    Some(_) => base_definition(resource, registry)
+                        .is_none_or(|base| base.element(id).is_some()),
+                }
+        } else if let Some(profile) = registry.structure_definition(canonical) {
+            profile.element(id).is_some()
+        } else if registry.needs_snapshot(canonical) {
+            true
+        } else {
+            return Some(format!(
+                "refers to the profile {canonical}, which could not be found"
+            ));
+        };
     (!found).then(|| format!("refers to the element {id}, which does not exist in {canonical}"))
 }
 
