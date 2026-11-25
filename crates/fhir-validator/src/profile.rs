@@ -3,7 +3,7 @@ use fhir_fhirpath::{Environment, Value as FhirPathValue};
 use fhir_parser::{Node, Resource, Span, Value};
 use indexmap::IndexMap;
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::cardinality::{check_run_cardinality, own_descendants, subtree, without_own_slices};
@@ -35,9 +35,11 @@ pub fn validate(
     start: usize,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    let conforms_memo = RefCell::default();
     let layer = Layer {
         registry,
         environment,
+        conforms_memo: &conforms_memo,
     };
     let resource_type = resource.resource_type.as_ref();
     let Some(Value::Object(meta)) = resource.fields.get("meta").map(|n| &n.value) else {
@@ -164,9 +166,11 @@ pub(crate) fn check_type_profiles(
                 .chain(&elem.constraints)
                 .any(|b| same_constraint(b, c))
         };
+        let conforms_memo = RefCell::default();
         let layer = Layer {
             registry,
             environment,
+            conforms_memo: &conforms_memo,
         };
         check_root_invariants(root, value, &known, (path, Some(span)), layer, &mut found);
         let run = own_descendants(profile, &root.path);
@@ -346,7 +350,14 @@ fn no_snapshot(url: &str, path: String) -> Diagnostic {
 pub(crate) struct Layer<'a, 'e> {
     pub registry: &'a Registry,
     pub environment: &'a Environment<'e>,
+    /// Slice conformance already decided, keyed by [`ConformsKey`]: recursive slice profiles
+    /// would otherwise re-check the same subtree once per slice tried at every level.
+    pub conforms_memo: &'a RefCell<HashMap<ConformsKey, bool>>,
 }
+
+/// The instance object, the sliced element and the profile URL of one conformance check.
+/// Addresses are stable: the tree and the registry are not mutated while a layer lives.
+pub(crate) type ConformsKey = (usize, usize, String);
 
 /// Assign the `items` of the sliced element `elem` (snapshot `run` below it, instance `path`)
 /// to their slices ([`slicing::assign`]), then apply to each item its slice's own
@@ -382,6 +393,16 @@ fn check_slices(
             }
         }
         let root = profile.snapshot.first()?;
+        let key = (
+            std::ptr::from_ref(fields) as usize,
+            std::ptr::from_ref(elem) as usize,
+            url.to_owned(),
+        );
+        if let Some(&conforms) = layer.conforms_memo.borrow().get(&key) {
+            return Some(conforms);
+        }
+        #[cfg(test)]
+        tests::CONFORMS_RUNS.with(|runs| runs.set(runs.get() + 1));
         let core_root = root
             .path
             .split('.')
@@ -394,7 +415,9 @@ fn check_slices(
         let known = |c: &Constraint| has_constraint(core_root, c) || has_constraint(Some(elem), c);
         check_root_invariants(root, value, &known, (path, None), layer, &mut found);
         check_profile_object(fields, profile, run, &root.path, path, layer, &mut found);
-        Some(!found.iter().any(|d| d.severity == Severity::Error))
+        let conforms = !found.iter().any(|d| d.severity == Severity::Error);
+        layer.conforms_memo.borrow_mut().insert(key, conforms);
+        Some(conforms)
     };
     let assigned = slicing::assign(
         items,
@@ -550,177 +573,5 @@ fn choice_types<'a>(elem: &'a ElementDefinition, registry: &'a Registry) -> &'a 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn constraint(key: &str, expression: &str) -> Constraint {
-        let human = Arc::from("human");
-        Constraint::new(
-            Arc::from(key),
-            Arc::from("error"),
-            human,
-            Some(Arc::from(expression)),
-        )
-    }
-
-    fn definitions() -> std::path::PathBuf {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5")
-    }
-
-    /// The registry with `sd` supplied as one file.
-    fn supplied(name: &str, sd: &serde_json::Value) -> Registry {
-        let dir = std::env::temp_dir().join(format!("profile-{name}-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("sd.json");
-        std::fs::write(&file, sd.to_string()).unwrap();
-        let base = Arc::new(Registry::from_definitions_dir(definitions()).unwrap());
-        let registry = Registry::with_extra(base, &[file.as_path()]).unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
-        registry
-    }
-
-    /// `(code, severity, message)` of the diagnostics `Patient.maritalStatus` gets (no value)
-    /// when its CodeableConcept type names the profile `reference`.
-    fn marital_status_profiled(registry: &Registry, reference: &str) -> Vec<Diagnostic> {
-        let mut elem = registry
-            .core("Patient")
-            .and_then(|sd| sd.element("Patient.maritalStatus"))
-            .unwrap()
-            .clone();
-        elem.type_profiles = vec![fhir_definitions::TypeProfiles {
-            code: Arc::from("CodeableConcept"),
-            profiles: vec![Arc::from(reference)],
-            target_profiles: vec![],
-        }];
-        let mut diagnostics = Vec::new();
-        check_type_profiles(
-            (&IndexMap::new(), &[], Span::default()),
-            &elem,
-            "CodeableConcept",
-            "Patient.maritalStatus",
-            registry,
-            &Environment::default(),
-            0,
-            &mut diagnostics,
-        );
-        diagnostics
-    }
-
-    fn summary(diagnostics: &[Diagnostic]) -> Vec<(&str, Severity, &str)> {
-        diagnostics
-            .iter()
-            .map(|d| (d.code.as_ref(), d.severity, d.message.as_str()))
-            .collect()
-    }
-
-    const CC: &str = "http://example.org/StructureDefinition/cc";
-
-    /// CodeableConcept with `text` required, at version 1.0, supplied in directory `name`.
-    fn cc_profile(name: &str) -> Registry {
-        let core = Registry::from_definitions_dir(definitions()).unwrap();
-        let mut elements: Vec<serde_json::Value> = core
-            .core("CodeableConcept")
-            .unwrap()
-            .snapshot
-            .iter()
-            .map(|e| {
-                serde_json::json!({
-                    "id": &*e.path,
-                    "path": &*e.path,
-                    "min": e.min,
-                    "max": &*e.max,
-                })
-            })
-            .collect();
-        for e in &mut elements {
-            if e["path"] == "CodeableConcept.text" {
-                e["min"] = serde_json::json!(1);
-            }
-        }
-        let sd = serde_json::json!({
-            "resourceType": "StructureDefinition",
-            "url": CC,
-            "version": "1.0",
-            "name": "TextCC",
-            "status": "draft",
-            "kind": "complex-type",
-            "abstract": false,
-            "type": "CodeableConcept",
-            "baseDefinition": "http://hl7.org/fhir/StructureDefinition/CodeableConcept",
-            "derivation": "constraint",
-            "snapshot": {"element": elements},
-        });
-        supplied(name, &sd)
-    }
-
-    #[test]
-    fn type_profile_without_snapshot_is_profile_010() {
-        // No core element names a profile the bundle lacks, so only an edited element
-        // reaches this path with a supplied snapshotless profile.
-        let url = "http://example.org/StructureDefinition/no-snapshot-cc";
-        let sd = serde_json::json!({
-            "resourceType": "StructureDefinition",
-            "url": url,
-            "name": "NoSnapshotCC",
-            "status": "draft",
-            "kind": "complex-type",
-            "abstract": false,
-            "type": "CodeableConcept",
-            "derivation": "constraint",
-            "differential": {"element": [{"path": "CodeableConcept"}]},
-        });
-        let registry = supplied("010-type", &sd);
-        for reference in [url.to_owned(), format!("{url}|1.0")] {
-            let diagnostics = marital_status_profiled(&registry, &reference);
-            // The diagnostic names the reference as written.
-            let message = format!("Profile '{reference}' has no snapshot; snapshot required");
-            assert_eq!(
-                summary(&diagnostics),
-                [("PROFILE_010", Severity::Error, message.as_str())]
-            );
-        }
-    }
-
-    #[test]
-    fn versioned_type_profile_of_the_loaded_version_is_applied() {
-        let registry = cc_profile("cc-loaded");
-        let diagnostics = marital_status_profiled(&registry, &format!("{CC}|1.0"));
-        let codes: Vec<_> = diagnostics.iter().map(|d| (&*d.code, &*d.path)).collect();
-        assert_eq!(codes, [("CARDINALITY_001", "Patient.maritalStatus.text")]);
-    }
-
-    #[test]
-    fn versioned_type_profile_of_another_version_is_profile_003() {
-        let registry = cc_profile("cc-other");
-        let reference = format!("{CC}|2.0");
-        let diagnostics = marital_status_profiled(&registry, &reference);
-        let codes: Vec<_> = diagnostics.iter().map(|d| (&*d.code, &*d.path)).collect();
-        // Validated against the loaded version, as for meta.profile.
-        assert_eq!(
-            codes,
-            [
-                ("PROFILE_003", "Patient.maritalStatus"),
-                ("CARDINALITY_001", "Patient.maritalStatus.text"),
-            ]
-        );
-        assert!(diagnostics[0].message.contains(&format!("'{reference}'")));
-        assert_eq!(diagnostics[0].severity, Severity::Warning);
-    }
-
-    #[test]
-    fn a_redefined_expression_is_another_constraint() {
-        let base = constraint("vs-2", "value.exists()");
-        assert!(same_constraint(
-            &base,
-            &constraint("vs-2", "value.exists()")
-        ));
-        assert!(!same_constraint(
-            &base,
-            &constraint("vs-2", "value.exists() and code.exists()")
-        ));
-        assert!(!same_constraint(
-            &base,
-            &constraint("vs-3", "value.exists()")
-        ));
-    }
-}
+#[path = "profile_tests.rs"]
+mod tests;
