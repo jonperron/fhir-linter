@@ -171,6 +171,8 @@ impl Evaluator<'_> {
             }
             "log" => {
                 check_arity(name, args, 1)?;
+                // Several focus items are an error even when the base is empty.
+                let item = singleton(focus, name)?;
                 let base = match singleton(&self.eval(&args[0], ctx)?, name)? {
                     Some(v) => v
                         .as_decimal()
@@ -178,7 +180,7 @@ impl Evaluator<'_> {
                         .to_f64(),
                     None => return Ok(Some(vec![])),
                 };
-                match singleton(focus, name)? {
+                match item {
                     Some(Value::Integer(n)) => representable((*n as f64).log(base)),
                     Some(Value::Decimal(d)) => representable(d.to_f64().log(base)),
                     Some(v) => {
@@ -192,6 +194,8 @@ impl Evaluator<'_> {
             }
             "power" => {
                 check_arity(name, args, 1)?;
+                // Several focus items are an error even when the exponent is empty.
+                let item = singleton(focus, name)?;
                 let exponent = self.eval(&args[0], ctx)?;
                 let Some(exponent) = singleton(&exponent, name)? else {
                     return Ok(Some(vec![]));
@@ -200,7 +204,7 @@ impl Evaluator<'_> {
                     .as_decimal()
                     .ok_or_else(|| EvalError::Type("power() exponent must be a number".into()))?
                     .to_f64();
-                match singleton(focus, name)? {
+                match item {
                     // N1 §5.7.8: used with Integers, the result is an Integer.
                     Some(Value::Integer(n)) => match exponent {
                         Value::Integer(e) if *e >= 0 => {

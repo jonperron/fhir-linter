@@ -1,10 +1,14 @@
 //! Audit 2026-11-25: math functions on several items, Integer power(),
 //! matchesFull() anchoring and `\u` escapes.
 
-use fhir_fhirpath::{Value, evaluate};
+use fhir_fhirpath::{EvalError, Value, evaluate};
 
 fn eval(expr: &str) -> Result<Vec<Value>, String> {
     evaluate(expr, &[]).map_err(|e| e.to_string())
+}
+
+fn is_type_error(expr: &str) -> bool {
+    matches!(evaluate(expr, &[]), Err(EvalError::Type(_)))
 }
 
 // N1 §5.7: more than one input item signals an error.
@@ -22,14 +26,22 @@ fn math_functions_reject_several_input_items() {
         "(1 | 4).power(2)",
         "(1.5 | 4.5).truncate()",
     ] {
-        assert!(eval(expr).is_err(), "{expr} should be an error");
+        assert!(is_type_error(expr), "{expr} should be a type error");
     }
 }
 
 #[test]
 fn math_arguments_reject_several_items() {
     for expr in ["2.power(2 | 3)", "100.log(10 | 2)"] {
-        assert!(eval(expr).is_err(), "{expr} should be an error");
+        assert!(is_type_error(expr), "{expr} should be a type error");
+    }
+}
+
+// The focus is checked even when the argument is empty.
+#[test]
+fn several_input_items_with_empty_argument_are_an_error() {
+    for expr in ["(1 | 4).power({})", "(1 | 4).log({})"] {
+        assert!(is_type_error(expr), "{expr} should be a type error");
     }
 }
 
@@ -51,8 +63,8 @@ fn power_of_integers_is_an_integer() {
 
 #[test]
 fn power_of_integers_overflow_is_an_error() {
-    assert!(eval("2.power(64)").is_err());
-    assert!(eval("2.power(9999999999)").is_err());
+    assert!(is_type_error("2.power(64)"));
+    assert!(is_type_error("2.power(9999999999)"));
 }
 
 #[test]
