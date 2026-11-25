@@ -23,7 +23,7 @@ struct Parts {
 /// precision but one is more precise, when only one has a zone (a date
 /// against a zoned date-time answers when every possible offset agrees).
 /// Unparseable text compares as `None` too.
-pub(super) fn compare(a: &str, b: &str, is_time: bool) -> Option<Ordering> {
+pub fn compare(a: &str, b: &str, is_time: bool) -> Option<Ordering> {
     let (mut a, mut b) = (parse(a, is_time)?, parse(b, is_time)?);
     // A zone only matters once a date-time has an hour; Time takes no zone.
     let has_hour = |p: &Parts| !is_time && p.fields.len() >= 4;

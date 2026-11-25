@@ -30,6 +30,7 @@ mod value_set;
 
 use strict::Focus;
 pub use strict::Strict;
+pub use temporal::compare as compare_temporal;
 pub use terminologies::Terminologies;
 
 use helpers::{
