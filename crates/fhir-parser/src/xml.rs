@@ -177,6 +177,11 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
             Event::DocType(_) => {
                 return Err(error_at(&line_index, pos, DTD_NOT_ALLOWED));
             }
+            // XML 1.0 section 2.8: the declaration, when present, opens the document.
+            Event::Decl(_) if pos != 0 => {
+                let message = "the XML declaration must be at the start of the document";
+                return Err(error_at(&line_index, pos, message));
+            }
             // xml.html: resources "SHALL be exchanged using UTF-8 encoding".
             Event::Decl(ref decl) => {
                 let utf8 = match decl.encoding() {
@@ -189,10 +194,22 @@ fn parse_document(source: &str) -> Result<Resource, ParseError> {
                     return Err(error_at(&line_index, pos, message));
                 }
             }
+            // XML 1.0 section 2.8: the prolog holds only S, comments and PIs.
+            Event::Text(ref t) if is_xml_space(t) => {}
+            Event::Text(_) | Event::GeneralRef(_) | Event::CData(_) => {
+                let message = "unexpected content before root element";
+                return Err(error_at(&line_index, pos, message));
+            }
             // Skip processing instructions and comments.
             _ => {}
         }
     }
+}
+
+/// XML 1.0 production `S`: space, tab, carriage return and line feed only.
+fn is_xml_space(text: &[u8]) -> bool {
+    text.iter()
+        .all(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
 }
 
 // -- Children parsing ----------------------------------------------------------
@@ -271,7 +288,7 @@ fn parse_children(
                 });
             }
             // FHIR elements have no mixed content: only XML whitespace may sit between them.
-            Event::Text(ref t) if t.iter().all(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n')) => {}
+            Event::Text(ref t) if is_xml_space(t) => {}
             Event::Text(_) | Event::GeneralRef(_) | Event::CData(_) => {
                 let message = "text content is not allowed inside FHIR elements";
                 return Err(error_at(line_index, pos, message));
@@ -437,8 +454,8 @@ fn skip_xhtml(
 
 // -- Trailing-content guard ---------------------------------------------------
 
-/// Consume remaining events after the root element and return an error if any
-/// non-whitespace content (element or non-empty text) is found before `Eof`.
+/// Consume remaining events after the root element and return an error on
+/// anything but XML whitespace, comments and PIs before `Eof`.
 fn expect_eof(reader: &mut NsReader<&[u8]>, line_index: &LineIndex) -> Result<(), ParseError> {
     loop {
         let pos = reader.buffer_position() as u32;
@@ -447,26 +464,9 @@ fn expect_eof(reader: &mut NsReader<&[u8]>, line_index: &LineIndex) -> Result<()
             .map_err(|e| xml_error(line_index, pos, e))?
         {
             Event::Eof => return Ok(()),
-            Event::Text(ref t) => {
-                // Whitespace-only text between elements is allowed.
-                let unescaped = t.decode().map_err(|e| {
-                    let (line, col) = line_index.location(pos);
-                    ParseError::XmlError {
-                        message: format!("invalid trailing text: {e}"),
-                        line,
-                        col,
-                    }
-                })?;
-                if !unescaped.chars().all(char::is_whitespace) {
-                    let (line, col) = line_index.location(pos);
-                    return Err(ParseError::XmlError {
-                        message: "unexpected content after root element".into(),
-                        line,
-                        col,
-                    });
-                }
-            }
-            Event::GeneralRef(_) => {
+            // XML 1.0 section 2.8: after the root only S, comments and PIs may follow.
+            Event::Text(ref t) if is_xml_space(t) => {}
+            Event::Text(_) | Event::GeneralRef(_) | Event::CData(_) | Event::Decl(_) => {
                 let (line, col) = line_index.location(pos);
                 return Err(ParseError::XmlError {
                     message: "unexpected content after root element".into(),
@@ -484,7 +484,7 @@ fn expect_eof(reader: &mut NsReader<&[u8]>, line_index: &LineIndex) -> Result<()
                 });
             }
             Event::DocType(_) => return Err(error_at(line_index, pos, DTD_NOT_ALLOWED)),
-            // Comments, PIs, and the XML declaration are ignored.
+            // Comments and PIs are ignored.
             _ => {}
         }
     }
@@ -639,6 +639,37 @@ mod tests {
     fn reject_entity_reference_after_root() {
         let source = "<Patient xmlns=\"http://hl7.org/fhir\"/>&amp;";
         assert!(parse_xml(source).is_err());
+    }
+
+    // XML 1.0 section 2.8: the prolog and epilog hold only S, comments and PIs,
+    // and the XML declaration comes first.
+    #[test]
+    fn reject_content_outside_root_that_is_not_misc() {
+        let root = "<Basic xmlns=\"http://hl7.org/fhir\"/>";
+        let sources = [
+            format!("garbage &amp; text{root}"),
+            format!("&amp;{root}"),
+            format!("<![CDATA[x]]>{root}"),
+            format!("<!-- c --><?xml version=\"1.0\"?>{root}"),
+            format!(" <?xml version=\"1.0\"?>{root}"),
+            format!("\u{a0}{root}"),
+            format!("{root}\u{a0}"),
+            format!("{root}<![CDATA[x]]>"),
+            format!("{root}<?xml version=\"1.0\"?>"),
+        ];
+        let accepted: Vec<&String> = sources
+            .iter()
+            .filter(|source| !matches!(parse_xml(source), Err(ParseError::XmlError { .. })))
+            .collect();
+        assert!(accepted.is_empty(), "accepted: {accepted:?}");
+    }
+
+    #[test]
+    fn accept_misc_outside_root() {
+        let root = "<Basic xmlns=\"http://hl7.org/fhir\"/>";
+        let source =
+            format!("<?xml version=\"1.0\"?>\r\n\t<!-- c --><?pi x?> {root} \n<!-- c --><?pi?>\t");
+        assert!(parse_xml(&source).is_ok());
     }
 
     #[test]
