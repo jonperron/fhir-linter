@@ -429,3 +429,83 @@ fn closed_stdout_does_not_panic() {
     // Exit 1 (the resource is invalid), not the panic status 101.
     assert_eq!(status.code(), Some(1), "{status:?}");
 }
+
+#[cfg(unix)]
+type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+/// Files the JSON output reports for `path`, one entry per diagnostic.
+#[cfg(unix)]
+fn linted_files(path: &std::path::Path) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let assert = fhir_lint()
+        .timeout(std::time::Duration::from_secs(20))
+        .args(["--format", "json"])
+        .arg(path)
+        .assert()
+        .code(0);
+    let diags: Vec<serde_json::Value> = serde_json::from_slice(&assert.get_output().stdout)?;
+    Ok(diags
+        .iter()
+        .map(|d| d["file"].as_str().unwrap_or_default().to_owned())
+        .collect())
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_directories_are_skipped_so_a_link_cycle_ends() -> TestResult {
+    use std::os::unix::fs::symlink;
+    let root = temp_path("symlink-dirs");
+    let other = temp_path("symlink-dirs-other");
+    std::fs::create_dir_all(&root)?;
+    std::fs::create_dir_all(&other)?;
+    std::fs::copy(fixture("warnings.json"), root.join("patient.json"))?;
+    std::fs::copy(fixture("warnings.json"), other.join("outside.json"))?;
+    symlink(&root, root.join("loop"))?;
+    symlink(&other, root.join("elsewhere"))?;
+
+    let files = linted_files(&root);
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&other);
+    let files = files?;
+    // As many diagnostics as warnings.json alone gives: linted exactly once.
+    assert_eq!(
+        files.len(),
+        linted_files(&fixture("warnings.json"))?.len(),
+        "{files:?}"
+    );
+    assert!(
+        files
+            .iter()
+            .all(|f| f.ends_with("symlink-dirs/patient.json")),
+        "{files:?}"
+    );
+    Ok(())
+}
+
+/// Pins current behaviour: unlike a symlinked directory, a file link is followed.
+#[cfg(unix)]
+#[test]
+fn symlinked_file_inside_a_directory_is_linted() -> TestResult {
+    use std::os::unix::fs::symlink;
+    let root = temp_path("symlink-file");
+    let target = temp_path("symlink-file-target.json");
+    std::fs::create_dir_all(&root)?;
+    std::fs::copy(fixture("warnings.json"), &target)?;
+    symlink(&target, root.join("linked.json"))?;
+
+    let files = linted_files(&root);
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_file(&target);
+    let files = files?;
+    assert_eq!(
+        files.len(),
+        linted_files(&fixture("warnings.json"))?.len(),
+        "{files:?}"
+    );
+    assert!(
+        files
+            .iter()
+            .all(|f| f.ends_with("symlink-file/linked.json")),
+        "{files:?}"
+    );
+    Ok(())
+}
