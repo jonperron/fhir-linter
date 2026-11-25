@@ -92,13 +92,13 @@ fn load_bundle_parses_value_set_and_code_system() {
     load_bundle(&path, &mut defs).unwrap();
     assert!(defs.value_sets.contains_key("http://example.com/vs"));
     assert_eq!(
-        defs.value_sets["http://example.com/vs"].name.as_ref(),
-        "TestVS"
+        defs.value_sets["http://example.com/vs"].name.as_deref(),
+        Some("TestVS")
     );
     assert!(defs.code_systems.contains_key("http://example.com/cs"));
     assert_eq!(
-        defs.code_systems["http://example.com/cs"].name.as_ref(),
-        "TestCS"
+        defs.code_systems["http://example.com/cs"].name.as_deref(),
+        Some("TestCS")
     );
 }
 
@@ -303,17 +303,15 @@ fn load_bundle_rejects_malformed_snapshot_element() {
 }
 
 #[test]
-fn load_bundle_skips_value_set_with_missing_name() {
+fn load_bundle_keeps_value_set_with_missing_name() {
     let content = r#"{"entry": [
         {"resource": {"resourceType": "ValueSet", "url": "http://example.com/vs-no-name"}}
     ]}"#;
     let path = write_temp("fhir_def_test_vs_no_name.json", content);
     let mut defs = Definitions::default();
     load_bundle(&path, &mut defs).unwrap();
-    assert!(
-        defs.value_sets.is_empty(),
-        "ValueSet without name should be skipped"
-    );
+    // R5 ValueSet.name is 0..1.
+    assert_eq!(defs.value_sets["http://example.com/vs-no-name"].name, None);
 }
 
 #[test]
@@ -362,16 +360,17 @@ fn code_system_finds_not_selectable_by_its_declared_property_uri() {
 }
 
 #[test]
-fn load_bundle_skips_code_system_with_missing_name() {
+fn load_bundle_keeps_code_system_with_missing_name() {
     let content = r#"{"entry": [
         {"resource": {"resourceType": "CodeSystem", "url": "http://example.com/cs-no-name"}}
     ]}"#;
     let path = write_temp("fhir_def_test_cs_no_name.json", content);
     let mut defs = Definitions::default();
     load_bundle(&path, &mut defs).unwrap();
-    assert!(
-        defs.code_systems.is_empty(),
-        "CodeSystem without name should be skipped"
+    // R5 CodeSystem.name is 0..1.
+    assert_eq!(
+        defs.code_systems["http://example.com/cs-no-name"].name,
+        None
     );
 }
 
