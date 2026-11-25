@@ -520,7 +520,7 @@ Le système SHALL fournir `Registry::with_extra(base: Arc<Registry>, paths)` qui
 
 ### Requirement: Erreurs de chargement de l'overlay
 
-`with_extra` SHALL nommer le fichier fautif dans chaque erreur et SHALL NOT en reproduire le contenu : `Error::Conflict{url,file}` si une URL existe déjà dans la base (toute version, par type de ressource, y compris une StructureDefinition de base sans snapshot) ou apparaît deux fois parmi les extras ; `Error::Unsupported{file,message}` pour une StructureDefinition `derivation=specialization` ou un chemin qui n'est ni un fichier `.json` ni un répertoire ; `Error::Read{file,source}` pour un fichier illisible ou de plus de 64 MiB (`io::ErrorKind::FileTooLarge`) ; `Error::Limit{file,message}` au-delà de 256 MiB au total ou de 10 000 fichiers `.json` dans un répertoire ; `Error::Json` pour un JSON invalide ; `Error::MalformedBundle` pour un Bundle dont `entry` est présent mais n'est pas un tableau. Un Bundle sans `entry` ne charge rien, sans erreur.
+`with_extra` SHALL nommer le fichier fautif dans chaque erreur et SHALL NOT en reproduire le contenu : `Error::Conflict{url,file}` si une URL existe déjà dans la base (toute version, quel que soit le type de ressource parmi StructureDefinition, ValueSet, CodeSystem et ConceptMap, car les URL canoniques FHIR R5 sont globalement uniques ; y compris une StructureDefinition de base sans snapshot) ou apparaît deux fois parmi les extras (même type ou types différents) ; `Error::Unsupported{file,message}` pour une StructureDefinition `derivation=specialization` ou un chemin qui n'est ni un fichier `.json` ni un répertoire ; `Error::Read{file,source}` pour un fichier illisible ou de plus de 64 MiB (`io::ErrorKind::FileTooLarge`) ; `Error::Limit{file,message}` au-delà de 256 MiB au total ou de 10 000 fichiers `.json` dans un répertoire ; `Error::Json` pour un JSON invalide ; `Error::MalformedBundle` pour un Bundle dont `entry` est présent mais n'est pas un tableau. Un Bundle sans `entry` ne charge rien, sans erreur.
 
 #### Scenario: Conflit avec la base
 
@@ -531,6 +531,16 @@ Le système SHALL fournir `Registry::with_extra(base: Arc<Registry>, paths)` qui
 
 - **WHEN** deux extras déclarent la même URL pour le même type de ressource
 - **THEN** `with_extra` SHALL retourner `Error::Conflict`
+
+#### Scenario: Conflit entre types avec la base
+
+- **WHEN** un ValueSet fourni déclare l'URL d'une StructureDefinition de la base
+- **THEN** `with_extra` SHALL retourner `Error::Conflict` avec l'URL et le fichier
+
+#### Scenario: Doublon entre extras de types différents
+
+- **WHEN** deux fichiers fournis de types de ressource différents déclarent la même URL
+- **THEN** `with_extra` SHALL retourner `Error::Conflict` nommant le second fichier
 
 #### Scenario: Spécialisation refusée
 

@@ -30,7 +30,8 @@ impl Registry {
     /// are ignored, as in the bundled definitions.
     ///
     /// Errors, each naming the file: [`Error::Conflict`] when a canonical URL is
-    /// already in `base` or appears twice among the supplied files;
+    /// already in `base` or appears twice among the supplied files, whatever the
+    /// resource types (canonical URLs are unique across them);
     /// [`Error::Unsupported`] for a StructureDefinition with
     /// `derivation = specialization` or a path that is no `.json` file or directory;
     /// [`Error::Read`] for an unreadable file or one over [`MAX_INPUT_BYTES`];
@@ -90,13 +91,13 @@ impl Registry {
 }
 
 /// Load one supplied resource into `defs`, rejecting specializations and
-/// canonical URLs already in `base` or in `seen` (per resource type).
+/// canonical URLs already in `base` or in `seen`, whatever their resource type.
 fn load_extra(
     resource: &Value,
     file: &str,
     base: &Registry,
     defs: &mut Definitions,
-    seen: &mut HashSet<(Arc<str>, Arc<str>)>,
+    seen: &mut HashSet<Arc<str>>,
 ) -> Result<()> {
     let Some(resource_type) = resource["resourceType"].as_str() else {
         return Ok(());
@@ -113,15 +114,13 @@ fn load_extra(
     let Some(url) = loader::load_resource(resource, file, defs)? else {
         return Ok(());
     };
-    let in_base = match resource_type {
-        "StructureDefinition" => {
-            base.structure_definition(&url).is_some() || base.needs_snapshot(&url)
-        }
-        "ValueSet" => base.value_set(&url).is_some(),
-        "CodeSystem" => base.code_system(&url).is_some(),
-        _ => base.concept_map(&url).is_some(),
-    };
-    if in_base || !seen.insert((Arc::from(resource_type), Arc::clone(&url))) {
+    // Canonical URLs are unique across resource types, so check every kind.
+    let in_base = base.structure_definition(&url).is_some()
+        || base.needs_snapshot(&url)
+        || base.value_set(&url).is_some()
+        || base.code_system(&url).is_some()
+        || base.concept_map(&url).is_some();
+    if in_base || !seen.insert(Arc::clone(&url)) {
         return Err(Error::Conflict {
             url: url.to_string(),
             file: file.to_owned(),
