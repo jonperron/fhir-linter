@@ -626,7 +626,7 @@ Le `Registry` SHALL charger les ressources `ConceptMap` (via `load_resource`, do
 
 ### Requirement: Énumération exacte d'un ValueSet
 
-Le système SHALL fournir `Registry::expand(vs_url) -> Option<Vec<(system, code, display)>>`, limitée à l'énumération exacte : CodeSystem complet entier ou liste de concepts, imports de ValueSets intersectés avec la profondeur limitée à 8, dédoublonnage par `(system, code)`, ordre du `compose`. Le résultat SHALL être `None` en présence de `filter`, d'`exclude`, d'un CodeSystem inconnu, incomplet ou épinglé par une `version` différente pour un include sur le système entier, d'un code `notSelectable`, d'un include dont une entrée `concept` n'a pas de `code` (indécidable), ou d'un cycle d'imports. Un CodeSystem complet énuméré SHALL être listé quelle que soit sa règle de casse (`caseSensitive`) ; seules les preuves d'absence restent limitées aux systèmes sensibles à la casse. `compose.inactive` SHALL NOT être lu. La recherche SHALL se replier sur la base de l'overlay.
+Le système SHALL fournir `Registry::expand(vs_url) -> Option<Vec<(system, code, display)>>`, limitée à l'énumération exacte : CodeSystem complet entier ou liste de concepts, imports de ValueSets intersectés avec la profondeur limitée à 8, dédoublonnage par `(system, code)`, ordre du `compose`. Le résultat SHALL être `None` en présence de `filter`, d'`exclude`, d'un CodeSystem inconnu, incomplet ou épinglé par une `version` différente pour un include sur le système entier, d'un code `notSelectable`, d'un include dont une entrée `concept` n'a pas de `code` (indécidable), ou d'un cycle d'imports. Un CodeSystem complet énuméré SHALL être listé quelle que soit sa règle de casse (`caseSensitive`) ; seules les preuves d'absence restent limitées aux systèmes sensibles à la casse. Lorsque `compose.inactive` vaut `false`, le résultat SHALL être `None` (les concepts inactifs exclus sont indécidables car le Registry ne conserve pas le statut des concepts) ; absent ou `true`, tous les concepts sont inclus. La recherche SHALL se replier sur la base de l'overlay.
 
 #### Scenario: Liste de concepts
 
@@ -647,6 +647,12 @@ Le système SHALL fournir `Registry::expand(vs_url) -> Option<Vec<(system, code,
 
 - **WHEN** le ValueSet a un `filter` ou un `exclude`, référence un CodeSystem inconnu, incomplet ou à version différente (système entier), contient un code `notSelectable`, a une entrée `concept` sans `code`, ou forme un cycle
 - **THEN** `expand` SHALL retourner `None`
+
+#### Scenario: compose.inactive à false
+
+- **WHEN** un ValueSet déclare `compose.inactive` à `false`
+- **THEN** `expand` et `value_set_contains` SHALL retourner `None` (indécidé)
+- **AND** si `compose.inactive` est absent ou à `true`, les concepts inactifs SHALL être inclus
 
 ### Requirement: Traduction par ConceptMap
 

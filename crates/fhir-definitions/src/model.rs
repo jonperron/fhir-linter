@@ -281,7 +281,8 @@ pub struct ValueSet {
     pub url: Arc<str>,
     pub name: Arc<str>,
     pub includes: Vec<Include>,
-    /// True when the compose has `exclude` entries; membership is then not decidable.
+    /// True when the compose has `exclude` entries or `inactive = false`; membership is then
+    /// not decidable.
     pub has_exclude: bool,
 }
 

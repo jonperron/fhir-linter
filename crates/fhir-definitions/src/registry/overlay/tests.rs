@@ -647,6 +647,27 @@ fn expand_reads_include_concepts_and_case_insensitive_systems_exactly() {
 }
 
 #[test]
+fn compose_inactive_false_is_undecided_but_true_expands() {
+    let mut active_only = value_set();
+    active_only["compose"]["inactive"] = json!(false);
+    let mut all_codes = value_set();
+    all_codes["url"] = json!("http://example.org/ValueSet/all-codes");
+    all_codes["compose"]["inactive"] = json!(true);
+    let overlay = overlay_with("compose_inactive", &[code_system(), active_only, all_codes]);
+    // R5 compose.inactive=false drops inactive codes; the Registry reads no concept status.
+    assert_eq!(overlay.expand(VALUE_SET), None);
+    assert_eq!(
+        overlay.value_set_contains(VALUE_SET, Some(CODE_SYSTEM), "red"),
+        None
+    );
+    assert!(
+        overlay
+            .expand("http://example.org/ValueSet/all-codes")
+            .is_some()
+    );
+}
+
+#[test]
 fn translate_declines_a_group_pinned_to_a_version() {
     for (name, key) in [("cm_source_ver", "source"), ("cm_target_ver", "target")] {
         let mut group = json!({

@@ -22,15 +22,14 @@ impl Registry {
     /// Only an exact enumeration is returned: every include must name a whole
     /// complete CodeSystem or list its concepts, possibly intersected with
     /// imported ValueSets that expand the same way. `None` for an unknown
-    /// ValueSet, a filter, an exclude, a CodeSystem not loaded, incomplete or in
-    /// another version, a notSelectable code (it would need the expansion's
+    /// ValueSet, a filter, an exclude, `compose.inactive = false`, a CodeSystem not
+    /// loaded, incomplete or in another version, a notSelectable code (it would need the expansion's
     /// `abstract` flag), or imports deeper than the cycle guard. A concept list
     /// stands alone, as in `value_set_contains`: its CodeSystem may be unknown,
     /// and its display comes from the include, else from the CodeSystem.
     ///
-    /// shortcut: `compose.inactive` is not read, so a whole CodeSystem gives its
-    /// inactive concepts too (R5's usual default); no bundled ValueSet sets it to
-    /// false. Read it when a caller needs active-only expansions.
+    /// `compose.inactive = false` is `None` too: the Registry keeps no concept
+    /// status. Absent or true includes every concept, as R5 expects by default.
     pub fn expand(&self, url: &str) -> Option<Vec<(&str, &str, Option<&str>)>> {
         self.expand_at(url, 0)
     }
