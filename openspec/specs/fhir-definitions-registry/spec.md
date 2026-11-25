@@ -143,7 +143,7 @@ Le système SHALL fournir un type `Constraint` public avec les champs : `key: Ar
 
 ### Requirement: Type Binding sur ElementDefinition
 
-Le système SHALL fournir un type `Binding` public avec les champs : `strength: Arc<str>`, `value_set: Option<Arc<str>>`, `additional: Vec<AdditionalBinding>`. Chaque `ElementDefinition` SHALL exposer un champ `binding: Option<Binding>`. `AdditionalBinding` SHALL avoir les champs `purpose`, `value_set` (version canonique retirée) et `any: bool` (défaut `false`).
+Le système SHALL fournir un type `Binding` public avec les champs : `strength: Arc<str>`, `value_set: Option<Arc<str>>`, `additional: Vec<AdditionalBinding>`. Chaque `ElementDefinition` SHALL exposer un champ `binding: Option<Binding>`. `AdditionalBinding` SHALL avoir les champs `purpose`, `value_set` (suffixe `|version` conservé tel qu'écrit) et `any: bool` (défaut `false`).
 
 #### Scenario: Binding chargé depuis le snapshot
 
@@ -163,14 +163,12 @@ Le système SHALL fournir un type `Binding` public avec les champs : `strength: 
 #### Scenario: Binding additionnel chargé
 
 - **WHEN** un binding déclare une entrée `additional` avec `purpose` et `valueSet` versionné
-- **THEN** `Binding.additional` SHALL contenir une `AdditionalBinding` dont `value_set` n'a pas de version et dont `any` vaut `false` si absent
+- **THEN** `Binding.additional` SHALL contenir une `AdditionalBinding` dont `value_set` conserve son suffixe `|version` et dont `any` vaut `false` si absent
 
 #### Scenario: Binding additionnel incomplet
 
 - **WHEN** un binding additionnel n'a pas de `purpose` ou pas de `valueSet`
 - **THEN** il SHALL être ignoré, comme un binding sans `strength`
-
----
 
 ### Requirement: Export public de Constraint et Binding
 
@@ -185,7 +183,7 @@ Le crate `fhir-definitions` SHALL exporter `Constraint`, `Binding`, `AdditionalB
 
 ### Requirement: ValueSet includes et CodeSystem codes
 
-Le type `ValueSet` SHALL exposer `includes: Vec<Include>` (chaque `Include` : `system`, `version: Option<Arc<str>>`, `concepts: Vec<Concept>`, `has_filter`, `value_sets`) et `has_exclude: bool`. Le type `CodeSystem` SHALL exposer `version: Option<Arc<str>>`, `codes: HashSet<Arc<str>>` (concepts aplatis), `not_selectable: HashSet<Arc<str>>` (codes dont la `property` notSelectable porte `valueBoolean: true`, à tout niveau) et `concepts: Vec<Concept>` (concepts aplatis dans l'ordre du document, `Concept` : `code`, `display`), et `complete: bool` (faux pour un fragment ou contenu non présent). La propriété notSelectable SHALL être identifiée par le code local que le CodeSystem déclare dans `CodeSystem.property` avec `uri` = `http://hl7.org/fhir/concept-properties#notSelectable` ; uniquement lorsqu'aucune propriété déclarée ne porte cette URI, le code `notSelectable` SHALL être utilisé en repli. Le code `abstract` SHALL NOT être traité comme un alias de notSelectable, R5 ne le définissant pas. `Include`, `Concept`, `ConceptMap`, `ConceptMapGroup`, `ConceptMapElement` et `ConceptMapTarget` SHALL être exportés au premier niveau de `fhir-definitions`.
+Le type `ValueSet` SHALL exposer `version: Option<Arc<str>>` (`ValueSet.version`), `includes: Vec<Include>` (chaque `Include` : `system`, `version: Option<Arc<str>>`, `concepts: Vec<Concept>`, `has_filter`, `value_sets`) et `has_exclude: bool`. Le chargeur SHALL conserver le suffixe `|version` de `binding.valueSet`, de `binding.additional[].valueSet` et de `compose.include.valueSet` (`Include.value_sets`) tel qu'écrit. Le type `CodeSystem` SHALL exposer `version: Option<Arc<str>>`, `codes: HashSet<Arc<str>>` (concepts aplatis), `not_selectable: HashSet<Arc<str>>` (codes dont la `property` notSelectable porte `valueBoolean: true`, à tout niveau) et `concepts: Vec<Concept>` (concepts aplatis dans l'ordre du document, `Concept` : `code`, `display`), et `complete: bool` (faux pour un fragment ou contenu non présent). La propriété notSelectable SHALL être identifiée par le code local que le CodeSystem déclare dans `CodeSystem.property` avec `uri` = `http://hl7.org/fhir/concept-properties#notSelectable` ; uniquement lorsqu'aucune propriété déclarée ne porte cette URI, le code `notSelectable` SHALL être utilisé en repli. Le code `abstract` SHALL NOT être traité comme un alias de notSelectable, R5 ne le définissant pas. `Include`, `Concept`, `ConceptMap`, `ConceptMapGroup`, `ConceptMapElement` et `ConceptMapTarget` SHALL être exportés au premier niveau de `fhir-definitions`.
 
 #### Scenario: Include chargé depuis compose
 
@@ -212,6 +210,11 @@ Le type `ValueSet` SHALL exposer `includes: Vec<Include>` (chaque `Include` : `s
 - **WHEN** un concept porte une `property` `abstract` avec `valueBoolean: true` et que `abstract` n'est pas déclaré dans `CodeSystem.property` avec l'URI notSelectable
 - **THEN** son code SHALL NOT figurer dans `not_selectable`
 
+#### Scenario: Version de ValueSet et références versionnées conservées
+
+- **WHEN** un ValueSet déclare `version`, ou un binding / un `compose.include.valueSet` référence `url|version`
+- **THEN** `ValueSet.version` SHALL porter la version et les références SHALL conserver leur suffixe `|version`
+
 ### Requirement: Conformité d'un type à une structure
 
 Le système SHALL fournir `Registry::conforms_to(fhir_type, url) -> Option<Option<bool>>`. `None` SHALL signaler une URL inconnue ; `Some(Some(bool))` une définition de base, `true` si et seulement si elle définit exactement `fhir_type` ; `Some(None)` un profil de contrainte, non vérifié.
@@ -228,7 +231,7 @@ Le système SHALL fournir `Registry::conforms_to(fhir_type, url) -> Option<Optio
 
 ### Requirement: Appartenance d'un code à un ValueSet
 
-Le système SHALL fournir `Registry::value_set_contains(url, system: Option<&str>, code) -> Option<bool>`. Le résultat SHALL être `Some(true)` / `Some(false)` lorsque l'appartenance est décidable depuis les définitions chargées, et `None` sinon : ValueSet ou CodeSystem inconnu, ValueSet sans `compose.include` (`compose` est 0..1 en R5) ou important un tel ValueSet, `filter`, `exclude`, CodeSystem incomplet, imports de ValueSets cycliques (profondeur limitée), ou code correspondant à un concept de `CodeSystem.not_selectable`. Avec `system == None`, le système du code est inconnu : `Some(false)` reste valable si aucun système ne contient le code, mais `Some(true)` SHALL être donné seulement si les codes du ValueSet (imports compris) viennent d'un seul système, sinon `None`. Un include dont la `version` est renseignée, différente de `"*"` et de `CodeSystem.version` SHALL NOT utiliser le CodeSystem chargé, qui est alors traité comme non chargé : un include sur le système entier SHALL donner `None`, un include énumérant ses codes SHALL décider d'après sa liste.
+Le système SHALL fournir `Registry::value_set_contains(url, system: Option<&str>, code) -> Option<bool>`. Le résultat SHALL être `Some(true)` / `Some(false)` lorsque l'appartenance est décidable depuis les définitions chargées, et `None` sinon : ValueSet ou CodeSystem inconnu, ValueSet sans `compose.include` (`compose` est 0..1 en R5) ou important un tel ValueSet, `filter`, `exclude`, CodeSystem incomplet, imports de ValueSets cycliques (profondeur limitée), ou code correspondant à un concept de `CodeSystem.not_selectable`. Avec `system == None`, le système du code est inconnu : `Some(false)` reste valable si aucun système ne contient le code, mais `Some(true)` SHALL être donné seulement si les codes du ValueSet (imports compris) viennent d'un seul système, sinon `None`. Un include dont la `version` est renseignée, différente de `"*"` et de `CodeSystem.version` SHALL NOT utiliser le CodeSystem chargé, qui est alors traité comme non chargé : un include sur le système entier SHALL donner `None`, un include énumérant ses codes SHALL décider d'après sa liste. Une référence `url|version` (argument `url`, ou `include.valueSet` importé) SHALL être lue par `Registry::value_set` : le ValueSet chargé n'est retourné que si sa `version` est égale à celle référencée, exactement (une version partielle comme `5.0` face à `5.0.0` ne correspond pas) ; une version différente ou absente donne `None`, donc un résultat indécidé, y compris par imports imbriqués. Une référence sans version se comporte comme avant.
 
 #### Scenario: Code énuméré
 
@@ -264,6 +267,16 @@ Le système SHALL fournir `Registry::value_set_contains(url, system: Option<&str
 
 - **WHEN** l'include déclare une `version` différente de `CodeSystem.version` et énumère ses codes
 - **THEN** l'appartenance SHALL être décidée d'après la liste énumérée
+
+#### Scenario: Version de ValueSet différente
+
+- **WHEN** `url|version` référence une version différente de `ValueSet.version` chargé (ou le ValueSet chargé n'a pas de version), y compris via un `include.valueSet` imbriqué
+- **THEN** `value_set_contains` SHALL retourner `None`
+
+#### Scenario: Version de ValueSet identique
+
+- **WHEN** `url|version` référence exactement `ValueSet.version` chargé
+- **THEN** l'appartenance SHALL être décidée d'après ce ValueSet
 
 ### Requirement: Registry partagé par répertoire
 
@@ -646,7 +659,7 @@ Le `Registry` SHALL charger les ressources `ConceptMap` (via `load_resource`, do
 
 ### Requirement: Énumération exacte d'un ValueSet
 
-Le système SHALL fournir `Registry::expand(vs_url) -> Option<Vec<(system, code, display)>>`, limitée à l'énumération exacte : CodeSystem complet entier ou liste de concepts, imports de ValueSets intersectés avec la profondeur limitée à 8, dédoublonnage par `(system, code)`, ordre du `compose`. Le résultat SHALL être `None` en présence de `filter`, d'`exclude`, d'un CodeSystem inconnu, incomplet ou épinglé par une `version` différente pour un include sur le système entier, d'un code `notSelectable`, d'un include dont une entrée `concept` n'a pas de `code` (indécidable), ou d'un cycle d'imports. Un CodeSystem complet énuméré SHALL être listé quelle que soit sa règle de casse (`caseSensitive`) ; seules les preuves d'absence restent limitées aux systèmes sensibles à la casse. Lorsque `compose.inactive` vaut `false`, le résultat SHALL être `None` (les concepts inactifs exclus sont indécidables car le Registry ne conserve pas le statut des concepts) ; absent ou `true`, tous les concepts sont inclus. La recherche SHALL se replier sur la base de l'overlay.
+Le système SHALL fournir `Registry::expand(vs_url) -> Option<Vec<(system, code, display)>>`, limitée à l'énumération exacte : CodeSystem complet entier ou liste de concepts, imports de ValueSets intersectés avec la profondeur limitée à 8, dédoublonnage par `(system, code)`, ordre du `compose`. Le résultat SHALL être `None` en présence de `filter`, d'`exclude`, d'un CodeSystem inconnu, incomplet ou épinglé par une `version` différente pour un include sur le système entier, d'un code `notSelectable`, d'un include dont une entrée `concept` n'a pas de `code` (indécidable), d'un cycle d'imports, ou d'une référence `url|version` (ValueSet demandé ou importé) dont la version diffère de `ValueSet.version` chargé (voir `value_set_contains`). Un CodeSystem complet énuméré SHALL être listé quelle que soit sa règle de casse (`caseSensitive`) ; seules les preuves d'absence restent limitées aux systèmes sensibles à la casse. Lorsque `compose.inactive` vaut `false`, le résultat SHALL être `None` (les concepts inactifs exclus sont indécidables car le Registry ne conserve pas le statut des concepts) ; absent ou `true`, tous les concepts sont inclus. La recherche SHALL se replier sur la base de l'overlay.
 
 #### Scenario: Liste de concepts
 
@@ -679,6 +692,11 @@ Le système SHALL fournir `Registry::expand(vs_url) -> Option<Vec<(system, code,
 - **WHEN** un ValueSet n'a aucun `compose.include` (`compose` est 0..1 en R5, ex. ValueSet à `expansion` seule), ou importe un tel ValueSet
 - **THEN** `expand` et `value_set_contains` SHALL retourner `None` (indécidé), et non `Some([])` / `Some(false)`
 
+#### Scenario: Version de ValueSet différente
+
+- **WHEN** `expand` reçoit `url|version` dont la version diffère de celle du ValueSet chargé, ou un `include.valueSet` versionné de la sorte
+- **THEN** `expand` SHALL retourner `None`
+
 ### Requirement: Traduction par ConceptMap
 
 Le système SHALL fournir `Registry::translate(cm_url, system: Option<&str>, code) -> Option<Vec<(target_system, target_code, relationship)>>`. Le résultat SHALL être `None` lorsque le résultat est incertain : ConceptMap inconnu, code sans système avec plusieurs sources de groupe, système donné avec un groupe sans source, groupe sans `target` dont un élément correspondant porte des cibles, élément ou groupe indécidé, groupe dont la `source` ou la `target` est un canonical versionné (`url|version`). Les sorties de produit SHALL NOT être retournées. La recherche SHALL se replier sur la base de l'overlay.
@@ -710,12 +728,17 @@ Le système SHALL fournir `Registry::translate(cm_url, system: Option<&str>, cod
 
 ### Requirement: Service de terminologie FHIRPath
 
-Le système SHALL implémenter `fhir_fhirpath::Terminologies` pour `Registry` (`registry/terminology_service.rs`), au-dessus de `Registry::expand`, `value_set_contains` et `translate`, sans autre logique de décision. `expand` SHALL retourner un ValueSet `{resourceType, url, expansion {total, contains[{system, code, display?}]}}` (R5 OperationDefinition `ValueSet-expand` ; `status` et `expansion.timestamp` sont omis, raccourci documenté) et `None` lorsque `Registry::expand` est indécidable. `validate_vs` SHALL retourner des `Parameters {parameter: [{name: result, valueBoolean}]}` : `true` si un des codings appartient au ValueSet, `false` si chacun des codings (au moins un) est décidé hors du ValueSet, sinon `None`. `translate` SHALL retourner des `Parameters` avec `result` (vrai ssi une correspondance a une relation autre que `not-related-to`) et un `match` par cible portant les parties `relationship` (`valueCode`) et `concept` (`valueCoding {system, code}`) ; `None` lorsque `Registry::translate` est indécidable.
+Le système SHALL implémenter `fhir_fhirpath::Terminologies` pour `Registry` (`registry/terminology_service.rs`), au-dessus de `Registry::expand`, `value_set_contains` et `translate`, sans autre logique de décision. `expand` SHALL retourner un ValueSet `{resourceType, url, version?, expansion {total, contains[{system, code, display?}]}}` (R5 OperationDefinition `ValueSet-expand` ; `status` et `expansion.timestamp` sont omis, raccourci documenté ; `url` et `version`, s'il en a un, sont ceux du ValueSet chargé, jamais la chaîne de référence `url|version`) et `None` lorsque `Registry::expand` est indécidable. `validate_vs` SHALL retourner des `Parameters {parameter: [{name: result, valueBoolean}]}` : `true` si un des codings appartient au ValueSet, `false` si chacun des codings (au moins un) est décidé hors du ValueSet, sinon `None`. `translate` SHALL retourner des `Parameters` avec `result` (vrai ssi une correspondance a une relation autre que `not-related-to`) et un `match` par cible portant les parties `relationship` (`valueCode`) et `concept` (`valueCoding {system, code}`) ; `None` lorsque `Registry::translate` est indécidable.
 
 #### Scenario: Expansion
 
 - **WHEN** `expand` est appelé pour un ValueSet énumérable
 - **THEN** le résultat SHALL être un ValueSet avec `expansion.total` et `expansion.contains`
+
+#### Scenario: Expansion par référence versionnée
+
+- **WHEN** `expand` est appelé avec `url|version` désignant un ValueSet chargé
+- **THEN** le ValueSet retourné SHALL porter l'`url` sans `|version` et la `version` du ValueSet chargé (si elle existe)
 
 #### Scenario: validateVS décidé
 

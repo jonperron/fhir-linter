@@ -44,7 +44,31 @@ pub(super) fn check_string_len(chars: usize) -> Result<(), EvalError> {
 /// `where` would skip real invariants on large collections.
 pub(super) const MAX_EVAL_STRING_CHARS: usize = 16_777_216;
 
+/// Most steps one evaluation may take: each expression node evaluated, and
+/// each chain step, costs one plus the length of its result. The collection
+/// and string caps leave quadratic work open (`aggregate($total.combine($this))`
+/// over 100,000 items clones 5e9 values); expressions from supplied
+/// StructureDefinitions are untrusted. A chain result is charged by the step
+/// and by the enclosing node, so a value read through a chain costs about two.
+/// shortcut: work inside one builtin call (scanning a long String, comparing
+/// values with no hash key in `distinct` or `union`) is not charged, only
+/// bounded per call by the collection and string caps; charge it per builtin
+/// if such inputs show up.
+pub(super) const MAX_EVAL_STEPS: usize = 10_000_000;
+
 impl Evaluator<'_> {
+    /// Check `len` against [`MAX_COLLECTION_LEN`] and charge one step plus
+    /// `len` against [`MAX_EVAL_STEPS`]; `StepBudgetExceeded` once past it.
+    pub(super) fn charge_result(&self, len: usize) -> Result<(), EvalError> {
+        check_collection_len(len)?;
+        let used = self.steps.get().saturating_add(len).saturating_add(1);
+        self.steps.set(used);
+        if used > MAX_EVAL_STEPS {
+            return Err(EvalError::StepBudgetExceeded(MAX_EVAL_STEPS));
+        }
+        Ok(())
+    }
+
     /// Count `chars` newly built characters against
     /// [`MAX_EVAL_STRING_CHARS`]; `StringBudgetExceeded` once past it.
     pub(super) fn charge_chars(&self, chars: usize) -> Result<(), EvalError> {
