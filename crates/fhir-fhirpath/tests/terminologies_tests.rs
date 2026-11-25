@@ -135,6 +135,9 @@ fn empty_multiple_or_invalid_parameters_give_empty() -> TestResult {
         format!("%terminologies.validateVS('{GENDER}', communication.language.coding)"),
         format!("%terminologies.translate('{ADDRESS_USE_V2}', maritalStatus)"),
         "%terminologies.expand(1)".to_owned(),
+        // A resource of another type is not a ValueSet (a ConceptMap for translate).
+        "%terminologies.expand(%resource)".to_owned(),
+        format!("%terminologies.translate(%resource, '{GENDER}')"),
         format!("%terminologies.expand('{GENDER}', 1)"),
     ] {
         assert_eq!(eval(&expression)?, [], "{expression}");
@@ -167,8 +170,22 @@ fn an_unset_or_undecided_service_is_an_error() {
     // include.filter: the Registry cannot enumerate it.
     assert!(eval("%terminologies.expand('http://hl7.org/fhir/ValueSet/example-filter')").is_err());
     assert!(eval("%terminologies.expand('http://hl7.org/fhir/ValueSet/no-such')").is_err());
-    // An actual resource is not looked up by its url.
-    assert!(eval("%terminologies.expand(%resource)").is_err());
+    // An actual ValueSet is valid but not answered: the hook only reads a URL.
+    let value_set = Value::object(
+        "ValueSet",
+        vec![("status", vec![Value::String("draft".into())])],
+    );
+    let environment = Environment {
+        terminologies: Some(registry()),
+        ..Environment::default()
+    };
+    let inline = evaluate_parsed_with_environment(
+        &parse("%terminologies.expand($this)").unwrap(),
+        &[value_set],
+        &|base, suffix| registry().is_choice_variant(base, suffix),
+        &environment,
+    );
+    assert!(inline.is_err());
 }
 
 #[test]
@@ -179,4 +196,47 @@ fn other_functions_and_redefinition_are_errors() {
     ));
     assert!(eval("defineVariable('terminologies', 1).select(%terminologies)").is_err());
     assert!(eval(&format!("%terminologies.expand('{GENDER}', '', '')")).is_err());
+}
+
+/// The output shapes follow the loaded R5 definitions: every field a result
+/// carries is declared on its type, with the declared FHIR type.
+fn assert_shape(registry: &Registry, parent: &str, value: &Value) {
+    let Value::Object(fields, _) = value.primitive_value() else {
+        return;
+    };
+    for (name, collection) in fields.iter().filter(|(n, _)| &***n != "resourceType") {
+        let (definition, fhir_type) = registry
+            .child_element(parent, name)
+            .unwrap_or_else(|| panic!("{parent}.{name} is not declared"));
+        for item in collection {
+            match item {
+                Value::Primitive(_, _, Some(declared)) => {
+                    assert_eq!(**declared, *fhir_type, "{parent}.{name}");
+                }
+                Value::Object(..) => assert_shape(registry, &definition, item),
+                _ => {}
+            }
+        }
+    }
+}
+
+#[test]
+fn results_match_the_declared_r5_shapes() -> TestResult {
+    let registry = registry();
+    for (root, expression) in [
+        ("ValueSet", format!("%terminologies.expand('{GENDER}')")),
+        (
+            "Parameters",
+            format!("%terminologies.validateVS('{GENDER}', gender)"),
+        ),
+        (
+            "Parameters",
+            format!("%terminologies.translate('{ADDRESS_USE_V2}', address.use)"),
+        ),
+    ] {
+        let result = eval(&expression)?;
+        assert_eq!(result.len(), 1, "{expression}");
+        assert_shape(registry, root, &result[0]);
+    }
+    Ok(())
 }

@@ -1136,7 +1136,7 @@ Dans un paramètre d'expression (`where`, `select`, `exists`, `all`, `repeat`, `
 
 ### Requirement: %terminologies
 
-Le système SHALL implémenter `%terminologies` (R5 fhirpath.html §2.1.9.4, Terminology Service API) via `Environment.terminologies`, avec les fonctions `expand(valueSet[, params])`, `validateVS(valueSet, coded[, params])` et `translate(conceptMap, coded[, params])`, qui délèguent à `Terminologies::expand`, `validate_vs` et `translate`. Une valeur vide, une collection de plus d'une valeur ou un argument non valide SHALL donner une collection vide (« All these functions return an empty value if any of the parameters are empty, or a collection with more than one value, or one or more of the parameters are not valid »). `coded` est un élément `code`, un Coding ou (`validateVS` seulement) un CodeableConcept ayant au moins un coding ; une `String` simple, ou un Coding dont le `system`, s'il est présent, n'est pas une chaîne, n'est pas valide. Les résultats sont des ressources FHIR typées construites par `Value::object(fhir_type, fields)` (qui omet les champs vides) et `Value::fhir_string(text, fhir_type)`. Le système SHALL retourner `Err(EvalError::Type(...))`, sans jamais deviner, pour : `Environment.terminologies` non défini, réponse indécidable (le service retourne `None`), `params` non vide (la chaîne vide est acceptée), ressource ValueSet ou ConceptMap en ligne comme premier argument. Les autres noms (`lookup`, `validateCS`, `subsumes`) SHALL produire `EvalError::UndefinedFunction`. Le validateur ne branche pas encore ce service (`terminologies: None`) : `%terminologies` n'y est pas pris en charge et l'invariant est `INVARIANT_SKIPPED`.
+Le système SHALL implémenter `%terminologies` (R5 fhirpath.html §2.1.9.4, Terminology Service API) via `Environment.terminologies`, avec les fonctions `expand(valueSet[, params])`, `validateVS(valueSet, coded[, params])` et `translate(conceptMap, coded[, params])`, qui délèguent à `Terminologies::expand`, `validate_vs` et `translate`. Une valeur vide, une collection de plus d'une valeur ou un argument non valide SHALL donner une collection vide (« All these functions return an empty value if any of the parameters are empty, or a collection with more than one value, or one or more of the parameters are not valid »). `coded` est un élément `code`, un Coding ou (`validateVS` seulement) un CodeableConcept ayant au moins un coding ; une `String` simple, ou un Coding dont le `system`, s'il est présent, n'est pas une chaîne, n'est pas valide. Les résultats sont des ressources FHIR typées construites par `Value::object(fhir_type, fields)` (qui omet les champs vides) et `Value::fhir_string(text, fhir_type)`. Le système SHALL retourner `Err(EvalError::Type(...))`, sans jamais deviner, pour : `Environment.terminologies` non défini, réponse indécidable (le service retourne `None`), `params` non vide (la chaîne vide est acceptée), ressource en ligne du bon type comme premier argument (ValueSet pour `expand` et `validateVS`, ConceptMap pour `translate` : valide, mais seule une URL canonique est prise en charge). Une ressource d'un autre type (autre que ValueSet, ou autre que ConceptMap pour `translate`) comme premier argument n'est pas valide et SHALL donner une collection vide. Les autres noms (`lookup`, `validateCS`, `subsumes`) SHALL produire `EvalError::UndefinedFunction`. Le validateur ne branche pas encore ce service (`terminologies: None`) : `%terminologies` n'y est pas pris en charge et l'invariant est `INVARIANT_SKIPPED`.
 
 #### Scenario: Argument vide ou multiple
 
@@ -1155,8 +1155,13 @@ Le système SHALL implémenter `%terminologies` (R5 fhirpath.html §2.1.9.4, Ter
 
 #### Scenario: Paramètres ou ressource en ligne
 
-- **WHEN** `params` est non vide, ou le premier argument est une ressource ValueSet ou ConceptMap en ligne
+- **WHEN** `params` est non vide, ou le premier argument est une ressource ValueSet en ligne (ConceptMap pour `translate`)
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))`
+
+#### Scenario: Ressource d'un autre type
+
+- **WHEN** le premier argument est une ressource qui n'est pas un ValueSet (ou pas un ConceptMap pour `translate`), par exemple `%terminologies.expand(%resource)` sur un Patient
+- **THEN** le résultat SHALL être une collection vide
 
 #### Scenario: Fonction non définie
 

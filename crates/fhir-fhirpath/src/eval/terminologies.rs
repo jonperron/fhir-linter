@@ -69,10 +69,17 @@ impl Evaluator<'_> {
                 _ => return Ok(vec![]),
             }
         }
+        let wanted = if name == "translate" {
+            "ConceptMap"
+        } else {
+            "ValueSet"
+        };
         let url = match values[0].primitive_value() {
             Value::String(url) => Arc::clone(url),
-            // fhirpath.html also takes "an actual ValueSet" (or ConceptMap).
-            Value::Object(fields, _) if fields.contains_key("resourceType") => {
+            // fhirpath.html also takes "an actual ValueSet" (or ConceptMap): the
+            // hook only reads a canonical URL, so that one is not answered. Any
+            // other resource is "not valid", hence empty.
+            Value::Object(_, Some(resource_type)) if **resource_type == *wanted => {
                 return Err(undecided(
                     "only a canonical URL is supported, not a resource",
                 ));
