@@ -36,16 +36,38 @@ The first call for a directory loads the definitions, which takes a few
 seconds; later calls in the same process reuse them. Both functions release
 the GIL, so they can run from several threads.
 
-`definitions_dir` is read from disk: only pass paths you trust.
+`definitions_dir` and `extra_definitions` are read from disk: only pass paths
+you trust.
+
+## Extra definitions
+
+Both functions take `extra_definitions=`, a list of paths (`str` or
+`pathlib.Path`) to your own conformance resources: profiles
+(StructureDefinitions with `derivation = constraint` and a snapshot), value
+sets, code systems and concept maps. Each path is a `.json` file holding one
+resource or a Bundle, or a directory whose `*.json` files are read (not
+recursively). They are layered on the R5 definitions for that call only and
+reloaded on every call: nothing is cached.
+
+```python
+diagnostics = fhir_linter.validate(
+    resource_json,
+    extra_definitions=["profiles/", "terminology/bundle.json"],
+)
+```
+
+A resource that declares a supplied profile in `meta.profile` is then checked
+against it. Lint rules read only the core resource types, so supplied
+definitions do not change `lint()` output, but load errors are still raised.
 
 ## API
 
-### `validate(json, definitions_dir=None) -> list[Diagnostic]`
+### `validate(json, definitions_dir=None, extra_definitions=None) -> list[Diagnostic]`
 
 Checks structure, cardinality, types, terminology and invariants (FHIRPath)
 against the R5 definitions.
 
-### `lint(json, config_toml=None, definitions_dir=None) -> list[Diagnostic]`
+### `lint(json, config_toml=None, definitions_dir=None, extra_definitions=None) -> list[Diagnostic]`
 
 Runs the lint rules. `config_toml` is the **content** of a `fhir-linter.toml`
 file, not a path:
@@ -98,4 +120,7 @@ bytes instead: `resource_json.encode()[d.offset:]`. `line`, `col` and
 ## Errors
 
 - `ValueError`: unparsable JSON, invalid lint config, unknown rule, no definitions.
-- `RuntimeError`: the definitions directory cannot be loaded.
+- `RuntimeError`: the definitions directory cannot be loaded, or an extra
+  definition cannot (missing path, malformed JSON, a canonical URL already
+  defined, a specialization, a size limit). The message names the file, never
+  its content.
