@@ -7,3 +7,4 @@
 ## 2. Specs
 
 - [x] 2.1 Sync registry and validator specs
+- [x] 2.2 Sync TERMINOLOGY_003 versioned system and `%terminologies.expand` url/version

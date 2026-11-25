@@ -1625,7 +1625,7 @@ Un élément complexe vide (`<name/>` en XML, `"name": [{}]` en JSON) SHALL êtr
 
 ### Requirement: Validation terminologique — system désignant un ValueSet (TERMINOLOGY_003)
 
-Le système SHALL émettre un Diagnostic de sévérité error `TERMINOLOGY_003`, au `path` du `system`, lorsque `Coding.system` (lié ou non, à toute profondeur) ou `ValueSet.compose.include.system` / `ValueSet.compose.exclude.system` est l'URL canonique d'un ValueSet chargé dans le Registry. Une URI inconnue du Registry SHALL NOT être signalée.
+Le système SHALL émettre un Diagnostic de sévérité error `TERMINOLOGY_003`, au `path` du `system`, lorsque `Coding.system` (lié ou non, à toute profondeur) ou `ValueSet.compose.include.system` / `ValueSet.compose.exclude.system` est l'URL canonique d'un ValueSet chargé dans le Registry, avec ou sans suffixe `|version` (le suffixe est ignoré pour cette vérification : un `url|version` est signalé quelle que soit la version). Une URI inconnue du Registry SHALL NOT être signalée.
 
 #### Scenario: Coding.system est un ValueSet
 
@@ -1636,6 +1636,11 @@ Le système SHALL émettre un Diagnostic de sévérité error `TERMINOLOGY_003`,
 
 - **WHEN** `ValueSet.compose.include.system` ou `exclude.system` est l'URL canonique d'un ValueSet du Registry
 - **THEN** un Diagnostic d'erreur `TERMINOLOGY_003` SHALL être émis au `path` de ce `system`
+
+#### Scenario: system versionné d'un ValueSet
+
+- **WHEN** le `system` est `url|version` où `url` est celle d'un ValueSet chargé, quelle que soit la `version`
+- **THEN** un Diagnostic d'erreur `TERMINOLOGY_003` SHALL être émis au `path` du `system`
 
 #### Scenario: system inconnu
 

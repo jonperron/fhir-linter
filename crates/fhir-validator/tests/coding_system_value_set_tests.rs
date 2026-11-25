@@ -48,6 +48,19 @@ fn coding_system_naming_a_value_set_is_an_error_in_json() {
 }
 
 #[test]
+fn versioned_coding_system_naming_a_value_set_is_an_error_at_any_version() {
+    // A versioned canonical still names the ValueSet, whatever version is loaded.
+    for version in ["5.0.0", "9.9"] {
+        let system = format!("http://hl7.org/fhir/ValueSet/account-type|{version}");
+        assert_eq!(
+            findings(&basic(&system)),
+            vec![(Severity::Error, "Basic.code.coding[0].system".to_owned())],
+            "{version}"
+        );
+    }
+}
+
+#[test]
 fn coding_system_naming_a_value_set_is_an_error_in_xml() {
     let resource = official("code-wrong-system-vs.xml");
     assert_eq!(

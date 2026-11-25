@@ -88,7 +88,9 @@ fn check_system_is_code_system(
     };
     // shortcut: a URL that is both a ValueSet and a CodeSystem would be reported; the R5
     // bundle has none, add a CodeSystem lookup if a loaded package ever does.
-    if registry.value_set(system).is_none() {
+    // Any version of a ValueSet canonical still names a ValueSet.
+    let url = system.split_once('|').map_or(&**system, |(url, _)| url);
+    if registry.value_set(url).is_none() {
         return;
     }
     let message = format!("'{system}' at '{path}' is a ValueSet, not a code system");

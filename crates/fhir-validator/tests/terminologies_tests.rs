@@ -126,6 +126,15 @@ fn expansion_lacking_the_code_fails() -> TestResult {
 }
 
 #[test]
+fn versioned_expansion_names_the_loaded_url_and_version() -> TestResult {
+    let expression = format!(
+        "%terminologies.expand('{GENDER}|5.0.0').select(url = '{GENDER}' and version = '5.0.0')"
+    );
+    assert!(diagnostics("expand-versioned", &expression)?.is_empty());
+    Ok(())
+}
+
+#[test]
 fn undecided_answer_is_skipped() -> TestResult {
     let filtered = validate_value_set("http://hl7.org/fhir/ValueSet/example-filter");
     assert_eq!(
