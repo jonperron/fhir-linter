@@ -366,7 +366,9 @@ fn parse_value_set(resource: &Value) -> Option<ValueSet> {
         .as_array()
         .map(|list| list.iter().map(parse_include).collect())
         .unwrap_or_default();
-    let has_exclude = compose["exclude"].as_array().is_some_and(|e| !e.is_empty());
+    // `inactive = false` drops inactive codes, and no concept status is kept: undecidable.
+    let has_exclude = compose["exclude"].as_array().is_some_and(|e| !e.is_empty())
+        || compose["inactive"].as_bool() == Some(false);
     Some(ValueSet {
         url,
         name,
