@@ -105,6 +105,45 @@ fn choice_type_removed_by_the_profile_is_an_error() -> TestResult {
 }
 
 #[test]
+fn choice_type_removed_by_the_profile_is_an_error_through_its_extension() -> TestResult {
+    let registry = overlay(
+        "removed-extension",
+        core_constraint("Observation", quantity_only)?,
+    )?;
+    let extension = json!({"extension": [{"url": "http://example.org/x", "valueBoolean": true}]});
+    let found = diagnostics(observation(("_valueString", extension)), &registry)?;
+    assert!(
+        found.contains(&"STRUCTURE_001 Observation.valueString".to_owned()),
+        "{found:?}",
+    );
+    Ok(())
+}
+
+#[test]
+fn choice_without_profile_types_keeps_every_variant() -> TestResult {
+    let profile = core_constraint("Observation", |sd| {
+        let value = element(sd, "Observation.value[x]")?;
+        value
+            .as_object_mut()
+            .ok_or("element is not an object")?
+            .remove("type");
+        value["fixedString"] = json!("fixed");
+        Ok(())
+    })?;
+    let registry = overlay("untyped-choice", profile)?;
+    let found = diagnostics(observation(("valueString", json!("other"))), &registry)?;
+    assert!(
+        found.contains(&"PROFILE_004 Observation.valueString".to_owned()),
+        "{found:?}",
+    );
+    assert!(
+        !found.iter().any(|d| d.starts_with("STRUCTURE_001")),
+        "{found:?}",
+    );
+    Ok(())
+}
+
+#[test]
 fn choice_type_kept_by_the_profile_is_accepted() -> TestResult {
     let registry = overlay(
         "kept-choice",
