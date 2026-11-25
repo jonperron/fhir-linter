@@ -3,6 +3,7 @@ use fhir_fhirpath::{Environment, Value as FhirPathValue};
 use fhir_parser::{Node, Resource, Span, Value};
 use indexmap::IndexMap;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::cardinality::{check_run_cardinality, own_descendants, subtree, without_own_slices};
@@ -11,7 +12,7 @@ use crate::fixed_pattern::{self, occurrences};
 use crate::invariants;
 use crate::resolve::{canonical_parts, complex_type};
 use crate::slicing::{self, Assigned, Item};
-use fhir_definitions::capitalise;
+use fhir_definitions::{capitalise, is_primitive_type};
 
 /// Validate the profiles declared in `meta.profile`.
 ///
@@ -22,13 +23,16 @@ use fhir_definitions::capitalise;
 /// validated against; a profile supplied without a snapshot (`Registry::needs_snapshot`) gives
 /// a `PROFILE_010` error. A `|version` other than the loaded definition's gives a
 /// `PROFILE_003` warning.
-/// `resource_path` is the resource's instance path.
+/// `resource_path` is the resource's instance path; findings the base check of this resource
+/// made (from `start`) are not reported twice.
+#[allow(clippy::too_many_arguments)] // the resource, its definition, its place and the output
 pub fn validate(
     resource: &Resource,
     base: &StructureDefinition,
     registry: &Registry,
     environment: &Environment<'_>,
     resource_path: &str,
+    start: usize,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let layer = Layer {
@@ -67,9 +71,11 @@ pub fn validate(
         if let Some(warning) = version_mismatch(url, version, sd, &path) {
             diagnostics.push(warning.with_location(node.span));
         }
-        let profile_type = sd.snapshot.first().map(|e| e.path.as_ref());
-        // Profiles on abstract parents (e.g. DomainResource) apply to every subtype.
-        if profile_type != Some(resource_type) && !sd.is_abstract {
+        // A profile on an ancestor type (e.g. DomainResource) applies to every subtype.
+        let profile_type = sd.snapshot.first().map(|e| e.path.as_ref()).filter(|&t| {
+            t == resource_type || registry.type_ancestors(resource_type).any(|a| a == t)
+        });
+        let Some(profile_type) = profile_type else {
             diagnostics.push(
                 Diagnostic::error(
                     "PROFILE_002",
@@ -78,7 +84,9 @@ pub fn validate(
                 )
                 .with_location(node.span),
             );
-        } else if sd.url != base.url {
+            continue;
+        };
+        if sd.url != base.url {
             // Keep only findings the base check did not already report.
             let mut found = Vec::new();
             if let (Some(root), Some(value)) = (sd.snapshot.first(), environment.resource) {
@@ -95,17 +103,17 @@ pub fn validate(
             check_profile_object(
                 &resource.fields,
                 sd,
-                own_descendants(sd, resource_type),
-                resource_type,
+                own_descendants(sd, profile_type),
+                profile_type,
                 resource_path,
                 layer,
                 &mut found,
             );
-            found.retain(|f| {
-                !diagnostics
-                    .iter()
-                    .any(|d| d.code == f.code && d.path == f.path)
-            });
+            let reported: HashSet<(&str, &str)> = diagnostics[start..]
+                .iter()
+                .map(|d| (d.code.as_ref(), d.path.as_ref()))
+                .collect();
+            found.retain(|f| !reported.contains(&(f.code.as_ref(), f.path.as_ref())));
             diagnostics.extend(found);
         }
     }
@@ -208,19 +216,41 @@ pub(crate) fn check_profile_object(
                 // Every variant the base element allows is an item of the slicing; the rules
                 // below apply to the variants the profile keeps.
                 let types = choice_types(elem, layer.registry);
+                let variant = |key: &str| {
+                    let suffix = key.strip_prefix(base)?;
+                    let ty = types.iter().find(|t| capitalise(t) == suffix)?;
+                    Some(ty.as_ref())
+                };
                 let variants: Vec<(&Arc<str>, &Node, &str)> = fields
                     .iter()
-                    .filter_map(|(key, node)| {
-                        let suffix = key.strip_prefix(base)?;
-                        let ty = types.iter().find(|t| capitalise(t) == suffix)?;
-                        Some((key, node, ty.as_ref()))
-                    })
+                    .filter_map(|(key, node)| Some((key, node, variant(key)?)))
                     .collect();
-                let present = variants
-                    .iter()
-                    .filter(|(_, _, ty)| elem.types.iter().any(|t| &**t == *ty))
-                    .map(|&(key, node, _)| (key, node))
-                    .collect();
+                // A profile element without types keeps every type of the base.
+                let kept =
+                    |ty: &str| elem.types.is_empty() || elem.types.iter().any(|t| &**t == ty);
+                // An instance using a type the profile removed does not conform to it; a
+                // primitive variant can be present through its `_` extension alone.
+                diagnostics.extend(fields.iter().filter_map(|(key, node)| {
+                    let name = key.strip_prefix('_').unwrap_or(key);
+                    let ty = variant(name).filter(|&ty| !kept(ty))?;
+                    let alone = is_primitive_type(ty) && !fields.contains_key(name);
+                    if name.len() < key.len() && !alone {
+                        return None;
+                    }
+                    let name_path = format!("{path}.{name}");
+                    let message = format!(
+                        "Element '{name_path}' is not allowed by profile '{}': type '{ty}' is \
+                         not one of the types of '{}'",
+                        sd.url, elem.path,
+                    );
+                    Some(
+                        Diagnostic::error("STRUCTURE_001", message, name_path)
+                            .with_location(node.span),
+                    )
+                }));
+                let present: Vec<_> = variants.iter().filter(|(_, _, ty)| kept(ty)).collect();
+                let present = present.iter().map(|&&(key, node, _)| (key, node)).collect();
+                // Removed variants with a value stay slicing items, so the slicing rules still see them.
                 let items = variants
                     .iter()
                     .map(|&(key, node, ty)| Item {

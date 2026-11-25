@@ -908,7 +908,7 @@ Une référence canonique `url|version` SHALL être séparée en l'URL (clé du 
 
 ### Requirement: Validation de profil — type incompatible (PROFILE_002) et cardinalité du profil
 
-Le système SHALL émettre `PROFILE_002` (erreur) lorsqu'un profil connu de `meta.profile` s'applique à un autre type de ressource que celui de la ressource, sauf si le profil porte sur un parent abstrait (ex. `DomainResource`). Pour un profil connu compatible et distinct de la définition de base, les règles de cardinalité du profil SHALL être appliquées ; les constats déjà rapportés par la validation de base (même code et même `path`) SHALL être dédupliqués. Les profils connus de `meta.profile` SHALL être appliqués à tous les niveaux (cardinalité des enfants, `fixed[x]`, `pattern[x]`, slices par valeur) et pas seulement à la racine ; un `<profile>` XML unique (scalaire après la remise en forme XML) SHALL être accepté comme un tableau d'un élément. Les éléments du snapshot du profil portant un `sliceName` SHALL être ignorés par la vérification de cardinalité ; l'élément répétitif de base reste vérifié, et les enfants d'une slice ne comptent jamais comme enfants de l'élément découpé.
+Le système SHALL émettre `PROFILE_002` (erreur) lorsqu'un profil connu de `meta.profile` s'applique à un autre type de ressource que celui de la ressource, sauf si le type racine du profil (chemin du premier élément du snapshot) est le type de la ressource ou l'un de ses ancêtres (`Registry::type_ancestors`, via `baseDefinition` : ex. `DomainResource` et `Resource` pour `Patient`), que le profil soit `abstract` ou non. Un profil sur un type ancêtre est parcouru depuis son propre chemin racine (ex. `DomainResource.text` `min` 1 donne `CARDINALITY_001` à `Patient.text`). Pour un profil connu compatible et distinct de la définition de base, les règles de cardinalité du profil SHALL être appliquées ; les constats déjà rapportés par la validation de base (même code et même `path`) SHALL être dédupliqués ; la déduplication ne compare qu'aux diagnostics de la même ressource (son parcours de base), jamais à ceux des autres entrées d'un Bundle. Pour un élément de choix `[x]` d'un profil de `meta.profile` (ou `type.profile`), à tous les niveaux, une variante présente dont le type est permis par la base mais absent des types de l'élément du profil SHALL produire `STRUCTURE_001` (erreur) au chemin d'instance de la variante (ex. `Observation.valueString`), message `Element '<path>' is not allowed by profile '<url>': type '<type>' is not one of the types of '<element path>'` ; un élément de choix du profil sans aucun type conserve tous les types de la base : toutes ses variantes sont vérifiées contre les règles du profil (`fixed[x]`, `pattern[x]`, enfants) et aucun `STRUCTURE_001` n'est émis. Un type primitif retiré présent uniquement par son extension `_` (ex. `_valueString` sans `valueString`) SHALL aussi produire `STRUCTURE_001`, au chemin de la variante sans `_` (`Observation.valueString`) ; si les deux clés sont présentes, il n'est signalé qu'une fois ; les clés `_` des types complexes ne sont pas considérées. Les variantes retirées portant une valeur restent des items de slicing. Les profils connus de `meta.profile` SHALL être appliqués à tous les niveaux (cardinalité des enfants, `fixed[x]`, `pattern[x]`, slices par valeur) et pas seulement à la racine ; un `<profile>` XML unique (scalaire après la remise en forme XML) SHALL être accepté comme un tableau d'un élément. Les éléments du snapshot du profil portant un `sliceName` SHALL être ignorés par la vérification de cardinalité ; l'élément répétitif de base reste vérifié, et les enfants d'une slice ne comptent jamais comme enfants de l'élément découpé.
 
 Les contraintes (invariants FHIRPath) des profils de `meta.profile` SHALL aussi être évaluées, à tous les niveaux (racine, ressources `contained`, entrées de Bundle) : celles de la racine du profil sur la ressource, et celles de chaque élément du profil sur chaque item qu'il désigne (variantes de choix `[x]` conservées par le profil, occurrences de tableau, enfants de slice, éléments `contentReference` traités comme backbone). Une contrainte (même clé et même expression) déjà portée par l'élément de base du noyau au même chemin ou par la racine du type de l'item SHALL être ignorée (le parcours de base l'évalue) et un constat de même code et même `path` déjà rapporté SHALL être écarté, de sorte qu'une contrainte héritée ne soit rapportée qu'une fois. Les diagnostics sont `INVARIANT_<key>` (erreur, ou warning si la sévérité de la contrainte est warning) au chemin du nœud, ou `INVARIANT_SKIPPED` (information) si la contrainte n'est pas évaluable ; l'évaluation utilise l'environnement FHIRPath de la ressource (`%resource`, `%rootResource`, `is_subtype`).
 
@@ -927,10 +927,32 @@ Les contraintes (invariants FHIRPath) des profils de `meta.profile` SHALL aussi 
 - **WHEN** une ressource `Patient` déclare un profil dont le type est `Observation`
 - **THEN** un Diagnostic `PROFILE_002` SHALL être émis
 
-#### Scenario: Profil sur parent abstrait
+#### Scenario: Profil sur un type ancêtre
 
-- **WHEN** le profil est défini sur un type abstrait (ex. `DomainResource`)
+- **WHEN** le type racine du profil est un ancêtre du type de la ressource (ex. `DomainResource` pour un `Patient`)
 - **THEN** aucun `PROFILE_002` SHALL être émis
+
+#### Scenario: Profil abstract d'un autre type
+
+- **WHEN** un `Patient` déclare un profil `abstract: true` de type `Observation`
+- **THEN** `PROFILE_002` SHALL être émis et aucune règle d'`Observation` SHALL être appliquée
+
+#### Scenario: Profil de contraintes non abstract sur DomainResource
+
+- **WHEN** un profil non `abstract` sur `DomainResource` est appliqué à un `Patient`
+- **THEN** aucun `PROFILE_002` SHALL être émis et ses règles d'élément SHALL s'appliquer aux chemins du `Patient` (`DomainResource.text` `min` 1 donne `CARDINALITY_001` à `Patient.text`)
+
+#### Scenario: Profil DomainResource sur un Bundle
+
+- **WHEN** un profil sur `DomainResource` est déclaré par un `Bundle` (qui dérive de `Resource`)
+- **THEN** `PROFILE_002` SHALL être émis
+
+#### Scenario: Variante de choix retirée par le profil
+
+- **WHEN** un profil limite `Observation.value[x]` à `Quantity` et l'instance porte `valueString`
+- **THEN** `STRUCTURE_001` SHALL être émis à `Observation.valueString`, et aucun constat pour `valueQuantity`
+- **WHEN** l'instance porte `_valueString` sans `valueString`
+- **THEN** `STRUCTURE_001` SHALL être émis à `Observation.valueString`, une seule fois
 
 #### Scenario: Cardinalité du profil dédupliquée
 
