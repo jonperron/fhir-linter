@@ -54,7 +54,8 @@ pub(crate) fn check_type(
                     extensions.get(i).map(|e| &e.value),
                     Some(Value::Object(fields)) if !fields.is_empty()
                 );
-            if placeholder {
+            // An array in an array is `STRUCTURE_002` (JSON) and holds no value to check.
+            if placeholder || matches!(item.value, Value::Array(_)) {
                 continue;
             }
             let item_path = format!("{path}[{i}]");

@@ -52,7 +52,12 @@ pub(crate) fn check_run_cardinality(
             }
             continue;
         }
-        check_cardinality(elem, node, &format!("{path}.{rest}"), diagnostics);
+        let primitive = elem.types.first().is_some_and(|t| is_primitive_type(t));
+        let extension = primitive
+            .then(|| fields.get(format!("_{rest}").as_str()))
+            .flatten();
+        let path = format!("{path}.{rest}");
+        check_cardinality(elem, node, extension, &path, diagnostics);
     }
 }
 
@@ -70,30 +75,32 @@ fn check_choice(
     path: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let variants: Vec<(&str, &Node)> = fields
+    let variants: Vec<(&str, &Node, bool)> = fields
         .iter()
         .filter_map(|(key, node)| {
             let name = key.strip_prefix('_');
             let bare = name.unwrap_or(key);
             let (e, ty) = resolve(sd, &format!("{prefix}{bare}"), bare)?;
             // A `_variant` beside its value is the same variant, counted once via the value.
-            let extension_only = name.is_none_or(|n| {
-                !fields.contains_key(n)
-                    && ty.as_deref().is_some_and(is_primitive_type)
-                    && is_extension_shape(node)
-            });
-            (e.path == elem.path && extension_only).then_some((bare, node))
+            let primitive = ty.as_deref().is_some_and(is_primitive_type);
+            let extension_only = name
+                .is_none_or(|n| !fields.contains_key(n) && primitive && is_extension_shape(node));
+            (e.path == elem.path && extension_only).then_some((bare, node, primitive))
         })
         .collect();
     match variants.as_slice() {
         [] => {
             let choice_path = format!("{path}.{}", elem.path.strip_prefix(prefix).unwrap_or(""));
-            check_cardinality(elem, None, &choice_path, diagnostics);
+            check_cardinality(elem, None, None, &choice_path, diagnostics);
         }
-        [(name, node)] => {
-            check_cardinality(elem, Some(node), &format!("{path}.{name}"), diagnostics)
+        [(name, node, primitive)] => {
+            let extension = primitive
+                .then(|| fields.get(format!("_{name}").as_str()))
+                .flatten();
+            let variant_path = format!("{path}.{name}");
+            check_cardinality(elem, Some(node), extension, &variant_path, diagnostics)
         }
-        [(first, _), (second, node), ..] => {
+        [(first, ..), (second, node, _), ..] => {
             let second_path = format!("{path}.{second}");
             diagnostics.push(
                 Diagnostic::error(
@@ -201,11 +208,13 @@ fn is_extension_shape(node: &Node) -> bool {
     }
 }
 
-/// Emit `CARDINALITY_001` when a required element is absent and `CARDINALITY_002`
-/// when it holds more values than a finite maximum.
+/// Emit `CARDINALITY_001` when a required element is absent or holds fewer values than
+/// its `min`, and `CARDINALITY_002` when it holds more values than a finite maximum.
+/// `extension` is the primitive's `_name`, whose objects stand in for null values.
 fn check_cardinality(
     elem: &ElementDefinition,
     node: Option<&Node>,
+    extension: Option<&Node>,
     path: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -219,6 +228,18 @@ fn check_cardinality(
         }
         return;
     };
+    let min = elem.min as usize;
+    let present = value_count(node, extension);
+    if present < min {
+        diagnostics.push(
+            Diagnostic::error(
+                "CARDINALITY_001",
+                format!("Element '{path}' has {present} value(s) but minimum is {min}"),
+                path.to_owned(),
+            )
+            .with_location(node.span),
+        );
+    }
     let Ok(max) = elem.max.parse::<usize>() else {
         return;
     };
@@ -237,4 +258,28 @@ fn check_cardinality(
             .with_location(node.span),
         );
     }
+}
+
+/// The values `node` holds (ElementDefinition.min counts appearances): its items other than
+/// null or a nested array (`STRUCTURE_002`), a null item counting when the `_name` object at
+/// its index stands in for it (json.html: the two arrays align, so extras pair with nothing).
+fn value_count(node: &Node, extension: Option<&Node>) -> usize {
+    fn items(node: &Node) -> &[Node] {
+        match &node.value {
+            Value::Array(items) => items,
+            _ => std::slice::from_ref(node),
+        }
+    }
+    let extensions = extension.map_or(&[][..], items);
+    items(node)
+        .iter()
+        .enumerate()
+        .filter(|(i, item)| match item.value {
+            Value::Null => extensions
+                .get(*i)
+                .is_some_and(|n| matches!(n.value, Value::Object(_))),
+            Value::Array(_) => false,
+            _ => true,
+        })
+        .count()
 }
