@@ -947,7 +947,7 @@ Le système SHALL exposer `EvalError` couvrant toutes les erreurs d'exécution p
 #### Scenario: Variantes d'EvalError
 
 - **WHEN** une erreur se produit à l'évaluation
-- **THEN** `EvalError` SHALL avoir les variantes : `Type(String)` (erreur de type), `UndefinedFunction(String)` (fonction inconnue), `Arity { name, expected, got }` (mauvais nombre d'arguments), `DivisionByZero` (conservée pour la compatibilité de l'enum public mais plus jamais produite, la division par zéro donnant une collection vide), `Parse(ParseError)` (erreur de parse propagée), `CollectionTooLarge(usize)` (collection intermédiaire au-delà de `MAX_COLLECTION_LEN`, message « collection larger than 100000 items »), `StringTooLong(usize)` (chaîne construite au-delà de `MAX_STRING_LEN`, le champ portant la limite et non la longueur réelle, message « string longer than 1048576 characters »), `StringBudgetExceeded(usize)` (budget total de caractères de chaînes d'une évaluation dépassé, le champ portant la limite, message « evaluation built more than 16777216 characters of strings »)
+- **THEN** `EvalError` SHALL avoir les variantes : `Type(String)` (erreur de type), `UndefinedFunction(String)` (fonction inconnue), `Arity { name, expected, got }` (mauvais nombre d'arguments), `DivisionByZero` (conservée pour la compatibilité de l'enum public mais plus jamais produite, la division par zéro donnant une collection vide), `Parse(ParseError)` (erreur de parse propagée), `CollectionTooLarge(usize)` (collection intermédiaire au-delà de `MAX_COLLECTION_LEN`, message « collection larger than 100000 items »), `StringTooLong(usize)` (chaîne construite au-delà de `MAX_STRING_LEN`, le champ portant la limite et non la longueur réelle, message « string longer than 1048576 characters »), `StringBudgetExceeded(usize)` (budget total de caractères de chaînes d'une évaluation dépassé, le champ portant la limite, message « evaluation built more than 16777216 characters of strings »), `StepBudgetExceeded(usize)` (budget de pas d'une évaluation dépassé, le champ portant la limite, message « evaluation took more than 10000000 steps »)
 
 ### Requirement: Plafond de taille des collections
 
@@ -1040,6 +1040,20 @@ Le système SHALL définir la constante `MAX_EVAL_STRING_CHARS` = 16 777 216 (`c
 
 - **WHEN** l'évaluation d'une contrainte retourne `EvalError::StringBudgetExceeded`
 - **THEN** le validateur SHALL la signaler par un `INVARIANT_SKIPPED` (traitement générique d'`EvalError`)
+
+### Requirement: Budget de pas par évaluation
+
+Le système SHALL définir un budget de pas par évaluation (un appel à `evaluate`/`eval`) de 10 000 000, non configurable, partagé par tous les évaluateurs imbriqués, en plus des plafonds de collection, de longueur de chaîne et du budget de caractères. Chaque nœud d'expression évalué et chaque pas de chaîne SHALL coûter 1 plus la longueur de son résultat. Au-delà de la limite, l'évaluation SHALL s'arrêter avec `Err(EvalError::StepBudgetExceeded(limit))`. Le travail effectué dans un seul appel de fonction native (parcours de longues chaînes, comparaisons de valeurs sans clé dans `distinct`/`union`) SHALL NOT être débité et reste borné par les seuls plafonds par appel.
+
+#### Scenario: Budget de pas dépassé
+
+- **WHEN** une évaluation exécute plus de 10 000 000 pas (nœuds évalués et pas de chaîne, pondérés par la longueur de leur résultat)
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::StepBudgetExceeded(10000000))`
+
+#### Scenario: Budget de pas signalé INVARIANT_SKIPPED
+
+- **WHEN** l'évaluation d'une contrainte retourne `EvalError::StepBudgetExceeded`
+- **THEN** le validateur SHALL la signaler par un `INVARIANT_SKIPPED` de sévérité `Information` (traitement générique d'`EvalError`)
 
 ### Requirement: Variables d'environnement
 
