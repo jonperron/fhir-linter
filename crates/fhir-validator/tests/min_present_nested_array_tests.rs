@@ -141,6 +141,7 @@ fn below_min_and_nested_array_messages_and_locations() {
         .iter()
         .find(|d| &*d.code == "CARDINALITY_001")
         .expect("CARDINALITY_001");
+    assert_eq!(below.severity, Severity::Error);
     assert_eq!(
         below.message,
         "Element 'DiagnosticReport.result' has 1 value(s) but minimum is 3"
@@ -151,7 +152,11 @@ fn below_min_and_nested_array_messages_and_locations() {
     let source = r#"{"resourceType": "Patient", "name": [[{"family": "x"}]]}"#;
     let resource = parse_json(source).expect("parses");
     let found = validate(&resource, registry());
-    let nested = &found[0];
+    let nested = found
+        .iter()
+        .find(|d| &*d.code == "STRUCTURE_002")
+        .expect("STRUCTURE_002");
+    assert_eq!(nested.severity, Severity::Error);
     assert_eq!(
         nested.message,
         "Element 'Patient.name[0]' is a JSON array inside an array"
