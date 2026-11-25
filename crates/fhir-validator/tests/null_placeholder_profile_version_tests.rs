@@ -125,12 +125,9 @@ fn profile_version_other_than_the_loaded_one_warns_and_validates() {
 
 #[test]
 fn profile_version_matching_the_loaded_one_does_not_warn() {
-    let profiles = [
-        format!("{VITALSIGNS}|5.0.0"),
-        // references.html: a canonical may end in `#fragment` after its version.
-        format!("{VITALSIGNS}|5.0.0#vs"),
-        VITALSIGNS.to_owned(),
-    ];
+    // `url|version#id` names a contained resource, not `url`: see
+    // `meta_profile_with_a_fragment_names_a_contained_profile`.
+    let profiles = [format!("{VITALSIGNS}|5.0.0"), VITALSIGNS.to_owned()];
     for profile in profiles {
         let found = vitalsigns_observation(&profile);
         // No unknown-profile or version warning (the missing VSCat category is PROFILE_006).

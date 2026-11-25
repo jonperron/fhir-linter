@@ -42,3 +42,29 @@ pub(crate) fn complex_type<'a>(
         .core(ty)
         .filter(|t| t.kind.as_ref() == "complex-type")
 }
+
+/// Split a canonical reference into the URL the Registry indexes and its `|version`
+/// (references.html, Canonical URLs). A `#fragment` names a resource contained in the
+/// target, which the Registry does not index: the reference is then returned whole, so the
+/// lookup misses.
+pub(crate) fn canonical_parts(reference: &str) -> (&str, Option<&str>) {
+    match reference.split_once('|') {
+        Some((url, version)) if !reference.contains('#') => (url, Some(version)),
+        _ => (reference, None),
+    }
+}
+
+#[cfg(test)]
+mod canonical_tests {
+    use super::canonical_parts;
+
+    #[test]
+    fn canonical_parts_split_version_and_keep_fragments_whole() {
+        let url = "http://x.org/sd";
+        assert_eq!(canonical_parts(url), (url, None));
+        assert_eq!(canonical_parts("http://x.org/sd|1.0"), (url, Some("1.0")));
+        let contained = "http://x.org/sd|1.0#inner";
+        assert_eq!(canonical_parts(contained), (contained, None));
+        assert_eq!(canonical_parts("#inner"), ("#inner", None));
+    }
+}

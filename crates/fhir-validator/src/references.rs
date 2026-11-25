@@ -5,6 +5,7 @@ use fhir_definitions::{CORE_PREFIX, ElementDefinition, Registry};
 use fhir_parser::{Node, Resource, Value};
 
 use crate::diagnostic::Diagnostic;
+use crate::resolve::canonical_parts;
 
 /// The id of a contained resource, with its `resourceType` when that is a string.
 pub(crate) type ContainedId = (Arc<str>, Option<Arc<str>>);
@@ -253,11 +254,13 @@ fn target_allowed(elem: &ElementDefinition, url_type: &str, registry: &Registry)
     };
     let ancestors: Vec<&str> = registry.type_ancestors(url_type).collect();
     targets.target_profiles.iter().any(|url| {
-        registry.structure_definition(url).is_none_or(|sd| {
-            sd.snapshot
-                .first()
-                .is_none_or(|root| ancestors.contains(&root.path.as_ref()))
-        })
+        registry
+            .structure_definition(canonical_parts(url).0)
+            .is_none_or(|sd| {
+                sd.snapshot
+                    .first()
+                    .is_none_or(|root| ancestors.contains(&root.path.as_ref()))
+            })
     })
 }
 
@@ -351,4 +354,28 @@ fn check_target(
             format!("Unknown resource type '{type_name}' in reference '{reference}'"),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn versioned_target_profile_allows_only_its_type() {
+        let definitions =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../definitions/r5");
+        let registry = Registry::from_definitions_dir(definitions).unwrap();
+        let mut elem = registry
+            .core("Observation")
+            .and_then(|sd| sd.element("Observation.subject"))
+            .unwrap()
+            .clone();
+        elem.type_profiles = vec![fhir_definitions::TypeProfiles {
+            code: Arc::from("Reference"),
+            profiles: vec![],
+            target_profiles: vec![Arc::from(format!("{CORE_PREFIX}Patient|5.0.0"))],
+        }];
+        assert!(target_allowed(&elem, "Patient", &registry));
+        assert!(!target_allowed(&elem, "Practitioner", &registry));
+    }
 }
