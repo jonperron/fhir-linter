@@ -19,6 +19,10 @@
 //! ElementDefinition.isModifier: "Once set, it cannot be changed in derived profiles (except
 //! in the special case of the defining a new extension)."
 //!
+//! Extension contentReferenceProfile: "The value refers to an element definition in a
+//! profile, not to the profile itself, using the same format as the contentReference (a
+//! canonical URL for the profile, followed by '#' and the element id)."
+//!
 //! references.html, Canonical URLs: only the resources that have canonical URLs "are allowed
 //! to be the target of references to a canonical URLs".
 use fhir_definitions::{ElementDefinition, Registry, StructureDefinition};
@@ -40,18 +44,13 @@ pub(crate) fn validate(
         return;
     }
     extension_contexts(resource, registry, path, diagnostics);
+    content_reference_profiles(resource, registry, path, diagnostics);
     // Only the differential: a profile's snapshot legitimately repeats the base's meanings.
     let Some(Value::Object(differential)) = resource.fields.get("differential").map(|n| &n.value)
     else {
         return;
     };
-    let differential: Vec<(usize, &Fields)> = elements(differential.get("element"))
-        .enumerate()
-        .filter_map(|(index, element)| match &element.value {
-            Value::Object(fields) => Some((index, fields)),
-            _ => None,
-        })
-        .collect();
+    let differential = element_fields(differential.get("element"));
     if is_profile(resource, registry) {
         meaning_when_missing(&differential, path, diagnostics);
         if let Some(base) = base_definition(resource, registry) {
@@ -209,6 +208,142 @@ fn content_references(
 }
 
 type Fields = IndexMap<Arc<str>, Node>;
+
+const CONTENT_REFERENCE_PROFILE: &str =
+    "http://hl7.org/fhir/StructureDefinition/contentReferenceProfile";
+
+/// `contentReferenceProfile` values that do not name an element of a known profile
+/// (DEFINITION_009), in the differential and the snapshot. The extension definition: "The
+/// value refers to an element definition in a profile, not to the profile itself, using the
+/// same format as the contentReference (a canonical URL for the profile, followed by '#' and
+/// the element id)." A snapshot value repeating the differential element of the same id is
+/// the same statement and is not reported twice.
+fn content_reference_profiles(
+    resource: &Resource,
+    registry: &Registry,
+    path: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let views = ["differential", "snapshot"].map(|view| {
+        let element = match resource.fields.get(view).map(|n| &n.value) {
+            Some(Value::Object(fields)) => fields.get("element"),
+            _ => None,
+        };
+        (view, element_fields(element))
+    });
+    let differential_values: HashSet<(&str, &str)> = views[0]
+        .1
+        .iter()
+        .filter_map(|&(_, fields)| Some((string(fields, "id")?, fields)))
+        .flat_map(|(id, fields)| stated(fields).into_iter().map(move |(_, _, v)| (id, v)))
+        .collect();
+    let own_url = string(&resource.fields, "url");
+    for (view, view_elements) in &views {
+        for &(element_index, fields) in view_elements {
+            let id = string(fields, "id");
+            for (index, extension, value) in stated(fields) {
+                if *view == "snapshot"
+                    && id.is_some_and(|id| differential_values.contains(&(id, value)))
+                {
+                    continue;
+                }
+                let Some(problem) = reference_problem(resource, registry, own_url, &views, value)
+                else {
+                    continue;
+                };
+                let owner = string(fields, "path").or(id).unwrap_or("an element");
+                diagnostics.push(
+                    Diagnostic::error(
+                        "DEFINITION_009",
+                        format!("The contentReferenceProfile '{value}' on {owner} {problem}"),
+                        format!("{path}.{view}.element[{element_index}].extension[{index}]"),
+                    )
+                    .with_location(extension.span),
+                );
+            }
+        }
+    }
+}
+
+/// Why `value` names no element of a known profile, or none when it resolves or cannot be
+/// decided. A canonical equal to the definition's own `url` resolves against the definition
+/// itself (its snapshot and differential ids, then its base), not the Registry.
+fn reference_problem(
+    resource: &Resource,
+    registry: &Registry,
+    own_url: Option<&str>,
+    views: &[(&str, Vec<(usize, &Fields)>)],
+    value: &str,
+) -> Option<String> {
+    // A canonical's `|version` is a string: it cannot be empty.
+    let Some((canonical, id)) = value
+        .split_once('#')
+        .filter(|(c, id)| !c.is_empty() && !id.is_empty() && !c.ends_with('|'))
+    else {
+        return Some(
+            "is not a valid element reference: the value must be a canonical URL for the \
+             profile, followed by '#' and the element id"
+                .to_owned(),
+        );
+    };
+    let canonical = canonical.split_once('|').map_or(canonical, |(url, _)| url);
+    // shortcut: slice ids are not checked (the Registry indexes elements by path, not id);
+    // resolve them once ElementDefinition keeps its id.
+    if id.contains(':') {
+        return None;
+    }
+    let found =
+        if own_url.map(|url| url.split_once('|').map_or(url, |(url, _)| url)) == Some(canonical) {
+            let stated = views
+                .iter()
+                .flat_map(|(_, elements)| elements)
+                .any(|&(_, fields)| string(fields, "id") == Some(id));
+            // No declared base: the definition holds all its elements. A declared base the
+            // Registry does not hold leaves the answer undecided.
+            stated
+                || match string(&resource.fields, "baseDefinition") {
+                    None => false,
+                    Some(_) => base_definition(resource, registry)
+                        .is_none_or(|base| base.element(id).is_some()),
+                }
+        } else if let Some(profile) = registry.structure_definition(canonical) {
+            profile.element(id).is_some()
+        } else if registry.needs_snapshot(canonical) {
+            true
+        } else {
+            return Some(format!(
+                "refers to the profile {canonical}, which could not be found"
+            ));
+        };
+    (!found).then(|| format!("refers to the element {id}, which does not exist in {canonical}"))
+}
+
+/// The `contentReferenceProfile` extensions of element `fields`: position, node and value.
+fn stated(fields: &Fields) -> Vec<(usize, &Node, &str)> {
+    elements(fields.get("extension"))
+        .enumerate()
+        .filter_map(|(index, extension)| {
+            let Value::Object(extension_fields) = &extension.value else {
+                return None;
+            };
+            if string(extension_fields, "url") != Some(CONTENT_REFERENCE_PROFILE) {
+                return None;
+            }
+            Some((index, extension, string(extension_fields, "valueUri")?))
+        })
+        .collect()
+}
+
+/// The object items of an `element` list, with their positions.
+fn element_fields(node: Option<&Node>) -> Vec<(usize, &Fields)> {
+    elements(node)
+        .enumerate()
+        .filter_map(|(index, element)| match &element.value {
+            Value::Object(fields) => Some((index, fields)),
+            _ => None,
+        })
+        .collect()
+}
 
 /// `element` contexts that name no element of the base specification (DEFINITION_005).
 /// ExtensionContextType `element`: "any element that has an ElementDefinition.id that
