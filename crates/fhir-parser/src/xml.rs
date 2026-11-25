@@ -656,6 +656,8 @@ mod tests {
             format!("{root}\u{a0}"),
             format!("{root}<![CDATA[x]]>"),
             format!("{root}<?xml version=\"1.0\"?>"),
+            format!("</Basic>{root}"),
+            format!("{root}</Basic>"),
         ];
         let accepted: Vec<&String> = sources
             .iter()
