@@ -147,8 +147,7 @@ fn validate_one<'a>(
         member_of: Some(&member_of),
         strict: Some(strict),
         conforms_to: Some(&conforms_to),
-        // follow-up: wire `Registry` as `%terminologies` once the validator work in flight lands.
-        terminologies: None,
+        terminologies: Some(registry),
     };
     let embedded = nested::validate(
         resource,
