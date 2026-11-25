@@ -25,7 +25,8 @@ impl Registry {
     /// whose `*.json` files are read (not recursively; symlinks and other files are
     /// skipped); a file named more than once, directly or through its directory, is read
     /// once. StructureDefinitions, ValueSets, CodeSystems and ConceptMaps are loaded; every
-    /// lookup reads them first, then falls back to `base`, which is left untouched.
+    /// lookup except `core` (which reads only `base`, so supplied files never create a
+    /// type) reads them first, then falls back to `base`, which is left untouched.
     /// The overlay is not cached: build it once per validation context.
     /// Other resources, and definitions the registry skips (no url, name or kind),
     /// are ignored, as in the bundled definitions.

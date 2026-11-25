@@ -23,7 +23,8 @@ const MAX_IMPORT_DEPTH: u8 = 8;
 ///
 /// Keyed by canonical URL for all entry types. An overlay built by
 /// [`Registry::with_extra`] holds supplied definitions and falls back to its base
-/// for every lookup. No registry is ever mutated after it is built.
+/// for every lookup except [`Registry::core`], which reads only the base so supplied
+/// files never create a type. No registry is ever mutated after it is built.
 pub struct Registry {
     structure_definitions: HashMap<Arc<str>, StructureDefinition>,
     value_sets: HashMap<Arc<str>, ValueSet>,
