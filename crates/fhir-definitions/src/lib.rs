@@ -21,7 +21,7 @@ pub use model::{
     Slicing, StructureDefinition, TypeProfiles, ValueSet,
 };
 pub use registry::{CORE_PREFIX, Registry};
-pub use shared::DEFINITIONS_DIR_ENV;
+pub use shared::{DEFINITIONS_DIR_ENV, SharedRegistryError};
 pub use type_code::{capitalise, is_primitive_type};
 
 use thiserror::Error;
