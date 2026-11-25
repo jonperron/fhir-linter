@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 
 use fhir_definitions::Registry;
 use fhir_parser::parse_json;
-use fhir_validator::validate;
+use fhir_validator::{Severity, validate};
 
 fn registry() -> &'static Registry {
     static REGISTRY: OnceLock<Registry> = OnceLock::new();
@@ -16,12 +16,13 @@ fn registry() -> &'static Registry {
     })
 }
 
-/// `"<code> <path>"` for every diagnostic of `source`, invariants aside.
+/// `"<code> <path>"` for every Error diagnostic of `source`, invariants aside: a finding
+/// expected here is thereby checked to be an Error.
 fn diagnostics(source: &str) -> Vec<String> {
     let resource = parse_json(source).expect("parses");
     validate(&resource, registry())
         .iter()
-        .filter(|d| !d.code.starts_with("INVARIANT_"))
+        .filter(|d| d.severity == Severity::Error && !d.code.starts_with("INVARIANT_"))
         .map(|d| format!("{} {}", d.code, d.path))
         .collect()
 }
@@ -128,4 +129,71 @@ fn array_of_contained_arrays_is_reported() {
         r#"{"resourceType": "Patient", "contained": [[{"resourceType": "Patient", "id": "p"}]]}"#,
     );
     assert_eq!(found, ["STRUCTURE_002 Patient.contained[0]"], "{found:?}");
+}
+
+/// The new diagnostics carry their message and the span of the offending node.
+#[test]
+fn below_min_and_nested_array_messages_and_locations() {
+    let source = lipid_report(1);
+    let resource = parse_json(&source).expect("parses");
+    let found = validate(&resource, registry());
+    let below = found
+        .iter()
+        .find(|d| &*d.code == "CARDINALITY_001")
+        .expect("CARDINALITY_001");
+    assert_eq!(
+        below.message,
+        "Element 'DiagnosticReport.result' has 1 value(s) but minimum is 3"
+    );
+    let offset = below.location.expect("location").offset as usize;
+    assert!(source[offset..].starts_with('['), "{below:?}");
+
+    let source = r#"{"resourceType": "Patient", "name": [[{"family": "x"}]]}"#;
+    let resource = parse_json(source).expect("parses");
+    let found = validate(&resource, registry());
+    let nested = &found[0];
+    assert_eq!(
+        nested.message,
+        "Element 'Patient.name[0]' is a JSON array inside an array"
+    );
+    let offset = nested.location.expect("location").offset as usize;
+    assert!(source[offset..].starts_with("[{"), "{nested:?}");
+}
+
+#[test]
+fn nested_array_items_do_not_count_towards_min() {
+    let source = (0..3).fold(lipid_report(3), |source, i| {
+        let item = format!(r#"{{"reference": "Observation/o{i}"}}"#);
+        source.replace(&item, &format!("[{item}]"))
+    });
+    let found = diagnostics(&source);
+    assert!(
+        found.contains(&"CARDINALITY_001 DiagnosticReport.result".to_owned()),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn extension_past_the_value_array_does_not_count() {
+    let found = diagnostics(
+        r#"{"resourceType": "Observation", "status": null, "_status": [null, {"id": "a"}],
+            "code": {"text": "x"}}"#,
+    );
+    assert!(
+        found.contains(&"CARDINALITY_001 Observation.status".to_owned()),
+        "{found:?}"
+    );
+}
+
+/// `_name` arrays are walked as `Element`s, not shape-checked: an array item there is
+/// already a `TYPE_001` (not an Element object), never silent.
+#[test]
+fn array_in_a_primitive_extension_array_is_reported() {
+    let found = diagnostics(
+        r#"{"resourceType": "Patient", "name": [{"given": ["a"], "_given": [[{"id": "x"}]]}]}"#,
+    );
+    assert!(
+        found.contains(&"TYPE_001 Patient.name[0]._given[0]".to_owned()),
+        "{found:?}"
+    );
 }

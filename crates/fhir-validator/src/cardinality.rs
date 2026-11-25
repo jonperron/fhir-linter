@@ -260,8 +260,9 @@ fn check_cardinality(
     }
 }
 
-/// The values `node` holds (ElementDefinition.min counts appearances): its non-null items,
-/// a null item counting when the `_name` object at its index stands in for it (json.html).
+/// The values `node` holds (ElementDefinition.min counts appearances): its items other than
+/// null or a nested array (`STRUCTURE_002`), a null item counting when the `_name` object at
+/// its index stands in for it (json.html: the two arrays align, so extras pair with nothing).
 fn value_count(node: &Node, extension: Option<&Node>) -> usize {
     fn items(node: &Node) -> &[Node] {
         match &node.value {
@@ -269,16 +270,16 @@ fn value_count(node: &Node, extension: Option<&Node>) -> usize {
             _ => std::slice::from_ref(node),
         }
     }
-    let values = items(node);
     let extensions = extension.map_or(&[][..], items);
-    (0..values.len().max(extensions.len()))
-        .filter(|&i| {
-            values
-                .get(i)
-                .is_some_and(|n| !matches!(n.value, Value::Null))
-                || extensions
-                    .get(i)
-                    .is_some_and(|n| matches!(n.value, Value::Object(_)))
+    items(node)
+        .iter()
+        .enumerate()
+        .filter(|(i, item)| match item.value {
+            Value::Null => extensions
+                .get(*i)
+                .is_some_and(|n| matches!(n.value, Value::Object(_))),
+            Value::Array(_) => false,
+            _ => true,
         })
         .count()
 }
