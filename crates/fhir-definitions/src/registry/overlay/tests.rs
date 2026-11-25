@@ -725,10 +725,38 @@ fn value_set_without_compose_include_is_undecided() {
     let mut importer = value_set();
     importer["url"] = json!("http://example.org/ValueSet/importer");
     importer["compose"] = json!({"include": [{"valueSet": [VALUE_SET]}]});
+    let imports = |url: &str, include: Value| json!({"resourceType": "ValueSet", "url": url, "compose": {"include": include}});
+    let whole = "http://example.org/ValueSet/whole";
+    let control = "http://example.org/ValueSet/imports-whole";
+    let mixed = "http://example.org/ValueSet/mixed";
     let overlay = overlay_with(
         "no_compose_include",
-        &[code_system(), expansion_only, empty_compose, importer],
+        &[
+            code_system(),
+            expansion_only,
+            empty_compose,
+            importer,
+            imports(whole, json!([{"system": CODE_SYSTEM}])),
+            imports(control, json!([{"valueSet": [whole]}])),
+            imports(
+                mixed,
+                json!([{"system": CODE_SYSTEM}, {"valueSet": [VALUE_SET]}]),
+            ),
+        ],
     );
+    // Control: the import path itself resolves when the imported ValueSet is decidable.
+    assert_eq!(
+        overlay.value_set_contains(control, Some(CODE_SYSTEM), "red"),
+        Some(true)
+    );
+    assert_eq!(overlay.value_set_contains(control, None, "red"), Some(true));
+    // The code is in the known include, but the expansion-only import may draw from
+    // other systems, so a code without a system cannot be placed.
+    assert_eq!(
+        overlay.value_set_contains(mixed, Some(CODE_SYSTEM), "red"),
+        Some(true)
+    );
+    assert_eq!(overlay.value_set_contains(mixed, None, "red"), None);
     for url in [
         VALUE_SET,
         "http://example.org/ValueSet/empty-compose",

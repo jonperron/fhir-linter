@@ -230,11 +230,15 @@ impl Registry {
     }
 
     /// Gathers the code systems a ValueSet includes; `false` when they cannot be told
-    /// (unknown ValueSet or an include with no system and no ValueSet).
+    /// (unknown ValueSet, one with no `compose.include`, or an include with no system and no
+    /// ValueSet).
     fn collect_systems<'a>(&'a self, url: &str, depth: u8, systems: &mut HashSet<&'a str>) -> bool {
         let Some(vs) = self.value_set(url).filter(|_| depth <= MAX_IMPORT_DEPTH) else {
             return false;
         };
+        if vs.includes.is_empty() {
+            return false;
+        }
         vs.includes.iter().all(|inc| {
             systems.extend(inc.system.as_deref());
             let nested = inc
