@@ -149,6 +149,7 @@ fn validate_one<'a>(
         conforms_to: Some(&conforms_to),
         terminologies: Some(registry),
     };
+    let start = diagnostics.len();
     let embedded = nested::validate(
         resource,
         root,
@@ -180,7 +181,15 @@ fn validate_one<'a>(
         path,
         diagnostics,
     );
-    profile::validate(resource, sd, registry, &environment, path, diagnostics);
+    profile::validate(
+        resource,
+        sd,
+        registry,
+        &environment,
+        path,
+        start,
+        diagnostics,
+    );
     structure_definition::validate(resource, registry, path, diagnostics);
     embedded
 }

@@ -36,4 +36,9 @@ pub enum EvalError {
     /// the evaluator's budget, which the field holds.
     #[error("evaluation built more than {0} characters of strings")]
     StringBudgetExceeded(usize),
+    /// One evaluation did more steps of work (expression nodes evaluated
+    /// plus values they produced) than the evaluator's budget, which the
+    /// field holds.
+    #[error("evaluation took more than {0} steps")]
+    StepBudgetExceeded(usize),
 }
