@@ -131,8 +131,19 @@ impl Registry {
 
     /// Look up a core `StructureDefinition` by name (`Patient`, `string`): the
     /// definition whose canonical URL is [`CORE_PREFIX`] followed by `name`.
+    ///
+    /// Only the base definitions are searched, never an overlay: in R5 only a
+    /// specialization defines a type, and supplied definitions are constraints, so
+    /// a supplied file at a core-namespace URL never creates a type.
     pub fn core(&self, name: &str) -> Option<&StructureDefinition> {
-        self.structure_definition(&format!("{CORE_PREFIX}{name}"))
+        self.root()
+            .structure_definitions
+            .get(format!("{CORE_PREFIX}{name}").as_str())
+    }
+
+    /// The registry loaded from a directory, under every overlay.
+    fn root(&self) -> &Registry {
+        self.base.as_deref().map_or(self, Registry::root)
     }
 
     /// The `regex` extension R5 publishes on the `<code>.value` element of the primitive type
@@ -158,11 +169,8 @@ impl Registry {
     pub fn type_ancestors<'a>(&'a self, code: &'a str) -> impl Iterator<Item = &'a str> + 'a {
         let first = self.core(code).map(|sd| (code, sd));
         std::iter::successors(first, |(_, sd)| {
-            let base = sd.base_definition.as_deref()?;
-            Some((
-                base.strip_prefix(CORE_PREFIX)?,
-                self.structure_definition(base)?,
-            ))
+            let parent = sd.base_definition.as_deref()?.strip_prefix(CORE_PREFIX)?;
+            Some((parent, self.core(parent)?))
         })
         .take(self.structure_definition_total())
         .map(|(code, _)| code)

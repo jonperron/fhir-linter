@@ -473,7 +473,7 @@ Le chargeur SHALL conserver `StructureDefinition.baseDefinition`, sans suffixe d
 
 ### Requirement: Recherche d'une définition du noyau par nom
 
-Le crate SHALL exporter la constante `CORE_PREFIX` (`http://hl7.org/fhir/StructureDefinition/`). `Registry::core(name)` SHALL retourner la `StructureDefinition` dont l'URL canonique est `CORE_PREFIX` suivi de `name`, ou `None` si aucune ne correspond.
+Le crate SHALL exporter la constante `CORE_PREFIX` (`http://hl7.org/fhir/StructureDefinition/`). `Registry::core(name)` SHALL retourner la `StructureDefinition` dont l'URL canonique est `CORE_PREFIX` suivi de `name`, ou `None` si aucune ne correspond. La recherche SHALL porter uniquement sur le registry racine (base, chargé depuis un répertoire) et jamais sur un overlay construit par `with_extra`, car en R5 seule une spécialisation définit un type : une StructureDefinition fournie (contrainte) ne crée donc aucun type.
 
 #### Scenario: Nom connu
 
@@ -484,6 +484,11 @@ Le crate SHALL exporter la constante `CORE_PREFIX` (`http://hl7.org/fhir/Structu
 
 - **WHEN** `core("NotAType")` ou `core("")` est appelé
 - **THEN** le résultat SHALL être `None`
+
+#### Scenario: Définition fournie absente de core
+
+- **WHEN** un overlay `with_extra` contient une StructureDefinition de contrainte d'URL `http://hl7.org/fhir/StructureDefinition/Zzz`
+- **THEN** `structure_definition(url)` SHALL la retourner mais `core("Zzz")` SHALL être `None`
 
 ### Requirement: Interfaces implémentées par une StructureDefinition
 
@@ -496,7 +501,7 @@ Le chargeur SHALL conserver dans `StructureDefinition.implements: Vec<Arc<str>>`
 
 ### Requirement: Registry overlay avec définitions supplémentaires
 
-Le système SHALL fournir `Registry::with_extra(base: Arc<Registry>, paths)` qui construit un registry overlay immuable. Chaque chemin SHALL être soit un fichier `.json` (une ressource ou un Bundle), soit un répertoire lu sans récursion pour ses fichiers réguliers `*.json` en ordre trié (liens symboliques et autres fichiers ignorés). Seules les `StructureDefinition`, `ValueSet`, `CodeSystem` et `ConceptMap` SHALL être chargées ; les autres ressources et les définitions sans `url`, `name` ou `kind` SHALL être ignorées. Chaque recherche (`structure_definition`, `core`, `value_set`, `value_set_contains`, `expand`, `concept_map`, `translate`, CodeSystems) SHALL lire l'overlay puis la base ; `is_choice_variant` SHALL faire l'union des deux couches ; la borne de pas de `type_ancestors` SHALL compter les deux couches. La base et `Registry::shared` SHALL rester inchangés et les overlays SHALL NOT être mis en cache.
+Le système SHALL fournir `Registry::with_extra(base: Arc<Registry>, paths)` qui construit un registry overlay immuable. Chaque fichier SHALL être lu une seule fois, identifié par son chemin canonique : un fichier nommé plusieurs fois (directement, sous une autre graphie ou via son répertoire) SHALL être ignoré, sans conflit d'URL. Chaque chemin SHALL être soit un fichier `.json` (une ressource ou un Bundle), soit un répertoire lu sans récursion pour ses fichiers réguliers `*.json` en ordre trié (liens symboliques et autres fichiers ignorés). Seules les `StructureDefinition`, `ValueSet`, `CodeSystem` et `ConceptMap` SHALL être chargées ; les autres ressources et les définitions sans `url`, `name` ou `kind` SHALL être ignorées. `core` SHALL lire uniquement le registry racine, et donc `type_ancestors`, qui marche via `core`, aussi. Chaque autre recherche (`structure_definition`, `value_set`, `value_set_contains`, `expand`, `concept_map`, `translate`, CodeSystems) SHALL lire l'overlay puis la base ; `is_choice_variant` SHALL faire l'union des deux couches ; la borne de pas de `type_ancestors` SHALL compter les deux couches (borne simplement plus large). La base et `Registry::shared` SHALL rester inchangés et les overlays SHALL NOT être mis en cache.
 
 #### Scenario: Définition supplémentaire résolue
 
@@ -520,12 +525,17 @@ Le système SHALL fournir `Registry::with_extra(base: Arc<Registry>, paths)` qui
 
 ### Requirement: Erreurs de chargement de l'overlay
 
-`with_extra` SHALL nommer le fichier fautif dans chaque erreur et SHALL NOT en reproduire le contenu : `Error::Conflict{url,file}` si une URL existe déjà dans la base (toute version, quel que soit le type de ressource parmi StructureDefinition, ValueSet, CodeSystem et ConceptMap, car les URL canoniques FHIR R5 sont globalement uniques ; y compris une StructureDefinition de base sans snapshot) ou apparaît deux fois parmi les extras (même type ou types différents) ; `Error::Unsupported{file,message}` pour une StructureDefinition `derivation=specialization` ou un chemin qui n'est ni un fichier `.json` ni un répertoire ; `Error::Read{file,source}` pour un fichier illisible ou de plus de 64 MiB (`io::ErrorKind::FileTooLarge`) ; `Error::Limit{file,message}` au-delà de 256 MiB au total ou de 10 000 fichiers `.json` dans un répertoire ; `Error::Json` pour un JSON invalide ; `Error::MalformedBundle` pour un Bundle dont `entry` est présent mais n'est pas un tableau. Un Bundle sans `entry` ne charge rien, sans erreur.
+`with_extra` SHALL nommer le fichier fautif dans chaque erreur et SHALL NOT en reproduire le contenu : `Error::Conflict{url,file}` si une URL existe déjà dans la base (toute version, quel que soit le type de ressource parmi StructureDefinition, ValueSet, CodeSystem et ConceptMap, car les URL canoniques FHIR R5 sont globalement uniques ; y compris une StructureDefinition de base sans snapshot) ou apparaît deux fois parmi les extras dans deux fichiers distincts, liens physiques inclus (même type ou types différents) ; `Error::Unsupported{file,message}` pour une StructureDefinition `derivation=specialization` ou un chemin qui n'est ni un fichier `.json` ni un répertoire ; `Error::Read{file,source}` pour un fichier illisible ou de plus de 64 MiB (`io::ErrorKind::FileTooLarge`) ; `Error::Limit{file,message}` au-delà de 256 MiB au total ou de 10 000 fichiers `.json` dans un répertoire ; `Error::Json` pour un JSON invalide ; `Error::MalformedBundle` pour un Bundle dont `entry` est présent mais n'est pas un tableau. Un Bundle sans `entry` ne charge rien, sans erreur.
 
 #### Scenario: Conflit avec la base
 
 - **WHEN** un extra déclare une URL déjà présente dans la base
 - **THEN** `with_extra` SHALL retourner `Error::Conflict` avec l'URL et le fichier
+
+#### Scenario: Fichier nommé deux fois
+
+- **WHEN** un même fichier est nommé deux fois (directement, via une autre graphie du chemin ou via son répertoire)
+- **THEN** il SHALL être lu une seule fois et `with_extra` SHALL réussir sans `Error::Conflict` ; deux fichiers distincts (liens physiques inclus) de même URL SHALL retourner `Error::Conflict`
 
 #### Scenario: Doublon entre extras
 

@@ -166,6 +166,29 @@ fn url_twice_among_extras_is_a_conflict() {
 }
 
 #[test]
+fn file_named_twice_is_read_once() {
+    let dir = TempDir::new("named_twice");
+    let file = dir.write("profile.json", &profile(PROFILE));
+    let spelled_again = dir.0.join(".").join("profile.json");
+    let overlay =
+        Registry::with_extra(Arc::clone(&BASE), &[&file, &dir.0, &spelled_again]).unwrap();
+    assert!(overlay.structure_definition(PROFILE).is_some());
+}
+
+#[test]
+fn supplied_core_namespace_url_creates_no_type() {
+    let url = "http://hl7.org/fhir/StructureDefinition/Zzz";
+    let dir = TempDir::new("core_namespace");
+    let file = dir.write("zzz.json", &profile(url));
+    let overlay = Registry::with_extra(Arc::clone(&BASE), &[&file]).unwrap();
+
+    assert!(overlay.structure_definition(url).is_some());
+    assert!(overlay.core("Zzz").is_none());
+    assert_eq!(overlay.type_ancestors("Zzz").count(), 0);
+    assert!(overlay.core("Patient").is_some());
+}
+
+#[test]
 fn specialization_is_rejected() {
     let mut custom = profile("http://example.org/StructureDefinition/Custom");
     custom["derivation"] = json!("specialization");
@@ -275,17 +298,21 @@ fn directory_over_file_limit_is_a_limit_error() {
 #[test]
 fn total_size_over_cap_is_a_limit_error() {
     let dir = TempDir::new("total_limit");
-    // One file under the per-file cap, given five times, passes 256 MiB. Reads before the
-    // cap is hit are parsed, so it is `{}` padded with whitespace.
+    // Five hard links to one file under the per-file cap pass 256 MiB: distinct paths, so
+    // each is read. Reads before the cap is hit are parsed, so it is `{}` padded with
+    // whitespace.
     let mut content = vec![b' '; 60 * 1024 * 1024];
     content[..2].copy_from_slice(b"{}");
     let file = dir.0.join("padded.json");
     std::fs::write(&file, content).unwrap();
-    let error = Registry::with_extra(Arc::clone(&BASE), &[&file; 5])
+    for n in 1..5 {
+        std::fs::hard_link(&file, dir.0.join(format!("padded{n}.json"))).unwrap();
+    }
+    let error = Registry::with_extra(Arc::clone(&BASE), &[&dir.0])
         .err()
         .unwrap();
     assert!(
-        matches!(&error, Error::Limit { file, .. } if file.ends_with("padded.json")),
+        matches!(&error, Error::Limit { file, .. } if file.ends_with(".json")),
         "{error}"
     );
 }
