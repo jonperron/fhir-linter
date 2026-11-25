@@ -125,7 +125,7 @@ fn load_extra(
     // Canonical URLs are unique across resource types, so check every kind.
     let in_base = base.structure_definition(&url).is_some()
         || base.needs_snapshot(&url)
-        || base.value_set(&url).is_some()
+        || base.unversioned_value_set(&url).is_some()
         || base.code_system(&url).is_some()
         || base.concept_map(&url).is_some();
     if in_base || !seen.insert(Arc::clone(&url)) {

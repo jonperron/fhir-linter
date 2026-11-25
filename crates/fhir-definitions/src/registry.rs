@@ -195,11 +195,24 @@ impl Registry {
                 .is_some_and(|registry| registry.is_choice_variant(base, suffix))
     }
 
-    /// Look up a `ValueSet` by its canonical URL.
-    pub fn value_set(&self, url: &str) -> Option<&ValueSet> {
+    /// Look up a `ValueSet` by its canonical URL. A `url|version` reference names that
+    /// version only: a loaded ValueSet with another (or no) version is not returned, as
+    /// `include_code_system` does for CodeSystems.
+    pub fn value_set(&self, canonical: &str) -> Option<&ValueSet> {
+        let (url, version) = canonical
+            .split_once('|')
+            .map_or((canonical, None), |(url, version)| (url, Some(version)));
+        // shortcut: exact version match only, so a partial `|5.0` stays undecided against
+        // 5.0.0; add version-algorithm matching if packages pin partial versions.
+        self.unversioned_value_set(url)
+            .filter(|vs| version.is_none_or(|v| vs.version.as_deref() == Some(v)))
+    }
+
+    /// Look up a `ValueSet` by its exact URL, without reading a `|version` suffix.
+    pub(crate) fn unversioned_value_set(&self, url: &str) -> Option<&ValueSet> {
         self.value_sets
             .get(url)
-            .or_else(|| self.base.as_ref()?.value_set(url))
+            .or_else(|| self.base.as_ref()?.unversioned_value_set(url))
     }
 
     /// Look up a `CodeSystem` by its canonical URL.

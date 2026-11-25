@@ -258,6 +258,7 @@ impl Constraint {
 #[derive(Debug, Clone)]
 pub struct Binding {
     pub strength: Arc<str>,
+    /// Canonical URL, `|version` suffix kept.
     pub value_set: Option<Arc<str>>,
     /// `binding.additional`: further ValueSets with their own purpose (`maximum`, ...).
     pub additional: Vec<AdditionalBinding>,
@@ -269,7 +270,7 @@ pub struct AdditionalBinding {
     /// `required`, `extensible`, `maximum`, `minimum`, `candidate`, `current`, `preferred`,
     /// `ui`, `starter` or `component`.
     pub purpose: Arc<str>,
-    /// Canonical URL, version suffix stripped.
+    /// Canonical URL, `|version` suffix kept.
     pub value_set: Arc<str>,
     /// `any`: the binding is met when any repetition conforms, not each one.
     pub any: bool,
@@ -282,6 +283,8 @@ pub struct ValueSet {
     pub url: Arc<str>,
     /// `ValueSet.name` (0..1).
     pub name: Option<Arc<str>>,
+    /// Business version (`ValueSet.version`), if any.
+    pub version: Option<Arc<str>>,
     pub includes: Vec<Include>,
     /// True when the compose has `exclude` entries or `inactive = false`; membership is then
     /// not decidable.
@@ -299,7 +302,7 @@ pub struct Include {
     /// True when a `filter` restricts the system, or a `concept` entry is unreadable;
     /// membership is then not decidable.
     pub has_filter: bool,
-    /// Canonical URLs of ValueSets this include is intersected with.
+    /// Canonical URLs of ValueSets this include is intersected with, `|version` kept.
     pub value_sets: Vec<Arc<str>>,
 }
 

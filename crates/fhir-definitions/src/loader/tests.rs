@@ -245,7 +245,7 @@ fn additional_binding_keeps_any_and_skips_incomplete_entries()
         return Err("only the complete entry is kept");
     };
     assert!(maximum.any);
-    assert_eq!(maximum.value_set.as_ref(), "http://x/vs");
+    assert_eq!(maximum.value_set.as_ref(), "http://x/vs|1.0");
     Ok(())
 }
 
