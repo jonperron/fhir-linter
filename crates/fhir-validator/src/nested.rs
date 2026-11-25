@@ -163,6 +163,10 @@ fn descend(
                     && items.iter().all(|n| matches!(n.value, Value::Object(_)))
             });
             for (i, item) in items.iter().enumerate() {
+                // An array in an array is no FHIR value (`STRUCTURE_002`): nothing to walk.
+                if matches!(item.value, Value::Array(_)) {
+                    continue;
+                }
                 descend(
                     item,
                     aligned.map(|typed| &typed[i..=i]),
@@ -546,7 +550,8 @@ fn push_empty_array(node: &Node, path: &str, diagnostics: &mut Vec<Diagnostic>) 
 }
 
 /// Emit `STRUCTURE_002` when a JSON value's shape contradicts the base definition:
-/// a repeating element (`max != "1"`) must be an array, a single one must not be.
+/// a repeating element (`max != "1"`) must be an array, a single one must not be, and no
+/// array item is itself an array (json.html: no element holds an array as a value).
 ///
 /// shortcut: `_name` companion arrays are not shape-checked; upgrade with the `_name` rules.
 /// shortcut: uses `elem.max`, which equals the base max in every core SD walked here; switch
@@ -557,6 +562,21 @@ fn check_array_shape(
     path: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    if let Value::Array(items) = &node.value {
+        for (i, item) in items.iter().enumerate() {
+            if matches!(item.value, Value::Array(_)) {
+                let item_path = format!("{path}[{i}]");
+                diagnostics.push(
+                    Diagnostic::error(
+                        "STRUCTURE_002",
+                        format!("Element '{item_path}' is a JSON array inside an array"),
+                        item_path,
+                    )
+                    .with_location(item.span),
+                );
+            }
+        }
+    }
     let repeating = elem.max.as_ref() != "1";
     let is_array = matches!(node.value, Value::Array(_));
     if is_array == repeating || matches!(node.value, Value::Null) {

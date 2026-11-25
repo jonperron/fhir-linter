@@ -150,7 +150,8 @@ pub(crate) fn queue<'a>(
         };
         let fields = match &item.value {
             Value::Object(fields) => fields,
-            Value::Null => continue,
+            // An array in an array is already `STRUCTURE_002` (`nested::check_array_shape`).
+            Value::Null | Value::Array(_) => continue,
             _ => {
                 let message = format!("Expected Resource object at '{item_path}'");
                 diagnostics.push(error("TYPE_001", message));
