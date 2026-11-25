@@ -354,6 +354,33 @@ mod tests {
     }
 
     #[test]
+    fn step_budget_reports_invariant_skipped_information() {
+        // 2^13 items, each aggregated into a growing total: quadratic work
+        // past the evaluator's step budget, with every collection under the cap.
+        let doubling = format!("1{}", ".select($this.combine($this))".repeat(13));
+        let expression = format!("{doubling}.aggregate($total.combine($this)).exists()");
+        let sd = make_sd_with_constraints(
+            "Patient",
+            vec![make_constraint("test-11", "error", &expression)],
+        );
+        let mut d = vec![];
+        validate(
+            &make_empty_resource("Patient"),
+            &sd,
+            &[],
+            &|_, _| false,
+            &empty_root(),
+            &Environment::default(),
+            "Patient",
+            &mut d,
+        );
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].code.as_ref(), "INVARIANT_SKIPPED");
+        assert_eq!(d[0].severity, Severity::Information);
+        assert!(d[0].message.contains("steps"), "{}", d[0].message);
+    }
+
+    #[test]
     fn oversized_string_reports_invariant_skipped_information() {
         // 2^21 characters: past the evaluator's string cap.
         let doubling = format!("'a'{}", ".select($this + $this)".repeat(21));

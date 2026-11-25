@@ -56,6 +56,7 @@ pub fn eval(
         total: None,
         index: None,
         string_chars: &Cell::new(0),
+        steps: &Cell::new(0),
         now: &OnceCell::new(),
         instance_paths: &OnceCell::new(),
         focus: None,
@@ -148,6 +149,9 @@ pub(super) struct Evaluator<'a> {
     /// Characters of String values built so far, shared by every nested
     /// evaluator (see [`helpers::MAX_EVAL_STRING_CHARS`]).
     string_chars: &'a Cell<usize>,
+    /// Steps taken so far, shared by every nested evaluator (see
+    /// [`helpers::MAX_EVAL_STEPS`]).
+    steps: &'a Cell<usize>,
     /// `now()` text, read once so every `now()` and `today()` of one
     /// evaluation agrees (N2 §5.10).
     now: &'a OnceCell<Arc<str>>,
@@ -269,10 +273,11 @@ impl Evaluator<'_> {
     /// Evaluate `expr`; every intermediate collection is checked against
     /// [`helpers::MAX_COLLECTION_LEN`]. Producers that iterate their focus
     /// also check per item, so a step overshoots by at most one item's output
-    /// (or the other side of a combine or union).
+    /// (or the other side of a combine or union). Each result is also charged
+    /// against [`helpers::MAX_EVAL_STEPS`].
     pub(super) fn eval(&self, expr: &Expr, ctx: &[Value]) -> Result<Collection, EvalError> {
         let col = self.eval_expr(expr, ctx)?;
-        helpers::check_collection_len(col.len())?;
+        self.charge_result(col.len())?;
         Ok(col)
     }
 
@@ -543,7 +548,7 @@ impl Evaluator<'_> {
             }
             _ => return Ok((self.eval(expr, ctx)?, self.variables.clone())),
         };
-        helpers::check_collection_len(col.len())?;
+        self.charge_result(col.len())?;
         Ok((col, scope))
     }
 
