@@ -145,6 +145,8 @@ pub(crate) fn check_type_profiles(
         .map(|root| root.constraints.as_slice())
         .unwrap_or_default();
     let mut results = Vec::with_capacity(urls.profiles.len());
+    // Shared by the alternatives: they can reach the same nested slice checks.
+    let conforms_memo = RefCell::default();
     for url in &urls.profiles {
         let (canonical, version) = canonical_parts(url);
         let Some((profile, root)) = registry
@@ -166,7 +168,6 @@ pub(crate) fn check_type_profiles(
                 .chain(&elem.constraints)
                 .any(|b| same_constraint(b, c))
         };
-        let conforms_memo = RefCell::default();
         let layer = Layer {
             registry,
             environment,
