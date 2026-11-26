@@ -58,9 +58,11 @@ fn errors(sd: &StructureDefinition, json: &str) -> Vec<(String, String)> {
 fn found(sd: &StructureDefinition, json: &str, severity: Severity) -> Vec<(String, String)> {
     let resource = parse_json(json).expect("test JSON parses");
     let environment = Environment::default();
+    let conforms_memo = std::cell::RefCell::default();
     let layer = Layer {
         registry: registry(),
         environment: &environment,
+        conforms_memo: &conforms_memo,
     };
     let mut diagnostics = Vec::new();
     let run = own_descendants(sd, "Bundle");
@@ -165,10 +167,10 @@ fn notification() -> StructureDefinition {
             .iter()
             .position(|e| &*e.path == "Bundle.entry")
             .unwrap();
-        snapshot[entry].slicing.as_mut().unwrap().discriminators = vec![Discriminator {
-            kind: Arc::from("exists"),
-            path: Arc::from("response"),
-        }];
+        snapshot[entry].slicing.as_mut().unwrap().discriminators = vec![Discriminator::new(
+            Arc::from("exists"),
+            Arc::from("response"),
+        )];
         let other = slice(snapshot, "Bundle.entry", "other");
         let response = after(snapshot, other, "Bundle.entry.response");
         snapshot[response].min = 1;
@@ -204,10 +206,8 @@ fn history_discriminated(kind: &str, path: &str) -> StructureDefinition {
             .iter()
             .position(|e| &*e.path == "Bundle.entry")
             .unwrap();
-        snapshot[entry].slicing.as_mut().unwrap().discriminators = vec![Discriminator {
-            kind: Arc::from(kind),
-            path: Arc::from(path),
-        }];
+        snapshot[entry].slicing.as_mut().unwrap().discriminators =
+            vec![Discriminator::new(Arc::from(kind), Arc::from(path))];
     })
 }
 
@@ -234,6 +234,17 @@ fn pattern_discriminator_matches_like_value() {
     assert_eq!(
         errors(&sd, &bundle(&[&head])),
         [("PROFILE_007".to_owned(), "Bundle.entry[0]".to_owned())]
+    );
+}
+
+#[test]
+fn unparsable_discriminator_path_skips_the_slicing_once() {
+    let sd = history_discriminated("value", "request.(");
+    let json = bundle(&[&history_entry("GET"), &history_entry("HEAD")]);
+    assert_eq!(errors(&sd, &json), []);
+    assert_eq!(
+        found(&sd, &json, Severity::Information),
+        [("SLICING_SKIPPED".to_owned(), "Bundle.entry".to_owned())]
     );
 }
 

@@ -99,3 +99,60 @@ fn xml_text_is_typed_with_extensions_in_contained_and_for_int_subtypes() -> Test
     assert!(holds(&xml, "quantity + 1 = 6")?);
     Ok(())
 }
+
+/// A JSON number without a decimal point in a `decimal` element is a System.Decimal
+/// (fhirpath.html §2.1.9.1 maps FHIR decimal to System.Decimal), as the same XML text is.
+#[test]
+fn json_integer_literal_in_a_decimal_element_is_a_decimal() -> TestResult {
+    let pairs = [
+        (
+            r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},
+            "valueQuantity":{"value":9000000000000000000}}"#,
+            r#"<Observation xmlns="http://hl7.org/fhir"><status value="final"/>
+            <code><text value="x"/></code>
+            <valueQuantity><value value="9000000000000000000"/></valueQuantity></Observation>"#,
+            [
+                "valueQuantity.value is decimal",
+                "valueQuantity.value * 2 > 0",
+                "valueQuantity.value.convertsToInteger().not()",
+            ],
+        ),
+        (
+            r#"{"resourceType":"Observation","status":"final","code":{"text":"x"},
+            "valueQuantity":{"value":5}}"#,
+            r#"<Observation xmlns="http://hl7.org/fhir"><status value="final"/>
+            <code><text value="x"/></code>
+            <valueQuantity><value value="5"/></valueQuantity></Observation>"#,
+            [
+                "valueQuantity.value is decimal",
+                "valueQuantity.value.precision() = 0",
+                "valueQuantity.value.convertsToInteger().not()",
+            ],
+        ),
+        // A choice type, and a primitive paired with its `_name` element.
+        (
+            r#"{"resourceType":"RiskAssessment","status":"final",
+            "extension":[{"url":"http://example.org/x","valueDecimal":5}],
+            "prediction":[{"relativeRisk":2,"_relativeRisk":{"id":"r"}}]}"#,
+            r#"<RiskAssessment xmlns="http://hl7.org/fhir">
+            <extension url="http://example.org/x"><valueDecimal value="5"/></extension>
+            <status value="final"/>
+            <prediction><relativeRisk id="r" value="2"/></prediction></RiskAssessment>"#,
+            [
+                // Bare `evaluate` has no model to resolve `value` to its suffixed key.
+                "extension.valueDecimal is decimal",
+                "extension.valueDecimal.precision() = 0",
+                "prediction.relativeRisk is decimal",
+            ],
+        ),
+    ];
+    for (json, xml, expressions) in pairs {
+        let json = parse_json(json)?;
+        let xml = parse_xml(xml)?;
+        for expression in expressions {
+            assert!(holds(&json, expression)?, "JSON {expression}");
+            assert!(holds(&xml, expression)?, "XML {expression}");
+        }
+    }
+    Ok(())
+}
