@@ -51,8 +51,15 @@ fn base64_decode_with(input: &[u8], alphabet: &[u8]) -> Option<Vec<u8>> {
         .filter(|c| !c.is_ascii_whitespace())
         .collect();
     let input = cleaned.as_slice();
+    // RFC 4648 §3.2: padding, when present, completes the last quantum (at most two `=`).
     let data = match input.iter().position(|&c| c == b'=') {
-        Some(pad) if input[pad..].iter().all(|&c| c == b'=') => &input[..pad],
+        Some(pad)
+            if input[pad..].iter().all(|&c| c == b'=')
+                && input.len() - pad <= 2
+                && input.len() % 4 == 0 =>
+        {
+            &input[..pad]
+        }
         Some(_) => return None,
         None => input,
     };
@@ -69,6 +76,15 @@ fn base64_decode_with(input: &[u8], alphabet: &[u8]) -> Option<Vec<u8>> {
                 return None;
             }
             *slot = v as u8;
+        }
+        // RFC 4648 §3.5: the spare bits of a partial quantum are zero.
+        let spare = match chunk.len() {
+            2 => sextets[1] & 0x0f,
+            3 => sextets[2] & 0x03,
+            _ => 0,
+        };
+        if spare != 0 {
+            return None;
         }
         out.push((sextets[0] << 2) | (sextets[1] >> 4));
         if chunk.len() > 2 {

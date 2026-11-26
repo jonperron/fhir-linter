@@ -2593,6 +2593,30 @@ fn decode_rejects_invalid_base64() {
     assert!(is_err("'aGVs=bG8='.decode('base64')"));
 }
 
+// RFC 4648 §3.2/§3.5: padding completes the last quantum to 4 characters (at most two
+// `=`), and the spare bits of a partial quantum are zero.
+#[test]
+fn decode_rejects_invalid_base64_padding_and_spare_bits() -> Result<(), Box<dyn std::error::Error>>
+{
+    for format in ["base64", "urlbase64"] {
+        for input in [
+            "QQ===", "QUJD=", "QUJD==", "QQ=", "====", "QR==", "QUJ", "QR",
+        ] {
+            let expr = format!("'{input}'.decode('{format}')");
+            assert!(is_err(&expr), "{expr}");
+        }
+        for (input, decoded) in [("QQ==", "A"), ("QUI=", "AB"), ("QUJD", "ABC"), ("QQ", "A")] {
+            let expr = format!("'{input}'.decode('{format}')");
+            assert_eq!(
+                evaluate(&expr, &[])?,
+                vec![Value::String(Arc::from(decoded))],
+                "{expr}",
+            );
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn exists_short_circuits_before_erroring_item() {
     // 2nd item would error on comparison with a string; first already satisfies.

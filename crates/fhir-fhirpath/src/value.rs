@@ -352,9 +352,14 @@ fn convert(
         // A JSON null (an array placeholder) is not an item.
         fhir_parser::Value::Null => vec![],
         fhir_parser::Value::Bool(b) => vec![typed_value(Value::Bool(*b), child.map(|(_, ty)| ty))],
-        fhir_parser::Value::Integer(n) => {
-            vec![typed_value(Value::Integer(*n), child.map(|(_, ty)| ty))]
-        }
+        // The element type decides, not the JSON lexical form: `5` in a decimal element is
+        // System.Decimal (scale 0), as the same XML text is.
+        fhir_parser::Value::Integer(n) => match child {
+            Some((_, ty)) if &**ty == "decimal" => {
+                vec![typed_value(Value::Decimal((*n).into()), Some(ty))]
+            }
+            _ => vec![typed_value(Value::Integer(*n), child.map(|(_, ty)| ty))],
+        },
         fhir_parser::Value::Decimal(d) => {
             vec![typed_value(Value::Decimal(*d), child.map(|(_, ty)| ty))]
         }
