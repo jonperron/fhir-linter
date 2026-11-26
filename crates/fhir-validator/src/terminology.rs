@@ -2,6 +2,7 @@ use fhir_definitions::{ElementDefinition, Registry};
 use fhir_parser::{Node, Value};
 
 use crate::diagnostic::Diagnostic;
+use crate::resolve::items;
 
 /// Validate the `required` or `extensible` binding of `elem` on its value `node`
 /// (instance `path`), whose type is `fhir_type`. The walk in `nested.rs` calls it
@@ -41,7 +42,7 @@ pub(crate) fn check(
         Diagnostic::warning
     };
 
-    for (item, item_path) in entries(node, path) {
+    for (item, item_path) in items(node, path) {
         let codings = codings(item, fhir_type, &item_path);
         if let Some(bad) = out_of_set(item, fhir_type, &codings, vs, required, registry) {
             let message = format!("{bad} at '{item_path}' is not in {strength} ValueSet '{vs}'");
@@ -148,23 +149,9 @@ fn codings<'a>(item: &'a Node, fhir_type: &str, item_path: &str) -> Vec<(&'a Nod
         ("Coding", Value::Object(_)) => vec![(item, item_path.to_owned())],
         ("CodeableConcept", Value::Object(fields)) => fields
             .get("coding")
-            .map(|n| entries(n, &format!("{item_path}.coding")))
+            .map(|n| items(n, &format!("{item_path}.coding")))
             .unwrap_or_default(),
         _ => Vec::new(),
-    }
-}
-
-/// The values of a possibly repeating element with their paths.
-///
-/// A single value stays an object: XML keeps one repeating element unwrapped.
-fn entries<'a>(node: &'a Node, path: &str) -> Vec<(&'a Node, String)> {
-    match &node.value {
-        Value::Array(items) => items
-            .iter()
-            .enumerate()
-            .map(|(i, n)| (n, format!("{path}[{i}]")))
-            .collect(),
-        _ => vec![(node, path.to_owned())],
     }
 }
 

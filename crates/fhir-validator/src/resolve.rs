@@ -60,21 +60,27 @@ pub(crate) fn canonical_parts(reference: &str) -> (&str, Option<&str>) {
 /// The items of `node` with their instance paths: each element of an array by index, or a
 /// single value (XML grouping, or a non-repeating element) at `path` itself.
 pub(crate) fn items<'n>(node: &'n Node, path: &str) -> Vec<(&'n Node, String)> {
-    match &node.value {
-        Value::Array(items) => items
-            .iter()
-            .enumerate()
-            .map(|(i, item)| (item, format!("{path}[{i}]")))
-            .collect(),
-        _ => vec![(node, path.to_owned())],
-    }
+    indexed(node, path, true)
 }
 
 /// The non-null occurrences of `node`: its [`items`] without the nulls.
 pub(crate) fn occurrences<'n>(node: &'n Node, path: &str) -> Vec<(&'n Node, String)> {
-    let mut found = items(node, path);
-    found.retain(|(item, _)| !matches!(item.value, Value::Null));
-    found
+    indexed(node, path, false)
+}
+
+/// The items of `node`, nulls dropped before their paths are built unless `keep_nulls`.
+fn indexed<'n>(node: &'n Node, path: &str, keep_nulls: bool) -> Vec<(&'n Node, String)> {
+    let keep = |item: &Node| keep_nulls || !matches!(item.value, Value::Null);
+    match &node.value {
+        Value::Array(all) => all
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| keep(item))
+            .map(|(i, item)| (item, format!("{path}[{i}]")))
+            .collect(),
+        _ if keep(node) => vec![(node, path.to_owned())],
+        _ => Vec::new(),
+    }
 }
 
 /// The string value of child `name`, if it has one.
