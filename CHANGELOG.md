@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.5.0](https://github.com/jonperron/fhir-linter/compare/fhir-linter-v1.4.0...fhir-linter-v1.5.0) (2026-11-26)
+
+
+### Features
+
+* **validator:** enforce minvalue and maxvalue bounds of profile elements ([#209](https://github.com/jonperron/fhir-linter/issues/209)) ([f779bb0](https://github.com/jonperron/fhir-linter/commit/f779bb01b3a357d505c264621d1a8b390bd164d4))
+
+
+### Bug Fixes
+
+* **cli:** report sarif columns in utf-16 units and exact file uris ([#212](https://github.com/jonperron/fhir-linter/issues/212)) ([d206b01](https://github.com/jonperron/fhir-linter/commit/d206b016a3c343a30f6753aad39786e1bf4bd62a))
+* **definitions:** keep valueset reference versions and undecide mismatch ([#205](https://github.com/jonperron/fhir-linter/issues/205)) ([abf066a](https://github.com/jonperron/fhir-linter/commit/abf066a48d8448c4d9f6fe8a4d88dcf568f4901f))
+* **definitions:** load nameless terminology, undecide empty composes ([#199](https://github.com/jonperron/fhir-linter/issues/199)) ([2b15884](https://github.com/jonperron/fhir-linter/commit/2b15884e061d1e4b6858f2079bd7a6f2b5b69a1c))
+* **fhirpath:** cap total evaluation work with a step budget ([#207](https://github.com/jonperron/fhir-linter/issues/207)) ([31c440d](https://github.com/jonperron/fhir-linter/commit/31c440d6dad171d7b87617c772b896c5a3b37cdb))
+* **fhirpath:** reject multi-item math input and keep integer power ([#201](https://github.com/jonperron/fhir-linter/issues/201)) ([32ef4ce](https://github.com/jonperron/fhir-linter/commit/32ef4cef2d57eddef1da37120c413db88c18a272))
+* **fhirpath:** type json decimals as decimal and reject bad base64 ([#211](https://github.com/jonperron/fhir-linter/issues/211)) ([21f2f09](https://github.com/jonperron/fhir-linter/commit/21f2f09fdf19c910446f15739e3f962bb10fcfa7))
+* **parser:** reject signed unicode escapes and xml content outside root ([#200](https://github.com/jonperron/fhir-linter/issues/200)) ([bd20fa7](https://github.com/jonperron/fhir-linter/commit/bd20fa7aac18439eda222c88b60da9513216dc5b))
+* **validator:** enforce min on present elements and reject nested arrays ([#202](https://github.com/jonperron/fhir-linter/issues/202)) ([78e28b7](https://github.com/jonperron/fhir-linter/commit/78e28b70f85d7846e201086c54fbac3b17653b63))
+* **validator:** index sd slices once and check contentreference urls ([#213](https://github.com/jonperron/fhir-linter/issues/213)) ([a51e5f5](https://github.com/jonperron/fhir-linter/commit/a51e5f5c4122d00f6f3c52abeabfaa5a48c4ed6f))
+* **validator:** memoise slice conformance and parse discriminators once ([#210](https://github.com/jonperron/fhir-linter/issues/210)) ([f756056](https://github.com/jonperron/fhir-linter/commit/f756056513ef1d8d199f2df729d10f55d7aae052))
+* **validator:** scope profile dedup, removed choice types, profile_002 ([#206](https://github.com/jonperron/fhir-linter/issues/206)) ([43b485d](https://github.com/jonperron/fhir-linter/commit/43b485d95bc5391b4f0052632c77ffa1cdd9b9e2))
+
 ## [1.4.0](https://github.com/jonperron/fhir-linter/compare/fhir-linter-v1.3.0...fhir-linter-v1.4.0) (2026-11-25)
 
 
