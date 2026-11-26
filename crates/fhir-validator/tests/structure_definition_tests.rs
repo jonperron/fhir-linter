@@ -423,6 +423,28 @@ fn slice_child_is_compared_with_the_first_unsliced_child_of_its_id_json() {
     );
 }
 
+// Duplicate ids are sdf-16's finding; like the unsliced lookup, only the first slicer of an
+// id has its slices checked, so repeated slicers cannot rescan one slice group.
+#[test]
+fn only_the_first_slicer_of_an_id_checks_its_slices_json() {
+    let found = observation_profile(serde_json::json!([
+        { "id": "Observation.component", "path": "Observation.component",
+          "slicing": { "rules": "open" }, "max": "*" },
+        { "id": "Observation.component", "path": "Observation.component",
+          "slicing": { "rules": "open" }, "max": "1" },
+        { "id": "Observation.component:a", "path": "Observation.component",
+          "sliceName": "a", "min": 1 },
+        { "id": "Observation.component:b", "path": "Observation.component",
+          "sliceName": "b", "min": 1 },
+    ]));
+    assert!(
+        found
+            .iter()
+            .all(|diagnostic| &*diagnostic.code != "DEFINITION_002"),
+        "{found:?}"
+    );
+}
+
 // A hostile differential of many slicers and slice children used to be checked in quadratic
 // time (16k elements: 124 s in a debug build, 13 s once linear). One run with a generous bound
 // that only the quadratic check exceeds.
@@ -430,16 +452,28 @@ fn slice_child_is_compared_with_the_first_unsliced_child_of_its_id_json() {
 fn many_slicers_and_slice_children_are_checked_in_linear_time_json() {
     let count = 16_000;
     let elements: Vec<serde_json::Value> = (0..count)
-        .map(|index| {
-            if index % 2 == 0 {
+        .map(|index| match index % 3 {
+            0 => {
                 let id = format!("Observation.component:s{index}");
                 serde_json::json!({ "id": id, "path": "Observation.component",
                     "slicing": { "rules": "open" }, "max": "1" })
-            } else {
+            }
+            1 => {
                 let id = format!("Observation.component:s.x{index}");
                 serde_json::json!({ "id": id, "path": "Observation.component.code", "min": 1 })
             }
+            // Repeated slicers over the slices above.
+            _ => serde_json::json!({ "id": "Observation.component",
+                "path": "Observation.component", "slicing": { "rules": "open" },
+                "max": "1" }),
         })
+        // A control the check must still catch: a slice child over an unsliced maximum of 0.
+        .chain([
+            serde_json::json!({ "id": "Observation.component.code",
+                "path": "Observation.component.code", "max": "0" }),
+            serde_json::json!({ "id": "Observation.component:s.code",
+                "path": "Observation.component.code", "min": 1 }),
+        ])
         .collect();
     let started = std::time::Instant::now();
     let found = observation_profile(serde_json::Value::Array(elements));
@@ -448,13 +482,12 @@ fn many_slicers_and_slice_children_are_checked_in_linear_time_json() {
         elapsed < std::time::Duration::from_secs(60),
         "took {elapsed:?}"
     );
-    assert!(
-        found
-            .iter()
-            .all(|diagnostic| !diagnostic.code.starts_with("DEFINITION_00")),
-        "{:?}",
-        found.first()
-    );
+    let definitions: Vec<&Diagnostic> = found
+        .iter()
+        .filter(|diagnostic| diagnostic.code.starts_with("DEFINITION_00"))
+        .collect();
+    assert_eq!(definitions.len(), 1, "{definitions:?}");
+    assert_eq!(&*definitions[0].code, "DEFINITION_003");
 }
 
 // references.html, Canonical URLs: only resources with canonical URLs "are allowed to be the

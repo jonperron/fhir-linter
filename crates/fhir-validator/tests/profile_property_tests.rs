@@ -123,6 +123,21 @@ fn profile_may_repeat_the_base_content_reference() {
 }
 
 #[test]
+fn profile_may_not_drop_the_fragment_of_a_content_reference() {
+    let bare = definition(
+        "constraint",
+        "Questionnaire",
+        "resource",
+        r#""id":"Questionnaire.item.item","path":"Questionnaire.item.item",
+        "contentReference":"Questionnaire.item""#,
+    );
+    assert_eq!(
+        paths(&bare, "DEFINITION_006"),
+        ["StructureDefinition.differential.element[1].contentReference"]
+    );
+}
+
+#[test]
 fn profile_may_not_point_a_content_reference_at_another_definition() {
     let other = definition(
         "constraint",

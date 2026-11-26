@@ -188,7 +188,10 @@ fn content_references(
         // Compare the element paths: the Registry keeps a local `#path` as the bare path, and
         // a derived profile's snapshot writes the same target as `<core url>#path`. A stated
         // URL must name the base itself or the definition the base's reference names.
-        let stated = string(fields, "contentReference").map(reference_parts);
+        // A stated reference without `#` is a relative URL, never the base's `#path`.
+        let stated = string(fields, "contentReference")
+            .filter(|reference| reference.contains('#'))
+            .map(reference_parts);
         let inherited = element.content_reference.as_deref().map(reference_parts);
         if let (Some((url, target)), Some((base_url, base_target))) = (stated, inherited)
             && target == base_target
@@ -454,7 +457,13 @@ fn slice_cardinality(
         else {
             continue;
         };
-        if let Some(slicing) = element.get("slicing") {
+        // Only the first element of an id is its slicer (a repeat is sdf-16's finding), so
+        // repeated slicers cannot rescan one slice group.
+        if let Some(slicing) = element.get("slicing")
+            && by_id
+                .get(id)
+                .is_some_and(|first| std::ptr::eq(*first, element))
+        {
             // An unstated maximum is the base's: the unsliced element of the same path there.
             // shortcut: the first base element of that path is taken, so a nested slicer inside
             // a narrowed slice may get a larger maximum (check silent, never a false error);
