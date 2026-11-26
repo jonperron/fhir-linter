@@ -555,12 +555,23 @@ fn sarif_columns_count_utf16_code_units_on_later_lines() -> TestResult {
 }
 
 #[test]
-fn sarif_columns_count_a_bom_as_one_unit() -> TestResult {
+fn sarif_columns_do_not_count_a_json_bom() -> TestResult {
     let text = "\u{FEFF}{\"resourceType\":\"Patient\",\"x\":1}";
     let region = sarif_region_of_unknown_x("utf16-col-bom.json", text)?;
-    // The BOM is 3 bytes but 1 unit: byte column 34, UTF-16 column 32.
+    // The JSON parser counts the BOM's 3 bytes (byte column 34); editors hide it.
     assert_eq!(region["startLine"], 1);
-    assert_eq!(region["startColumn"], 32);
+    assert_eq!(region["startColumn"], 31);
+    Ok(())
+}
+
+#[test]
+fn sarif_columns_do_not_count_an_xml_bom() -> TestResult {
+    let text =
+        "\u{FEFF}<Patient xmlns=\"http://hl7.org/fhir\"><!--\u{E9}--><x value=\"1\"/></Patient>";
+    let region = sarif_region_of_unknown_x("utf16-col-bom.xml", text)?;
+    // The XML parser already skips the BOM (byte column 47); U+00E9 is 1 unit.
+    assert_eq!(region["startLine"], 1);
+    assert_eq!(region["startColumn"], 46);
     Ok(())
 }
 

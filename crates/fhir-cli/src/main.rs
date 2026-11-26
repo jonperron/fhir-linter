@@ -102,12 +102,17 @@ fn run(cli: &Cli) -> Result<bool, String> {
     for path in &inputs {
         let file = path.display().to_string();
         let (diagnostics, text) = lint_file(path, &rules, &registry, &config)?;
-        let columns = Utf16Columns::new(&text);
+        // Only SARIF reports UTF-16 columns; the XML parser's spans skip a BOM.
+        let columns = matches!(cli.format, Format::Sarif)
+            .then(|| Utf16Columns::new(&text, !files::is_xml(path)));
         for diagnostic in diagnostics {
             findings.push(Finding {
                 file: file.clone(),
                 path: path.clone(),
-                utf16_col: diagnostic.location.map(|span| columns.column(span)),
+                utf16_col: columns
+                    .as_ref()
+                    .zip(diagnostic.location)
+                    .map(|(columns, span)| columns.column(span)),
                 diagnostic,
             });
         }

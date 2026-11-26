@@ -166,40 +166,60 @@ pub struct Utf16Columns<'a> {
     /// UTF-8 bytes minus UTF-16 units of the text before each multiple of
     /// `CHECKPOINT_BYTES`.
     checkpoints: Vec<usize>,
+    /// Bytes of a leading BOM that line-1 spans count but `text` omits.
+    bom_bytes: u32,
 }
 
 impl<'a> Utf16Columns<'a> {
-    pub fn new(text: &'a str) -> Self {
-        let bytes = text.as_bytes();
-        let mut columns = Utf16Columns {
-            text: bytes,
-            line_starts: Vec::new(),
-            checkpoints: Vec::new(),
+    /// Index `text`. A leading BOM is never counted (editors hide it);
+    /// `spans_count_bom` says whether the parser's line-1 columns include its
+    /// bytes (the JSON parser does, the XML parser skips it).
+    pub fn new(text: &'a str, spans_count_bom: bool) -> Self {
+        let stripped = text.strip_prefix('\u{FEFF}');
+        let bom_bytes = match stripped {
+            Some(_) if spans_count_bom => 3,
+            _ => 0,
         };
-        if text.is_ascii() {
-            return columns;
+        let bytes = stripped.unwrap_or(text).as_bytes();
+        if bytes.is_ascii() {
+            return Utf16Columns {
+                text: bytes,
+                line_starts: Vec::new(),
+                checkpoints: Vec::new(),
+                bom_bytes,
+            };
         }
-        columns.line_starts.push(0);
-        columns.line_starts.extend(
-            bytes
-                .iter()
-                .enumerate()
-                .filter(|&(_, &byte)| byte == b'\n')
-                .map(|(offset, _)| u32::try_from(offset + 1).unwrap_or(u32::MAX)),
-        );
-        let mut saved = 0;
-        for chunk in bytes.chunks(CHECKPOINT_BYTES) {
-            columns.checkpoints.push(saved);
-            saved += savings(chunk);
+        let line_starts = std::iter::once(0)
+            .chain(
+                bytes
+                    .iter()
+                    .enumerate()
+                    .filter(|&(_, &byte)| byte == b'\n')
+                    .map(|(offset, _)| u32::try_from(offset + 1).unwrap_or(u32::MAX)),
+            )
+            .collect();
+        let checkpoints = std::iter::once(0)
+            .chain(bytes.chunks(CHECKPOINT_BYTES).scan(0, |saved, chunk| {
+                *saved += savings(chunk);
+                Some(*saved)
+            }))
+            .collect();
+        Utf16Columns {
+            text: bytes,
+            line_starts,
+            checkpoints,
+            bom_bytes,
         }
-        columns.checkpoints.push(saved);
-        columns
     }
 
     /// The UTF-16 column of `span`; past the end of its line, one unit per byte.
     pub fn column(&self, span: Span) -> u32 {
-        let col = span.col.max(1);
         let line = usize::try_from(span.line.max(1)).unwrap_or(usize::MAX);
+        let col = match line {
+            1 => span.col.saturating_sub(self.bom_bytes),
+            _ => span.col,
+        }
+        .max(1);
         let Some(start) = self.line_start(line - 1) else {
             // ASCII text, or a line the text does not have: bytes are units.
             return col;
@@ -357,7 +377,7 @@ mod tests {
     }
 
     fn column(text: &str, line: u32, col: u32) -> u32 {
-        Utf16Columns::new(text).column(Span {
+        Utf16Columns::new(text, true).column(Span {
             line,
             col,
             offset: 0,
@@ -377,6 +397,25 @@ mod tests {
         assert_eq!(column(&text, 1, 63 + 4 + 200 + 1), 63 + 2 + 100 + 1);
         // A column at the end of a text exactly one checkpoint long.
         assert_eq!(column(&"\u{E9}".repeat(32), 1, 65), 33);
+    }
+
+    #[test]
+    fn utf16_columns_skip_a_bom_whether_or_not_spans_count_it() {
+        let span = |col| Span {
+            line: 1,
+            col,
+            offset: 0,
+        };
+        // `x` is the second char after the BOM: unit column 2.
+        assert_eq!(
+            Utf16Columns::new("\u{FEFF}\u{E9}x", true).column(span(6)),
+            2
+        );
+        assert_eq!(
+            Utf16Columns::new("\u{FEFF}\u{E9}x", false).column(span(3)),
+            2
+        );
+        assert_eq!(Utf16Columns::new("\u{FEFF}ax", true).column(span(5)), 2);
     }
 
     #[test]

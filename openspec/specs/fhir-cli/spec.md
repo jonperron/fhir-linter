@@ -198,7 +198,7 @@ Le format `json` SHALL écrire un tableau d'objets `{file, severity, code, messa
 
 ### Requirement: Format SARIF
 
-Le format `sarif` SHALL écrire un journal SARIF 2.1.0 : `$schema`, `version = "2.1.0"`, `runs[0].tool.driver` avec `name = "fhir-lint"`, `version` de l'outil et `rules` (un `{id}` par code distinct, triés). Chaque résultat SHALL avoir `ruleId` (le code), `level` (`error` pour `fatal` et `error`, `warning`, ou `note` pour `information`), `message.text` et `locations[0].physicalLocation` avec `artifactLocation.uri` et, si la position est connue, `region.startLine` / `startColumn` au moins égaux à 1. Sous Unix, l'URI SHALL être construite à partir des octets bruts du chemin (un octet non UTF-8 comme `0xFF` devient `%FF`). L'URI SHALL rester relative pour un chemin relatif, être préfixée `file://` pour un chemin absolu, et encoder en pourcentage tout octet hors `[A-Za-z0-9-._~/]`.
+Le format `sarif` SHALL écrire un journal SARIF 2.1.0 : `$schema`, `version = "2.1.0"`, `runs[0].tool.driver` avec `name = "fhir-lint"`, `version` de l'outil et `rules` (un `{id}` par code distinct, triés). Chaque résultat SHALL avoir `ruleId` (le code), `level` (`error` pour `fatal` et `error`, `warning`, ou `note` pour `information`), `message.text` et `locations[0].physicalLocation` avec `artifactLocation.uri` et, si la position est connue, `region.startLine` / `startColumn` au moins égaux à 1. `startColumn` SHALL compter en unités UTF-16 et un BOM UTF-8 initial SHALL NOT être compté (0 unité, les éditeurs le masquent), pour les entrées JSON comme XML. Sous Unix, l'URI SHALL être construite à partir des octets bruts du chemin (un octet non UTF-8 comme `0xFF` devient `%FF`). L'URI SHALL rester relative pour un chemin relatif, être préfixée `file://` pour un chemin absolu, et encoder en pourcentage tout octet hors `[A-Za-z0-9-._~/]`.
 
 #### Scenario: Journal minimal
 
@@ -223,7 +223,7 @@ Le format `sarif` SHALL écrire un journal SARIF 2.1.0 : `$schema`, `version = "
 #### Scenario: BOM en ligne 1
 
 - **WHEN** le fichier commence par un BOM et le diagnostic est en ligne 1
-- **THEN** le BOM SHALL compter pour 1 unité dans `startColumn`
+- **THEN** le BOM SHALL compter pour 0 unité dans `startColumn`, pour une entrée JSON comme XML
 
 #### Scenario: Nom de fichier non UTF-8
 
