@@ -445,9 +445,9 @@ fn only_the_first_slicer_of_an_id_checks_its_slices_json() {
     );
 }
 
-// A hostile differential of many slicers and slice children used to be checked in quadratic
-// time (16k elements: 124 s in a debug build, 13 s once linear; 1k keeps it near the registry load time). One run with a generous bound
-// that only the quadratic check exceeds.
+// A hostile differential of many slicers and slice children used to be checked in
+// quadratic time (16k elements: 124 s in a debug build, 13 s once linear). 1k elements keep
+// the test fast, so the bound is a smoke check only; the diagnostics asserted below are the point.
 #[test]
 fn many_slicers_and_slice_children_are_checked_in_linear_time_json() {
     let count = 1_000;
