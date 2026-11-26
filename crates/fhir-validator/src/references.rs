@@ -5,7 +5,8 @@ use fhir_definitions::{CORE_PREFIX, ElementDefinition, Registry};
 use fhir_parser::{Node, Resource, Value};
 
 use crate::diagnostic::Diagnostic;
-use crate::resolve::canonical_parts;
+use crate::embedded::is_resource_type;
+use crate::resolve::{canonical_parts, node_string};
 
 /// The id of a contained resource, with its `resourceType` when that is a string.
 pub(crate) type ContainedId = (Arc<str>, Option<Arc<str>>);
@@ -34,14 +35,14 @@ pub(crate) fn bundle_entries(
     };
     let mut found = BundleTargets::new();
     for (index, entry) in entries.iter().enumerate() {
-        let Some(full_url) = string_field(entry, "fullUrl") else {
+        let Some(full_url) = node_string(entry, "fullUrl") else {
             continue;
         };
         let Value::Object(fields) = &entry.value else {
             continue;
         };
         let entry_resource = fields.get("resource");
-        let id = entry_resource.and_then(|node| string_field(node, "id"));
+        let id = entry_resource.and_then(|node| node_string(node, "id"));
         if let (Some(id), Some(url_id)) = (id, restful_id(full_url, registry))
             && id != url_id
         {
@@ -55,7 +56,7 @@ pub(crate) fn bundle_entries(
             );
         }
         // An entry without a resource type leaves its fullUrl ambiguous, never resolved.
-        let resource_type = entry_resource.and_then(|node| string_field(node, "resourceType"));
+        let resource_type = entry_resource.and_then(|node| node_string(node, "resourceType"));
         found
             .entry(Arc::from(full_url))
             .and_modify(|known: &mut Option<Arc<str>>| {
@@ -168,7 +169,7 @@ pub(crate) fn check(
     registry: &Registry,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some(reference) = string_field(item, "reference") else {
+    let Some(reference) = node_string(item, "reference") else {
         return;
     };
     let ref_path = format!("{path}.reference");
@@ -191,7 +192,7 @@ pub(crate) fn check(
         }),
     };
     // references.html 2.1.3.0.1: type and the reference SHALL be consistent.
-    let declared = string_field(item, "type");
+    let declared = node_string(item, "type");
     if let (Some(declared), Some(url_type)) = (declared, target_type)
         && declared.strip_prefix(CORE_PREFIX).unwrap_or(declared) != url_type
     {
@@ -264,12 +265,6 @@ fn target_allowed(elem: &ElementDefinition, url_type: &str, registry: &Registry)
     })
 }
 
-fn is_resource_type(registry: &Registry, name: &str) -> bool {
-    registry
-        .core(name)
-        .is_some_and(|sd| sd.kind.as_ref() == "resource" && !sd.is_abstract)
-}
-
 /// The resource type of a reference that fully matches the R5 literal reference regex
 /// `((http|https)://([A-Za-z0-9\-\\\.\:\%\$]*\/)+)?(Type)\/[A-Za-z0-9\-\.]{1,64}`
 /// `(\/_history\/[A-Za-z0-9\-\.]{1,64})?`, where `Type` is a concrete resource type.
@@ -313,16 +308,6 @@ fn is_id(s: &str) -> bool {
     (1..=64).contains(&s.len())
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || "-.".contains(c))
-}
-
-fn string_field<'a>(node: &'a Node, key: &str) -> Option<&'a str> {
-    let Value::Object(f) = &node.value else {
-        return None;
-    };
-    match &f.get(key)?.value {
-        Value::Str(s) => Some(s),
-        _ => None,
-    }
 }
 
 fn check_target(

@@ -43,11 +43,21 @@ pub(crate) fn concrete_resource<'a>(
 ) -> Result<&'a StructureDefinition, String> {
     let definition = registry.core(resource_type);
     definition
-        .filter(|sd| sd.kind.as_ref() == "resource" && !sd.is_abstract)
+        .filter(|sd| is_concrete(sd))
         .ok_or_else(|| match definition {
             Some(_) => format!("'{resource_type}' is not a concrete resource type"),
             None => format!("Unknown resource type '{resource_type}'"),
         })
+}
+
+/// Whether `sd` has instances: `kind = resource` and `abstract = false`.
+fn is_concrete(sd: &StructureDefinition) -> bool {
+    sd.kind.as_ref() == "resource" && !sd.is_abstract
+}
+
+/// Whether `name` is a concrete resource type (see [`concrete_resource`]).
+pub(crate) fn is_resource_type(registry: &Registry, name: &str) -> bool {
+    registry.core(name).is_some_and(is_concrete)
 }
 
 /// The element whose content rules apply to a `contentReference` element of `sd`: a local
@@ -129,14 +139,7 @@ pub(crate) fn queue<'a>(
     queue: &mut Vec<Embedded<'a>>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let items: Vec<(&Node, String)> = match &node.value {
-        Value::Array(items) => items
-            .iter()
-            .enumerate()
-            .map(|(i, item)| (item, format!("{path}[{i}]")))
-            .collect(),
-        _ => vec![(node, path.to_owned())],
-    };
+    let items = crate::resolve::items(node, path);
     // An object converts to exactly one value, so objects align item by item.
     let aligned = typed.filter(|typed| {
         typed.len() == items.len()
