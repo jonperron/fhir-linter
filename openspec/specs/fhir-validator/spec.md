@@ -1725,11 +1725,16 @@ Pour toute StructureDefinition (ressource racine ou intégrée) dont `derivation
 
 ### Requirement: Validation des profils — contentReference modifié (DEFINITION_006)
 
-Pour toute StructureDefinition dont `derivation` vaut `constraint` et dont la `baseDefinition` (sans `|version`) figure dans le Registry, le système SHALL émettre une erreur `DEFINITION_006` pour chaque `differential.element[i]` qui renseigne `contentReference` lorsque l'élément de même chemin existe dans le snapshot de base et que le chemin référencé (après le dernier `#`) diffère de celui de l'élément de base (ou que ce dernier n'en a pas), au `path` `<ressource>.differential.element[<i>].contentReference`. Selon ElementDefinition.contentReference : « ContentReferences can only be defined in specializations, not constrained types, and they cannot be changed ». Aucun diagnostic SHALL être émis pour une spécialisation, pour une même cible (forme `#chemin` ou canonique `<url>#chemin`), ni si l'élément de base est introuvable.
+Pour toute StructureDefinition dont `derivation` vaut `constraint` et dont la `baseDefinition` (sans `|version`) figure dans le Registry, le système SHALL émettre une erreur `DEFINITION_006` pour chaque `differential.element[i]` qui renseigne `contentReference` lorsque l'élément de même chemin existe dans le snapshot de base et que la cible référencée ne correspond pas à celle de l'élément de base (ou que ce dernier n'en a pas) : le chemin (après le dernier `#`) SHALL être égal à celui de la base ET la partie URL (sans `|version`) SHALL être vide (forme locale `#chemin`), égale à l'`url` canonique de la StructureDefinition de base, ou égale à la partie URL du `contentReference` de l'élément de base (les snapshots dérivés écrivent `<url du noyau>#chemin`) ; au `path` `<ressource>.differential.element[<i>].contentReference`. Selon ElementDefinition.contentReference : « ContentReferences can only be defined in specializations, not constrained types, and they cannot be changed ». Aucun diagnostic SHALL être émis pour une spécialisation, pour une même cible (formes acceptées ci-dessus), ni si l'élément de base est introuvable.
 
 #### Scenario: contentReference changé par un profil
 
 - **WHEN** un profil `constraint` renseigne `contentReference` vers un chemin différent de celui de l'élément de base
+- **THEN** une erreur `DEFINITION_006` SHALL être émise à `<ressource>.differential.element[<i>].contentReference`
+
+#### Scenario: contentReference vers une autre URL
+
+- **WHEN** un profil `constraint` renseigne `http://example.org/Other#Questionnaire.item` sur `Questionnaire.item.item`, dont la base cible `Questionnaire.item` (même chemin, URL différente de la base)
 - **THEN** une erreur `DEFINITION_006` SHALL être émise à `<ressource>.differential.element[<i>].contentReference`
 
 #### Scenario: contentReference inchangé ou hors périmètre

@@ -405,6 +405,58 @@ fn differential_without_ids_has_no_slice_findings_json() {
     assert!(found.is_empty(), "{found:?}");
 }
 
+#[test]
+fn slice_child_is_compared_with_the_first_unsliced_child_of_its_id_json() {
+    let found = observation_profile(serde_json::json!([
+        { "id": "Observation.component.value[x]", "path": "Observation.component.value[x]",
+          "max": "0" },
+        { "id": "Observation.component.value[x]", "path": "Observation.component.value[x]",
+          "max": "1" },
+        { "id": "Observation.component:a.value[x]", "path": "Observation.component.value[x]",
+          "min": 1 },
+    ]));
+    assert_single(
+        &found,
+        "DEFINITION_003",
+        "StructureDefinition.differential.element[2].min",
+        &["maximum 0"],
+    );
+}
+
+// A hostile differential of many slicers and slice children used to be checked in quadratic
+// time (16k elements: 124 s in a debug build, 13 s once linear). One run with a generous bound
+// that only the quadratic check exceeds.
+#[test]
+fn many_slicers_and_slice_children_are_checked_in_linear_time_json() {
+    let count = 16_000;
+    let elements: Vec<serde_json::Value> = (0..count)
+        .map(|index| {
+            if index % 2 == 0 {
+                let id = format!("Observation.component:s{index}");
+                serde_json::json!({ "id": id, "path": "Observation.component",
+                    "slicing": { "rules": "open" }, "max": "1" })
+            } else {
+                let id = format!("Observation.component:s.x{index}");
+                serde_json::json!({ "id": id, "path": "Observation.component.code", "min": 1 })
+            }
+        })
+        .collect();
+    let started = std::time::Instant::now();
+    let found = observation_profile(serde_json::Value::Array(elements));
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(60),
+        "took {elapsed:?}"
+    );
+    assert!(
+        found
+            .iter()
+            .all(|diagnostic| !diagnostic.code.starts_with("DEFINITION_00")),
+        "{:?}",
+        found.first()
+    );
+}
+
 // references.html, Canonical URLs: only resources with canonical URLs "are allowed to be the
 // target of references to a canonical URLs".
 #[test]
