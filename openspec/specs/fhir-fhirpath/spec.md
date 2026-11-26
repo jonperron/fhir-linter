@@ -366,7 +366,7 @@ Le système SHALL implémenter `first()`, `last()`, `tail()`, `skip(n)`, `take(n
 Le système SHALL implémenter `toString()`, `length()`, `startsWith(s)`, `endsWith(s)`, `contains(s)`, `upper()`, `lower()`, `trim()`, `substring(start)`, `substring(start, length)`, `replace(pattern, substitution)`, `matches(regex, [flags])`, `matchesFull(regex, [flags])`, `replaceMatches(regex, substitution, [flags])`, `indexOf(s)`, `lastIndexOf(s)`, `split(separator)`, `join(separator)`, `encode(format)`, `decode(format)`, `escape(target)`, `unescape(target)`, `toChars()`.
 
 Le paramètre optionnel `flags` accepte `i` (insensible à la casse) et `m` (multiligne).
-`escape`/`unescape` supportent les cibles `'html'` et `'json'`. `unescape('json')` SHALL décoder `\uXXXX` (exactement 4 chiffres hexadécimaux) ; une séquence mal formée SHALL être conservée telle qu'écrite ; un substitut haut suivi d'un substitut bas (`\uD83D\uDE00`) SHALL être décodé en un seul caractère, un substitut isolé ou non apparié SHALL être conservé tel qu'écrit. `encode`/`decode` supportent `'hex'` (sortie `encode` en minuscules ; `decode` accepte les deux casses ; longueur impaire ou chiffre non hexadécimal SHALL donner `Err(EvalError::Type(...))`), `'base64'` et `'urlbase64'` ; la sortie `encode('urlbase64')` SHALL être complétée par `=` comme `base64`.
+`escape`/`unescape` supportent les cibles `'html'` et `'json'`. `unescape('json')` SHALL décoder `\uXXXX` (exactement 4 chiffres hexadécimaux) ; une séquence mal formée SHALL être conservée telle qu'écrite ; un substitut haut suivi d'un substitut bas (`\uD83D\uDE00`) SHALL être décodé en un seul caractère, un substitut isolé ou non apparié SHALL être conservé tel qu'écrit. `encode`/`decode` supportent `'hex'` (sortie `encode` en minuscules ; `decode` accepte les deux casses ; longueur impaire ou chiffre non hexadécimal SHALL donner `Err(EvalError::Type(...))`), `'base64'` et `'urlbase64'` ; la sortie `encode('urlbase64')` SHALL être complétée par `=` comme `base64`. `decode('base64')` et `decode('urlbase64')` SHALL aussi donner `Err(EvalError::Type(...))` pour un remplissage non conforme à la RFC 4648 (plus de deux `=`, ou entrée remplie dont la longueur n'est pas un multiple de 4) et pour des bits résiduels non nuls dans le dernier quantum partiel ; l'entrée sans remplissage et les espaces ASCII restent acceptés.
 
 Pour `startsWith`, `endsWith`, `contains`, `indexOf`, `lastIndexOf`, `matches`, `matchesFull`, `replace`, `replaceMatches` et `substring`, une entrée vide ou un argument vide (motif, sous-chaîne, substitution, début) SHALL donner une collection vide ; un argument non `String` (ou non `Integer` pour `substring`) SHALL rester une erreur. Pour `substring`, un début hors de `0..length-1` SHALL donner une collection vide, une longueur vide SHALL se comporter comme une longueur absente et une longueur `<= 0` SHALL donner `''`. `join` sur une entrée vide SHALL donner une collection vide.
 
@@ -421,6 +421,11 @@ Les fonctions de chaînes de N1 §5.6 (`indexOf`, `lastIndexOf`, `substring`, `s
 
 - **WHEN** `decode('base64')` ou `decode('urlbase64')` reçoit des caractères hors alphabet (hors espaces ASCII ignorés) ou un contenu non UTF-8
 - **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))`
+
+#### Scenario: decode rejette un remplissage ou des bits résiduels invalides
+
+- **WHEN** `decode('base64')` ou `decode('urlbase64')` reçoit plus de deux `=`, une entrée remplie dont la longueur n'est pas un multiple de 4, ou un dernier quantum partiel aux bits résiduels non nuls (`'QR=='`)
+- **THEN** l'évaluateur SHALL retourner `Err(EvalError::Type(...))` ; `'QQ'` (sans remplissage) reste accepté
 
 #### Scenario: lastIndexOf retourne la dernière occurrence
 
@@ -1530,7 +1535,7 @@ Les dates, date-heures et heures SHALL être comparées précision par précisio
 
 ### Requirement: Typage des primitives par le type déclaré
 
-Le système SHALL exposer `resource_to_typed_value(resource, child_element: &ChildElement) -> Value`, où `ChildElement` est `dyn Fn(&str, &str) -> Option<(Arc<str>, Arc<str>)>` (chemin de définition du parent, nom de l'enfant) vers (chemin de définition, code de type). Une chaîne dont le type déclaré est `date` SHALL devenir `Value::Date`, `dateTime` et `instant` `Value::DateTime`, `time` `Value::Time` (FHIRPath R5 §2.1.9.1). Une ressource imbriquée (contained, entrée de Bundle) SHALL être typée par son propre `resourceType`. Le système SHALL aussi exposer `node_to_typed_value(value, element, child, child_element)`, qui convertit un nœud et son élément JSON `_nom` avec le même typage que `resource_to_typed_value`. Les valeurs construites depuis une `Resource` XML (`from_xml`) SHALL aussi typer le texte `boolean`, `integer`, `unsignedInt`, `positiveInt` et `decimal` par le type déclaré de l'élément, comme les valeurs JSON, selon les regex officielles ; un texte qui ne correspond pas SHALL rester une `String`. Un élément XML de type `Resource` enveloppant une ressource (`<contained><Patient>`) SHALL être converti avec `resourceType` égal au nom de l'élément enveloppé et ses enfants typés contre cette ressource. Les types System (`System.Boolean`, etc.) SHALL garder les règles System sur les valeurs typées. Le système SHALL exposer l'assistant public `typed_xml_text`. `resource_to_value` et `from_parser_value` SHALL rester non typées (les dates restent des `String`).
+Le système SHALL exposer `resource_to_typed_value(resource, child_element: &ChildElement) -> Value`, où `ChildElement` est `dyn Fn(&str, &str) -> Option<(Arc<str>, Arc<str>)>` (chemin de définition du parent, nom de l'enfant) vers (chemin de définition, code de type). Une chaîne dont le type déclaré est `date` SHALL devenir `Value::Date`, `dateTime` et `instant` `Value::DateTime`, `time` `Value::Time` (FHIRPath R5 §2.1.9.1). Une ressource imbriquée (contained, entrée de Bundle) SHALL être typée par son propre `resourceType`. Le système SHALL aussi exposer `node_to_typed_value(value, element, child, child_element)`, qui convertit un nœud et son élément JSON `_nom` avec le même typage que `resource_to_typed_value`. Un nombre JSON sans point décimal dans un élément de type `decimal` SHALL devenir un `Decimal` d'échelle 0, comme depuis XML : le type de l'élément décide, pas la forme lexicale JSON ; les autres types gardent l'`Integer` JSON. Les valeurs construites depuis une `Resource` XML (`from_xml`) SHALL aussi typer le texte `boolean`, `integer`, `unsignedInt`, `positiveInt` et `decimal` par le type déclaré de l'élément, comme les valeurs JSON, selon les regex officielles ; un texte qui ne correspond pas SHALL rester une `String`. Un élément XML de type `Resource` enveloppant une ressource (`<contained><Patient>`) SHALL être converti avec `resourceType` égal au nom de l'élément enveloppé et ses enfants typés contre cette ressource. Les types System (`System.Boolean`, etc.) SHALL garder les règles System sur les valeurs typées. Le système SHALL exposer l'assistant public `typed_xml_text`. `resource_to_value` et `from_parser_value` SHALL rester non typées (les dates restent des `String`).
 
 #### Scenario: Date typée par le Registry
 
@@ -1551,6 +1556,11 @@ Le système SHALL exposer `resource_to_typed_value(resource, child_element: &Chi
 
 - **WHEN** `active` et `multipleBirthInteger` sont évalués sur un Patient XML converti par `resource_to_typed_value`
 - **THEN** le résultat SHALL être `Bool(true)` et un `Integer`, et un texte `decimal` non conforme SHALL rester une `String`
+
+#### Scenario: Nombre JSON entier dans un élément decimal
+
+- **WHEN** un nombre JSON sans point décimal (`1`) est converti dans un élément de type `decimal`
+- **THEN** le résultat SHALL être un `Decimal` d'échelle 0 (`precision()` donne `0`, `is decimal` est vrai, arithmétique Decimal), identique à la même valeur lue depuis XML ; les éléments d'un autre type gardent l'`Integer` JSON
 
 #### Scenario: Ressource XML enveloppée
 
