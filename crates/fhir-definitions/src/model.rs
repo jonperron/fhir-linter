@@ -185,7 +185,8 @@ pub struct Slicing {
     pub ordered: bool,
 }
 
-/// One `slicing.discriminator` entry.
+/// One `slicing.discriminator` entry. Its path is parsed at most once, on first use, like
+/// [`Constraint`]'s expression.
 #[derive(Debug, Clone)]
 pub struct Discriminator {
     /// `discriminator.type`: `value`, `exists`, `pattern` (deprecated), `type`, `profile` or
@@ -193,6 +194,23 @@ pub struct Discriminator {
     pub kind: Arc<str>,
     /// FHIRPath (restricted) from the sliced element to the discriminating value.
     pub path: Arc<str>,
+    parsed: OnceLock<Result<Expr, ParseError>>,
+}
+
+impl Discriminator {
+    #[must_use]
+    pub fn new(kind: Arc<str>, path: Arc<str>) -> Self {
+        Self {
+            kind,
+            path,
+            parsed: OnceLock::new(),
+        }
+    }
+
+    /// The parsed path, parsed on the first call only.
+    pub fn parsed_path(&self) -> &Result<Expr, ParseError> {
+        self.parsed.get_or_init(|| fhir_fhirpath::parse(&self.path))
+    }
 }
 
 /// A `[x]` property of an ElementDefinition (`fixedCode`, `patternCodeableConcept`, ...),
@@ -426,6 +444,16 @@ mod tests {
         let second = constraint.parsed_expression().expect("has expression");
         assert!(std::ptr::eq(first, second));
         assert!(first.is_ok());
+    }
+
+    #[test]
+    fn discriminator_path_is_parsed_once_and_reused() {
+        let discriminator = Discriminator::new("value".into(), "code".into());
+        let first = discriminator.parsed_path();
+        assert!(std::ptr::eq(first, discriminator.parsed_path()));
+        assert!(first.is_ok());
+        let bad = Discriminator::new("value".into(), "code.(".into());
+        assert!(bad.parsed_path().is_err());
     }
 
     #[test]

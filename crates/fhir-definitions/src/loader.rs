@@ -256,10 +256,10 @@ fn parse_slicing(slicing: &Value) -> Option<Slicing> {
         .into_iter()
         .flatten()
         .map(|d| {
-            Some(Discriminator {
-                kind: d["type"].as_str()?.into(),
-                path: d["path"].as_str()?.into(),
-            })
+            Some(Discriminator::new(
+                d["type"].as_str()?.into(),
+                d["path"].as_str()?.into(),
+            ))
         })
         .collect::<Option<_>>()?;
     Some(Slicing {

@@ -424,7 +424,7 @@ Chaque `ElementDefinition` SHALL exposer `is_modifier: bool` (absent = `false`) 
 
 ### Requirement: Slicing et longueur maximale
 
-Chaque `ElementDefinition` SHALL exposer `slicing: Option<Box<Slicing>>` avec `discriminators: Vec<Discriminator{kind, path}>`, `rules` et `ordered` (défaut `false`), ainsi que `max_length: Option<u32>`. Un slicing sans `rules`, ou un discriminateur sans `type` ou `path`, SHALL faire échouer le chargement du bundle avec `MalformedBundle` nommant l'élément.
+Chaque `ElementDefinition` SHALL exposer `slicing: Option<Box<Slicing>>` avec `discriminators: Vec<Discriminator{kind, path}>`, `rules` et `ordered` (défaut `false`), ainsi que `max_length: Option<u32>`. `Discriminator` SHALL se construire par `Discriminator::new(kind, path)` et exposer `parsed_path()`, le chemin FHIRPath étant analysé une seule fois et mis en cache (comme `Constraint::parsed_expression`). Un slicing sans `rules`, ou un discriminateur sans `type` ou `path`, SHALL faire échouer le chargement du bundle avec `MalformedBundle` nommant l'élément.
 
 #### Scenario: Slicing chargé
 

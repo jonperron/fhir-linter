@@ -215,12 +215,13 @@ pub(crate) fn assign<'r>(
 }
 
 /// The parsed discriminator path; `None` for `$this`, which selects the item itself.
-fn parse(discriminator: &Discriminator) -> Result<Option<Expr>, String> {
+fn parse(discriminator: &Discriminator) -> Result<Option<&Expr>, String> {
     match discriminator.path.as_ref() {
         "$this" => Ok(None),
-        path => fhir_fhirpath::parse(path)
-            .map(Some)
-            .map_err(|e| format!("cannot parse discriminator path '{path}': {e}")),
+        path => match discriminator.parsed_path() {
+            Ok(expr) => Ok(Some(expr)),
+            Err(e) => Err(format!("cannot parse discriminator path '{path}': {e}")),
+        },
     }
 }
 
