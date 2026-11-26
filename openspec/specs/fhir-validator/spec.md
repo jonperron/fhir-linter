@@ -1027,6 +1027,8 @@ Exception : dans un découpage fermé, une slice `max=0` ne donnant aucune valeu
 
 Les items appariés SHALL recevoir les `fixed`/`pattern` propres à la slice, les invariants de la slice dont la clé est absente de l'élément découpé et les enfants de la slice ; les constats déjà faits au même code et même chemin SHALL NOT être répétés.
 
+La conformité d'une slice à un profil de discriminateur SHALL être mémoïsée par objet d'instance, élément découpé et URL de profil au sein d'une couche de profil, de sorte que le coût des slices récursives reste linéaire ; les diagnostics SHALL rester inchangés.
+
 Limites connues : les re-slices comptent comme des slices ; les chemins de discriminateur doivent désigner un élément.
 
 #### Scenario: Slice requise absente
