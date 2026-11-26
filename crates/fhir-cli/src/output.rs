@@ -1,9 +1,11 @@
 //! Report rendering: text, JSON and SARIF 2.1.0.
 
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::fmt::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use fhir_parser::Span;
 use fhir_validator::{Diagnostic, Severity};
 use serde_json::{Value, json};
 
@@ -13,8 +15,13 @@ const SARIF_SCHEMA: &str = "https://json.schemastore.org/sarif-2.1.0.json";
 
 /// A diagnostic together with the file it was found in.
 pub struct Finding {
+    /// Lossy display name, for the human-readable text and JSON reports.
     pub file: String,
+    /// The exact path, so the SARIF URI keeps every byte of the name.
+    pub path: PathBuf,
     pub diagnostic: Diagnostic,
+    /// The location's column in UTF-16 code units, as SARIF expects (see [`Utf16Columns`]).
+    pub utf16_col: Option<u32>,
 }
 
 pub fn render(findings: &[Finding], format: Format) -> String {
@@ -103,12 +110,12 @@ fn sarif(findings: &[Finding]) -> Value {
         .iter()
         .map(|finding| {
             let d = &finding.diagnostic;
-            let mut location = json!({ "artifactLocation": { "uri": file_uri(&finding.file) } });
+            let mut location = json!({ "artifactLocation": { "uri": file_uri(&finding.path) } });
             if let Some(span) = d.location {
                 // SARIF regions are 1-based; never emit 0.
                 location["region"] = json!({
                     "startLine": span.line.max(1),
-                    "startColumn": span.col.max(1),
+                    "startColumn": finding.utf16_col.unwrap_or(span.col).max(1),
                 });
             }
             json!({
@@ -130,6 +137,7 @@ fn sarif(findings: &[Finding]) -> Value {
                     "rules": rules,
                 },
             },
+            "columnKind": "utf16CodeUnits",
             "results": results,
         }],
     })
@@ -143,27 +151,123 @@ fn sarif_level(severity: Severity) -> &'static str {
     }
 }
 
+/// Bytes per checkpoint in [`Utf16Columns`]: memory is 1/8 of the text, a
+/// lookup scans at most this many bytes.
+const CHECKPOINT_BYTES: usize = 64;
+
+/// Converts a file's 1-based UTF-8 byte columns into the 1-based UTF-16
+/// columns SARIF expects. Built once per file, so many findings on one long
+/// line stay cheap: each lookup is a binary search plus a short scan.
+pub struct Utf16Columns<'a> {
+    text: &'a [u8],
+    /// Byte offset where each line starts (lines end at `\n`, as in the
+    /// parser). Empty for ASCII text, where bytes are units.
+    line_starts: Vec<u32>,
+    /// UTF-8 bytes minus UTF-16 units of the text before each multiple of
+    /// `CHECKPOINT_BYTES`.
+    checkpoints: Vec<usize>,
+}
+
+impl<'a> Utf16Columns<'a> {
+    pub fn new(text: &'a str) -> Self {
+        let bytes = text.as_bytes();
+        let mut columns = Utf16Columns {
+            text: bytes,
+            line_starts: Vec::new(),
+            checkpoints: Vec::new(),
+        };
+        if text.is_ascii() {
+            return columns;
+        }
+        columns.line_starts.push(0);
+        columns.line_starts.extend(
+            bytes
+                .iter()
+                .enumerate()
+                .filter(|&(_, &byte)| byte == b'\n')
+                .map(|(offset, _)| u32::try_from(offset + 1).unwrap_or(u32::MAX)),
+        );
+        let mut saved = 0;
+        for chunk in bytes.chunks(CHECKPOINT_BYTES) {
+            columns.checkpoints.push(saved);
+            saved += savings(chunk);
+        }
+        columns.checkpoints.push(saved);
+        columns
+    }
+
+    /// The UTF-16 column of `span`; past the end of its line, one unit per byte.
+    pub fn column(&self, span: Span) -> u32 {
+        let col = span.col.max(1);
+        let line = usize::try_from(span.line.max(1)).unwrap_or(usize::MAX);
+        let Some(start) = self.line_start(line - 1) else {
+            // ASCII text, or a line the text does not have: bytes are units.
+            return col;
+        };
+        let line_end = self
+            .line_start(line)
+            .map_or(self.text.len(), |next| next - 1);
+        let byte_col = usize::try_from(col - 1).unwrap_or(usize::MAX);
+        let end = start.saturating_add(byte_col).min(line_end);
+        let saved = self.saved_before(end) - self.saved_before(start);
+        col.saturating_sub(u32::try_from(saved).unwrap_or(u32::MAX))
+            .max(1)
+    }
+
+    fn line_start(&self, index: usize) -> Option<usize> {
+        let start = *self.line_starts.get(index)?;
+        usize::try_from(start).ok()
+    }
+
+    /// Bytes minus units of the chars that start before `offset`.
+    fn saved_before(&self, offset: usize) -> usize {
+        let block = offset / CHECKPOINT_BYTES;
+        self.checkpoints[block] + savings(&self.text[block * CHECKPOINT_BYTES..offset])
+    }
+}
+
+/// UTF-8 bytes minus UTF-16 units of the chars whose lead byte is in `bytes`:
+/// a 2-byte char is 1 unit, a 3-byte char 1 unit, a 4-byte char 2 units.
+fn savings(bytes: &[u8]) -> usize {
+    bytes
+        .iter()
+        .map(|&byte| match byte {
+            0xC0..=0xDF => 1,
+            0xE0..=0xFF => 2,
+            _ => 0,
+        })
+        .sum()
+}
+
 /// SARIF wants a URI: relative paths stay relative, absolute ones become `file://`.
-fn file_uri(file: &str) -> String {
+fn file_uri(path: &Path) -> String {
+    // Unix names are bytes, not always UTF-8: encode those, not a lossy rendering.
+    #[cfg(unix)]
+    let slashed = Cow::Borrowed(std::os::unix::ffi::OsStrExt::as_bytes(path.as_os_str()));
     // `\` is a separator only on Windows; elsewhere it is a filename character.
-    let slashed = if cfg!(windows) {
-        file.replace('\\', "/")
-    } else {
-        file.to_owned()
+    #[cfg(not(unix))]
+    let slashed: Cow<[u8]> = {
+        let file = path.to_string_lossy();
+        let file = if cfg!(windows) {
+            file.replace('\\', "/")
+        } else {
+            file.into_owned()
+        };
+        Cow::Owned(file.into_bytes())
     };
     let mut uri = String::new();
-    let mut rest = slashed.as_str();
-    if Path::new(file).is_absolute() {
+    let mut rest: &[u8] = &slashed;
+    if path.is_absolute() {
         uri.push_str("file://");
-        if !rest.starts_with('/') {
+        if !rest.starts_with(b"/") {
             // Windows drive path: `C:/x` -> `file:///C:/x`, drive colon kept as is.
             let (drive, tail) = rest.split_at(2);
             uri.push('/');
-            uri.push_str(drive);
+            uri.extend(drive.iter().copied().map(char::from));
             rest = tail;
         }
     }
-    for byte in rest.bytes() {
+    for &byte in rest {
         // `:` is encoded so a relative `a:b.json` cannot read as a URI scheme.
         if byte.is_ascii_alphanumeric() || b"-._~/".contains(&byte) {
             uri.push(char::from(byte));
@@ -180,24 +284,27 @@ mod tests {
 
     #[test]
     fn file_uri_keeps_relative_paths_relative() {
-        assert_eq!(file_uri("dir/a b.json"), "dir/a%20b.json");
+        assert_eq!(file_uri(Path::new("dir/a b.json")), "dir/a%20b.json");
     }
 
     #[test]
     fn file_uri_encodes_colon_in_relative_paths() {
-        assert_eq!(file_uri("javascript:x.json"), "javascript%3Ax.json");
+        assert_eq!(
+            file_uri(Path::new("javascript:x.json")),
+            "javascript%3Ax.json"
+        );
     }
 
     #[cfg(unix)]
     #[test]
     fn file_uri_prefixes_absolute_paths() {
-        assert_eq!(file_uri("/tmp/x.json"), "file:///tmp/x.json");
+        assert_eq!(file_uri(Path::new("/tmp/x.json")), "file:///tmp/x.json");
     }
 
     #[cfg(unix)]
     #[test]
     fn file_uri_keeps_backslash_as_a_unix_filename_character() {
-        assert_eq!(file_uri("a\\b.json"), "a%5Cb.json");
+        assert_eq!(file_uri(Path::new("a\\b.json")), "a%5Cb.json");
     }
 
     #[test]
@@ -240,10 +347,68 @@ mod tests {
         });
         let log = sarif(&[Finding {
             file: "f.json".to_owned(),
+            path: PathBuf::from("f.json"),
             diagnostic,
+            utf16_col: None,
         }]);
         let region = &log["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"];
         assert_eq!(region["startLine"], 1);
         assert_eq!(region["startColumn"], 1);
+    }
+
+    fn column(text: &str, line: u32, col: u32) -> u32 {
+        Utf16Columns::new(text).column(Span {
+            line,
+            col,
+            offset: 0,
+        })
+    }
+
+    #[test]
+    fn utf16_columns_count_non_bmp_chars_as_two_units() {
+        // U+1F600 is 4 bytes, 2 units: byte column 7 on line 2 is unit column 5.
+        assert_eq!(column("ab\n\u{1F600}xyz", 2, 7), 5);
+    }
+
+    #[test]
+    fn utf16_columns_cross_checkpoints() {
+        // 63 ASCII bytes put U+1F600 across the first 64-byte checkpoint.
+        let text = format!("{}\u{1F600}{}x", "a".repeat(63), "\u{E9}".repeat(100));
+        assert_eq!(column(&text, 1, 63 + 4 + 200 + 1), 63 + 2 + 100 + 1);
+        // A column at the end of a text exactly one checkpoint long.
+        assert_eq!(column(&"\u{E9}".repeat(32), 1, 65), 33);
+    }
+
+    #[test]
+    fn utf16_columns_ignore_other_lines() {
+        assert_eq!(column("\u{E9}\u{E9}\nab\n\u{E9}\u{E9}x", 3, 5), 3);
+        assert_eq!(column("\u{E9}\u{E9}\nab\n\u{E9}", 2, 2), 2);
+    }
+
+    #[test]
+    fn utf16_columns_count_bytes_past_the_line_end() {
+        assert_eq!(column("\u{E9}", 1, 5), 4);
+        // Not the chars of the next line.
+        assert_eq!(column("\u{E9}\n\u{1F600}", 1, 6), 5);
+    }
+
+    #[test]
+    fn utf16_columns_keep_byte_columns_for_ascii_or_missing_lines() {
+        assert_eq!(column("abc", 1, 3), 3);
+        assert_eq!(column("\u{E9}", 4, 3), 3);
+    }
+
+    #[test]
+    fn utf16_columns_are_never_zero() {
+        assert_eq!(column("", 0, 0), 1);
+        assert_eq!(column("\u{E9}", 0, 0), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_uri_percent_encodes_non_utf8_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+        let path = Path::new(std::ffi::OsStr::from_bytes(b"/d/\xFF.json"));
+        assert_eq!(file_uri(path), "file:///d/%FF.json");
     }
 }

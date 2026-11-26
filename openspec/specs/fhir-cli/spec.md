@@ -170,7 +170,7 @@ En cas d'erreur d'outil, `fhir-lint` SHALL écrire `fhir-lint: <message>` sur st
 
 ### Requirement: Format texte
 
-Le format `text` SHALL écrire une ligne par diagnostic : `fichier[:ligne:col]: sévérité CODE [chemin]: message`. Le fichier, le chemin et le message SHALL être repliés sur une seule ligne et leurs caractères de contrôle échappés. Sans diagnostic, rien ne SHALL être écrit.
+Le format `text` SHALL écrire une ligne par diagnostic : `fichier[:ligne:col]: sévérité CODE [chemin]: message`. Le fichier, le chemin et le message SHALL être repliés sur une seule ligne et leurs caractères de contrôle échappés. `col` SHALL être la colonne 1-based en octets UTF-8. Sans diagnostic, rien ne SHALL être écrit.
 
 #### Scenario: Une ligne par diagnostic
 
@@ -184,7 +184,7 @@ Le format `text` SHALL écrire une ligne par diagnostic : `fichier[:ligne:col]: 
 
 ### Requirement: Format JSON
 
-Le format `json` SHALL écrire un tableau d'objets `{file, severity, code, message, path, line, col, rule}` ; `line`, `col` et `rule` SHALL valoir `null` lorsqu'ils sont inconnus.
+Le format `json` SHALL écrire un tableau d'objets `{file, severity, code, message, path, line, col, rule}` ; `line`, `col` et `rule` SHALL valoir `null` lorsqu'ils sont inconnus. `col` SHALL être la colonne 1-based en octets UTF-8 et `file` un nom d'affichage avec remplacement des octets non UTF-8.
 
 #### Scenario: Sévérité hint de la configuration
 
@@ -198,7 +198,7 @@ Le format `json` SHALL écrire un tableau d'objets `{file, severity, code, messa
 
 ### Requirement: Format SARIF
 
-Le format `sarif` SHALL écrire un journal SARIF 2.1.0 : `$schema`, `version = "2.1.0"`, `runs[0].tool.driver` avec `name = "fhir-lint"`, `version` de l'outil et `rules` (un `{id}` par code distinct, triés). Chaque résultat SHALL avoir `ruleId` (le code), `level` (`error` pour `fatal` et `error`, `warning`, ou `note` pour `information`), `message.text` et `locations[0].physicalLocation` avec `artifactLocation.uri` et, si la position est connue, `region.startLine` / `startColumn` au moins égaux à 1. L'URI SHALL rester relative pour un chemin relatif, être préfixée `file://` pour un chemin absolu, et encoder en pourcentage tout octet hors `[A-Za-z0-9-._~/]`.
+Le format `sarif` SHALL écrire un journal SARIF 2.1.0 : `$schema`, `version = "2.1.0"`, `runs[0].tool.driver` avec `name = "fhir-lint"`, `version` de l'outil et `rules` (un `{id}` par code distinct, triés). Chaque résultat SHALL avoir `ruleId` (le code), `level` (`error` pour `fatal` et `error`, `warning`, ou `note` pour `information`), `message.text` et `locations[0].physicalLocation` avec `artifactLocation.uri` et, si la position est connue, `region.startLine` / `startColumn` au moins égaux à 1. Sous Unix, l'URI SHALL être construite à partir des octets bruts du chemin (un octet non UTF-8 comme `0xFF` devient `%FF`). L'URI SHALL rester relative pour un chemin relatif, être préfixée `file://` pour un chemin absolu, et encoder en pourcentage tout octet hors `[A-Za-z0-9-._~/]`.
 
 #### Scenario: Journal minimal
 
@@ -214,6 +214,21 @@ Le format `sarif` SHALL écrire un journal SARIF 2.1.0 : `$schema`, `version = "
 
 - **WHEN** le fichier est `dir/a b.json`, `javascript:x.json` ou `/tmp/x.json`
 - **THEN** l'URI SHALL être respectivement `dir/a%20b.json`, `javascript%3Ax.json` et `file:///tmp/x.json`
+
+#### Scenario: Colonne après un caractère non ASCII
+
+- **WHEN** une ligne contient U+1F600 avant l'élément en erreur
+- **THEN** `startColumn` SHALL compter U+1F600 pour 2 unités tandis que `col` en `json` reste la colonne en octets UTF-8
+
+#### Scenario: BOM en ligne 1
+
+- **WHEN** le fichier commence par un BOM et le diagnostic est en ligne 1
+- **THEN** le BOM SHALL compter pour 1 unité dans `startColumn`
+
+#### Scenario: Nom de fichier non UTF-8
+
+- **WHEN** le nom du fichier contient l'octet `0xFF` (Unix)
+- **THEN** l'URI SARIF SHALL contenir `%FF` et non un caractère de remplacement
 
 #### Scenario: Région jamais nulle
 

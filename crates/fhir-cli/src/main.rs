@@ -20,7 +20,7 @@ use fhir_linter::{Config, RuleRegistry};
 use fhir_parser::{ParseError, Resource, Span};
 use fhir_validator::{Diagnostic, Severity};
 
-use crate::output::Finding;
+use crate::output::{Finding, Utf16Columns};
 
 #[derive(Debug, Parser)]
 #[command(name = "fhir-lint", version, about)]
@@ -101,9 +101,13 @@ fn run(cli: &Cli) -> Result<bool, String> {
     let mut findings = Vec::new();
     for path in &inputs {
         let file = path.display().to_string();
-        for diagnostic in lint_file(path, &rules, &registry, &config)? {
+        let (diagnostics, text) = lint_file(path, &rules, &registry, &config)?;
+        let columns = Utf16Columns::new(&text);
+        for diagnostic in diagnostics {
             findings.push(Finding {
                 file: file.clone(),
+                path: path.clone(),
+                utf16_col: diagnostic.location.map(|span| columns.column(span)),
                 diagnostic,
             });
         }
@@ -134,28 +138,28 @@ fn load_config(path: Option<&Path>) -> Result<Config, String> {
 }
 
 /// Validate and lint one file. A resource that does not parse yields a
-/// `PARSE_001` diagnostic; only an unreadable file is a tool error.
+/// `PARSE_001` diagnostic; only an unreadable file is a tool error. Also
+/// returns the source text (empty if not UTF-8), which locations point into.
 fn lint_file(
     path: &Path,
     rules: &RuleRegistry,
     registry: &Registry,
     config: &Config,
-) -> Result<Vec<Diagnostic>, String> {
-    let bytes = read_input(path)?;
-    let resource = match String::from_utf8(bytes) {
-        Ok(text) => parse(path, &text),
-        Err(e) => Err(parse_diagnostic(
-            format!("file is not valid UTF-8: {e}"),
-            None,
-        )),
+) -> Result<(Vec<Diagnostic>, String), String> {
+    let text = match String::from_utf8(read_input(path)?) {
+        Ok(text) => text,
+        Err(e) => {
+            let message = format!("file is not valid UTF-8: {e}");
+            return Ok((vec![parse_diagnostic(message, None)], String::new()));
+        }
     };
-    let resource = match resource {
+    let resource = match parse(path, &text) {
         Ok(resource) => resource,
-        Err(diagnostic) => return Ok(vec![diagnostic]),
+        Err(diagnostic) => return Ok((vec![diagnostic], text)),
     };
     let mut diagnostics = fhir_validator::validate(&resource, registry);
     diagnostics.extend(rules.run(&resource, registry, config)?);
-    Ok(diagnostics)
+    Ok((diagnostics, text))
 }
 
 /// Read an input file, refusing one over `MAX_INPUT_BYTES` before it is

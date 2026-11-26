@@ -512,3 +512,85 @@ fn symlinked_file_inside_a_directory_is_linted() -> TestResult {
     );
     Ok(())
 }
+
+/// The SARIF region of the `Patient.x` finding (it points at the value) when `text` is linted.
+fn sarif_region_of_unknown_x(
+    name: &str,
+    text: &str,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let path = temp_path(name);
+    std::fs::write(&path, text)?;
+    let log = stdout_json(fhir_lint().args(["--format", "sarif"]).arg(&path));
+    let _ = std::fs::remove_file(&path);
+    let result = log["runs"][0]["results"]
+        .as_array()
+        .and_then(|results| {
+            results
+                .iter()
+                .find(|r| r["message"]["text"] == "Unknown element 'Patient.x'")
+        })
+        .ok_or("no Patient.x result")?;
+    Ok(result["locations"][0]["physicalLocation"]["region"].clone())
+}
+
+#[test]
+fn sarif_columns_count_utf16_code_units() -> TestResult {
+    // U+00E9 is 2 bytes / 1 unit, U+1F600 is 4 bytes / 2 units: the value is at byte 58,
+    // unit 55.
+    let text = "{\"resourceType\":\"Patient\",\"name\":[{\"text\":\"\u{E9}\u{1F600}\"}],\"x\":1}";
+    let region = sarif_region_of_unknown_x("utf16-col.json", text)?;
+    assert_eq!(region["startLine"], 1);
+    assert_eq!(region["startColumn"], 55);
+    Ok(())
+}
+
+#[test]
+fn sarif_columns_count_utf16_code_units_on_later_lines() -> TestResult {
+    let text = "{\"resourceType\":\"Patient\",\n\"name\":[{\"text\":\"\u{1F600}\"}], \"x\":1}";
+    let region = sarif_region_of_unknown_x("utf16-col-line2.json", text)?;
+    assert_eq!(region["startLine"], 2);
+    // 17 bytes, U+1F600 (4 bytes, 2 units), `"}], "x":` (9): byte 31, unit 29.
+    assert_eq!(region["startColumn"], 29);
+    Ok(())
+}
+
+#[test]
+fn sarif_columns_count_a_bom_as_one_unit() -> TestResult {
+    let text = "\u{FEFF}{\"resourceType\":\"Patient\",\"x\":1}";
+    let region = sarif_region_of_unknown_x("utf16-col-bom.json", text)?;
+    // The BOM is 3 bytes but 1 unit: byte column 34, UTF-16 column 32.
+    assert_eq!(region["startLine"], 1);
+    assert_eq!(region["startColumn"], 32);
+    Ok(())
+}
+
+#[test]
+fn sarif_run_declares_utf16_column_kind() {
+    let log = stdout_json(
+        fhir_lint()
+            .args(["--format", "sarif"])
+            .arg(fixture("invalid.json")),
+    );
+    assert_eq!(log["runs"][0]["columnKind"], "utf16CodeUnits");
+}
+
+#[cfg(unix)]
+#[test]
+fn sarif_uri_percent_encodes_non_utf8_file_name_bytes() -> TestResult {
+    use std::os::unix::ffi::OsStrExt;
+    // create_dir fails if the path exists, so nothing planted in /tmp is used.
+    let base = temp_path("non-utf8-name");
+    std::fs::create_dir(&base)?;
+    let file = base.join(std::ffi::OsStr::from_bytes(b"\xFF.json"));
+    std::fs::copy(fixture("warnings.json"), &file)?;
+
+    let out = fhir_lint().args(["--format", "sarif"]).arg(&file).output();
+    let _ = std::fs::remove_dir_all(&base);
+    let log: serde_json::Value = serde_json::from_slice(&out?.stdout)?;
+    let location = &log["runs"][0]["results"][0]["locations"][0]["physicalLocation"];
+    let uri = location["artifactLocation"]["uri"]
+        .as_str()
+        .ok_or("no uri")?;
+    assert!(uri.ends_with("/%FF.json"), "{uri}");
+    Ok(())
+}
