@@ -98,6 +98,58 @@ fn profile_may_repeat_the_base_content_reference() {
         ),
     );
     assert!(paths(&canonical, "DEFINITION_006").is_empty());
+    let core_url = definition(
+        "constraint",
+        "Questionnaire",
+        "resource",
+        concat!(
+            r#""id":"Questionnaire.item.item","path":"Questionnaire.item.item","#,
+            r#""contentReference":"#,
+            r#""http://hl7.org/fhir/StructureDefinition/Questionnaire#Questionnaire.item""#,
+        ),
+    );
+    assert!(paths(&core_url, "DEFINITION_006").is_empty());
+    let versioned = definition(
+        "constraint",
+        "Questionnaire",
+        "resource",
+        concat!(
+            r#""id":"Questionnaire.item.item","path":"Questionnaire.item.item","#,
+            r#""contentReference":"#,
+            r#""http://hl7.org/fhir/StructureDefinition/Questionnaire|5.0.0#Questionnaire.item""#,
+        ),
+    );
+    assert!(paths(&versioned, "DEFINITION_006").is_empty());
+}
+
+#[test]
+fn profile_may_not_drop_the_fragment_of_a_content_reference() {
+    let bare = definition(
+        "constraint",
+        "Questionnaire",
+        "resource",
+        r#""id":"Questionnaire.item.item","path":"Questionnaire.item.item",
+        "contentReference":"Questionnaire.item""#,
+    );
+    assert_eq!(
+        paths(&bare, "DEFINITION_006"),
+        ["StructureDefinition.differential.element[1].contentReference"]
+    );
+}
+
+#[test]
+fn profile_may_not_point_a_content_reference_at_another_definition() {
+    let other = definition(
+        "constraint",
+        "Questionnaire",
+        "resource",
+        r##""id":"Questionnaire.item.item","path":"Questionnaire.item.item",
+        "contentReference":"http://example.org/Other#Questionnaire.item""##,
+    );
+    assert_eq!(
+        paths(&other, "DEFINITION_006"),
+        ["StructureDefinition.differential.element[1].contentReference"]
+    );
 }
 
 #[test]

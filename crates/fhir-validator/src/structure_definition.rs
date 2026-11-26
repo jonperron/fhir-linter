@@ -28,7 +28,7 @@
 use fhir_definitions::{ElementDefinition, Registry, StructureDefinition};
 use fhir_parser::{Node, Resource, Value};
 use indexmap::IndexMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
@@ -70,11 +70,11 @@ pub(crate) fn validate(
     }
 }
 
-/// The element path a contentReference names: what follows its last `#`.
-fn reference_target(reference: &str) -> &str {
-    reference
-        .rsplit_once('#')
-        .map_or(reference, |(_, target)| target)
+/// A contentReference split into its definition URL (empty for a local `#path`, and without
+/// any `|version`) and the element path after its last `#`.
+fn reference_parts(reference: &str) -> (&str, &str) {
+    let (url, target) = reference.rsplit_once('#').unwrap_or(("", reference));
+    (url.split_once('|').map_or(url, |(url, _)| url), target)
 }
 
 /// orderMeaning asserted by a constraint on an element whose base has none
@@ -186,9 +186,16 @@ fn content_references(
             continue;
         };
         // Compare the element paths: the Registry keeps a local `#path` as the bare path, and
-        // a derived profile's snapshot writes the same target as `<core url>#path`.
-        let stated = string(fields, "contentReference").map(reference_target);
-        if stated.is_some() && stated == element.content_reference.as_deref().map(reference_target)
+        // a derived profile's snapshot writes the same target as `<core url>#path`. A stated
+        // URL must name the base itself or the definition the base's reference names.
+        // A stated reference without `#` is a relative URL, never the base's `#path`.
+        let stated = string(fields, "contentReference")
+            .filter(|reference| reference.contains('#'))
+            .map(reference_parts);
+        let inherited = element.content_reference.as_deref().map(reference_parts);
+        if let (Some((url, target)), Some((base_url, base_target))) = (stated, inherited)
+            && target == base_target
+            && (url.is_empty() || url == base_url || url == &*base.url)
         {
             continue;
         }
@@ -428,11 +435,21 @@ fn slice_cardinality(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let base = base_definition(resource, registry);
-    let by_id = |id: &str| {
-        differential
-            .iter()
-            .find(|(_, fields)| string(fields, "id") == Some(id))
-    };
+    // Indexed once: scanning the differential per slicer or slice child is quadratic.
+    let mut by_id: HashMap<&str, &Fields> = HashMap::new();
+    // Each slice (`<slicer id>:<name>`, reslices left out) under its slicer's id, in order.
+    let mut slices: HashMap<&str, Vec<(usize, &Fields)>> = HashMap::new();
+    for &(index, fields) in differential {
+        let Some(id) = string(fields, "id") else {
+            continue;
+        };
+        by_id.entry(id).or_insert(fields);
+        if let Some((slicer, name)) = id.rsplit_once(':')
+            && !name.contains(['.', '/'])
+        {
+            slices.entry(slicer).or_default().push((index, fields));
+        }
+    }
     for &(index, element) in differential {
         // shortcut: slices are matched by id, so elements without one are skipped; match by
         // path and sliceName if id-less differentials turn up.
@@ -440,7 +457,13 @@ fn slice_cardinality(
         else {
             continue;
         };
-        if let Some(slicing) = element.get("slicing") {
+        // Only the first element of an id is its slicer (a repeat is sdf-16's finding), so
+        // repeated slicers cannot rescan one slice group.
+        if let Some(slicing) = element.get("slicing")
+            && by_id
+                .get(id)
+                .is_some_and(|first| std::ptr::eq(*first, element))
+        {
             // An unstated maximum is the base's: the unsliced element of the same path there.
             // shortcut: the first base element of that path is taken, so a nested slicer inside
             // a narrowed slice may get a larger maximum (check silent, never a false error);
@@ -457,7 +480,8 @@ fn slice_cardinality(
                     max,
                     slicing,
                 };
-                slices_within(differential, &slicer, path, diagnostics);
+                let slices = slices.get(id).map_or(&[][..], Vec::as_slice);
+                slices_within(slices, &slicer, path, diagnostics);
             }
         }
         // A slice child: the last segment names no slice, an earlier one does.
@@ -474,7 +498,10 @@ fn slice_cardinality(
         let unsliced = unsliced.join(".");
         // shortcut: only an unsliced child stated in this differential is compared; a bound
         // inherited from the base is a constraint-loosening check, not this rule.
-        let Some(max) = by_id(&unsliced).and_then(|(_, fields)| string(fields, "max")) else {
+        let Some(max) = by_id
+            .get(unsliced.as_str())
+            .and_then(|fields| string(fields, "max"))
+        else {
             continue;
         };
         if bound(max).is_some_and(|max| min > max) {
@@ -501,9 +528,9 @@ struct Slicer<'a> {
     slicing: &'a Node,
 }
 
-/// The slices of `slicer`: each slice's maximum, then the total of their minimums.
+/// The `slices` of `slicer`: each slice's maximum, then the total of their minimums.
 fn slices_within(
-    differential: &[(usize, &Fields)],
+    slices: &[(usize, &Fields)],
     slicer: &Slicer,
     path: &str,
     diagnostics: &mut Vec<Diagnostic>,
@@ -515,12 +542,6 @@ fn slices_within(
         slicing,
     } = slicer;
     // shortcut: reslices (`slice/reslice`) are left out; they belong to their slice.
-    let prefix = format!("{id}:");
-    let slices = differential.iter().filter(|(_, fields)| {
-        string(fields, "id")
-            .and_then(|slice_id| slice_id.strip_prefix(&prefix))
-            .is_some_and(|name| !name.contains(['.', ':', '/']))
-    });
     // u128: a sum of u64 minimums cannot overflow it or clamp to the maximum.
     let mut total = 0u128;
     // shortcut: a slice's unstated min or max is not read from the base, and a slicer

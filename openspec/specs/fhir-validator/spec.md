@@ -1725,11 +1725,21 @@ Pour toute StructureDefinition (ressource racine ou intégrée) dont `derivation
 
 ### Requirement: Validation des profils — contentReference modifié (DEFINITION_006)
 
-Pour toute StructureDefinition dont `derivation` vaut `constraint` et dont la `baseDefinition` (sans `|version`) figure dans le Registry, le système SHALL émettre une erreur `DEFINITION_006` pour chaque `differential.element[i]` qui renseigne `contentReference` lorsque l'élément de même chemin existe dans le snapshot de base et que le chemin référencé (après le dernier `#`) diffère de celui de l'élément de base (ou que ce dernier n'en a pas), au `path` `<ressource>.differential.element[<i>].contentReference`. Selon ElementDefinition.contentReference : « ContentReferences can only be defined in specializations, not constrained types, and they cannot be changed ». Aucun diagnostic SHALL être émis pour une spécialisation, pour une même cible (forme `#chemin` ou canonique `<url>#chemin`), ni si l'élément de base est introuvable.
+Pour toute StructureDefinition dont `derivation` vaut `constraint` et dont la `baseDefinition` (sans `|version`) figure dans le Registry, le système SHALL émettre une erreur `DEFINITION_006` pour chaque `differential.element[i]` qui renseigne `contentReference` lorsque l'élément de même chemin existe dans le snapshot de base et que la cible référencée ne correspond pas à celle de l'élément de base (ou que ce dernier n'en a pas) : le chemin (après le dernier `#`) SHALL être égal à celui de la base ET la partie URL (sans `|version`) SHALL être vide (forme locale `#chemin`), égale à l'`url` canonique de la StructureDefinition de base, ou égale à la partie URL du `contentReference` de l'élément de base (les snapshots dérivés écrivent `<url du noyau>#chemin`) ; un `contentReference` énoncé sans aucun `#` (ex. `Questionnaire.item`) est une URL relative et SHALL toujours être signalé, même si son texte égale le chemin cible de la base ; au `path` `<ressource>.differential.element[<i>].contentReference`. Selon ElementDefinition.contentReference : « ContentReferences can only be defined in specializations, not constrained types, and they cannot be changed ». Aucun diagnostic SHALL être émis pour une spécialisation, pour une même cible (formes acceptées ci-dessus), ni si l'élément de base est introuvable.
 
 #### Scenario: contentReference changé par un profil
 
 - **WHEN** un profil `constraint` renseigne `contentReference` vers un chemin différent de celui de l'élément de base
+- **THEN** une erreur `DEFINITION_006` SHALL être émise à `<ressource>.differential.element[<i>].contentReference`
+
+#### Scenario: contentReference vers une autre URL
+
+- **WHEN** un profil `constraint` renseigne `http://example.org/Other#Questionnaire.item` sur `Questionnaire.item.item`, dont la base cible `Questionnaire.item` (même chemin, URL différente de la base)
+- **THEN** une erreur `DEFINITION_006` SHALL être émise à `<ressource>.differential.element[<i>].contentReference`
+
+#### Scenario: contentReference relatif sans dièse
+
+- **WHEN** un profil `constraint` renseigne `Questionnaire.item` (sans `#`) sur `Questionnaire.item.item`, dont la base cible `Questionnaire.item`
 - **THEN** une erreur `DEFINITION_006` SHALL être émise à `<ressource>.differential.element[<i>].contentReference`
 
 #### Scenario: contentReference inchangé ou hors périmètre
@@ -1767,7 +1777,7 @@ Pour tout profil (même périmètre et même exemption que DEFINITION_001 : une 
 
 ### Requirement: Validation des profils — cardinalité des tranches (DEFINITION_002)
 
-Pour toute StructureDefinition (profil ou spécialisation) ayant un `differential`, le système SHALL, pour chaque `differential.element[i]` portant `slicing`, déterminer le maximum n de l'élément découpé : son `max` énoncé, sinon le `max` de l'élément de même chemin dans le snapshot de la `baseDefinition` (Registry). Si n est `*` ou mal formé, aucun contrôle SHALL être effectué. Selon R5 (profiling, Slice Cardinality), le système SHALL émettre une erreur `DEFINITION_002` : (a) à `<ressource>.differential.element[<i>].max` pour chaque tranche (id `<id du découpé>:<nom>`, les re-tranches `a/b` exclues) dont le `max` énoncé est `*` ou supérieur à n; (b) à `<ressource>.differential.element[<index du découpé>]` si la somme des `min` énoncés des tranches (absent = 0, addition saturante) dépasse n. Les éléments sans `id` SHALL être ignorés. DEFINITION_001 reste limité aux profils.
+Pour toute StructureDefinition (profil ou spécialisation) ayant un `differential`, le système SHALL, pour chaque `differential.element[i]` portant `slicing`, déterminer le maximum n de l'élément découpé : son `max` énoncé, sinon le `max` de l'élément de même chemin dans le snapshot de la `baseDefinition` (Registry). Si n est `*` ou mal formé, aucun contrôle SHALL être effectué. Selon R5 (profiling, Slice Cardinality), le système SHALL émettre une erreur `DEFINITION_002` : (a) à `<ressource>.differential.element[<i>].max` pour chaque tranche (id `<id du découpé>:<nom>`, les re-tranches `a/b` exclues) dont le `max` énoncé est `*` ou supérieur à n; (b) à `<ressource>.differential.element[<index du découpé>]` si la somme des `min` énoncés des tranches (absent = 0, addition saturante) dépasse n. Les éléments sans `id` SHALL être ignorés. Lorsque plusieurs éléments du différentiel partagent le même `id`, seul le premier SHALL agir comme découpé dont les tranches sont contrôlées (les doublons d'`id` relèvent de sdf-16). DEFINITION_001 reste limité aux profils.
 
 #### Scenario: minimums des tranches supérieurs au maximum
 
