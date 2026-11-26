@@ -63,7 +63,7 @@ fn nested_registry() -> Registry {
             element("Extension.value[x]", 0, "1", serde_json::json!({})),
         ],
     );
-    let mut x = element("Patient.extension", 0, "*", typed);
+    let mut x = element("Patient.extension", 1, "*", typed);
     x["id"] = serde_json::json!("Patient.extension:x");
     x["sliceName"] = serde_json::json!("x");
     let layer = profile_sd(
@@ -81,8 +81,9 @@ fn nested_registry() -> Registry {
     supplied("nested-slices", &bundle)
 }
 
-/// Conformance checks run validating a Patient with extensions nested `depth` deep.
-fn conforms_runs(registry: &Registry, depth: usize) -> usize {
+/// Conformance checks run validating a Patient with extensions nested `depth` deep, and
+/// the `(code, path)` of its errors.
+fn conforms_runs(registry: &Registry, depth: usize) -> (usize, Vec<(String, String)>) {
     let mut ext = serde_json::json!({"url": NESTED, "valueString": "leaf"});
     for _ in 1..depth {
         ext = serde_json::json!({"url": NESTED, "extension": [ext]});
@@ -91,15 +92,26 @@ fn conforms_runs(registry: &Registry, depth: usize) -> usize {
         "meta": {"profile": [NESTED_LAYER]}, "extension": [ext]});
     let resource = fhir_parser::parse_json(&patient.to_string()).unwrap();
     CONFORMS_RUNS.with(|runs| runs.set(0));
-    crate::validate(&resource, registry);
-    CONFORMS_RUNS.with(std::cell::Cell::get)
+    let errors = crate::validate(&resource, registry)
+        .into_iter()
+        .filter(|d| d.severity == Severity::Error)
+        .map(|d| (d.code.to_string(), d.path))
+        .collect();
+    (CONFORMS_RUNS.with(std::cell::Cell::get), errors)
 }
 
 #[test]
 fn recursive_profile_slices_cost_linear_conformance_checks() {
     let registry = nested_registry();
-    let (shallow, deep) = (conforms_runs(&registry, 8), conforms_runs(&registry, 16));
+    let ((shallow, errors), (deep, _)) =
+        (conforms_runs(&registry, 8), conforms_runs(&registry, 16));
     assert!(shallow > 0);
+    // The leaf lacks the required slice `a`, so no level conforms and the required slice
+    // `x` of the Patient stays empty.
+    assert_eq!(
+        errors,
+        [("PROFILE_006".to_owned(), "Patient.extension".to_owned())]
+    );
     // Twice the depth must not cost more than about twice the checks (it was 2^depth).
     assert!(
         deep <= 3 * shallow,
