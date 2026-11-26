@@ -10,10 +10,10 @@ use std::sync::Arc;
 
 use fhir_definitions::Registry;
 use fhir_parser::{Node, Resource, Value};
-use indexmap::IndexMap;
 
 use crate::diagnostic::Diagnostic;
 use crate::embedded::child_element;
+use crate::resolve::{items, string};
 
 /// Emits `STRUCTURE_006` (error) at each element id an earlier element of `resource`
 /// (instance `path`) or of its contained resources already uses. Resources held elsewhere
@@ -145,25 +145,5 @@ pub(crate) fn check_meta_sets(resource: &Resource, path: &str, diagnostics: &mut
                 );
             }
         }
-    }
-}
-
-/// The items of a repeating element with their instance paths: an array item by index, a
-/// single value (XML grouping, or a non-repeating element) at `path` itself.
-fn items<'a>(node: &'a Node, path: &str) -> Vec<(&'a Node, String)> {
-    match &node.value {
-        Value::Array(items) => items
-            .iter()
-            .enumerate()
-            .map(|(index, item)| (item, format!("{path}[{index}]")))
-            .collect(),
-        _ => vec![(node, path.to_owned())],
-    }
-}
-
-fn string<'a>(fields: &'a IndexMap<Arc<str>, Node>, name: &str) -> Option<&'a str> {
-    match &fields.get(name)?.value {
-        Value::Str(s) => Some(s),
-        _ => None,
     }
 }

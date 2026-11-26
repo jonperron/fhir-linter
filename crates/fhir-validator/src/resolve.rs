@@ -1,5 +1,8 @@
-//! Element lookups in a StructureDefinition shared by the validation layers.
+//! Element lookups in a StructureDefinition, and instance node accessors, shared by the
+//! validation layers.
 use fhir_definitions::{ElementDefinition, Registry, StructureDefinition, capitalise};
+use fhir_parser::{Node, Value};
+use indexmap::IndexMap;
 use std::sync::Arc;
 
 /// Names with path punctuation are never valid element names.
@@ -54,6 +57,42 @@ pub(crate) fn canonical_parts(reference: &str) -> (&str, Option<&str>) {
     }
 }
 
+/// The items of `node` with their instance paths: each element of an array by index, or a
+/// single value (XML grouping, or a non-repeating element) at `path` itself.
+pub(crate) fn items<'n>(node: &'n Node, path: &str) -> Vec<(&'n Node, String)> {
+    match &node.value {
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| (item, format!("{path}[{i}]")))
+            .collect(),
+        _ => vec![(node, path.to_owned())],
+    }
+}
+
+/// The non-null occurrences of `node`: its [`items`] without the nulls.
+pub(crate) fn occurrences<'n>(node: &'n Node, path: &str) -> Vec<(&'n Node, String)> {
+    let mut found = items(node, path);
+    found.retain(|(item, _)| !matches!(item.value, Value::Null));
+    found
+}
+
+/// The string value of child `name`, if it has one.
+pub(crate) fn string<'a>(fields: &'a IndexMap<Arc<str>, Node>, name: &str) -> Option<&'a str> {
+    match &fields.get(name)?.value {
+        Value::Str(s) => Some(s),
+        _ => None,
+    }
+}
+
+/// The string value of child `name` of an object `node`, if it has one.
+pub(crate) fn node_string<'a>(node: &'a Node, name: &str) -> Option<&'a str> {
+    match &node.value {
+        Value::Object(fields) => string(fields, name),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod canonical_tests {
     use super::canonical_parts;
@@ -66,5 +105,36 @@ mod canonical_tests {
         let contained = "http://x.org/sd|1.0#inner";
         assert_eq!(canonical_parts(contained), (contained, None));
         assert_eq!(canonical_parts("#inner"), ("#inner", None));
+    }
+}
+
+#[cfg(test)]
+mod node_tests {
+    use super::{items, occurrences};
+    use fhir_parser::{Node, Span, Value};
+    use std::sync::Arc;
+
+    fn node(value: Value) -> Node {
+        Node {
+            value,
+            span: Span::default(),
+        }
+    }
+
+    fn paths(found: Vec<(&Node, String)>) -> Vec<String> {
+        found.into_iter().map(|(_, path)| path).collect()
+    }
+
+    #[test]
+    fn occurrences_drop_nulls_and_keep_array_indices() {
+        let array = node(Value::Array(vec![
+            node(Value::Str(Arc::from("a"))),
+            node(Value::Null),
+            node(Value::Str(Arc::from("b"))),
+        ]));
+        assert_eq!(paths(items(&array, "x")), ["x[0]", "x[1]", "x[2]"]);
+        assert_eq!(paths(occurrences(&array, "x")), ["x[0]", "x[2]"]);
+        assert_eq!(paths(items(&node(Value::Null), "x")), ["x"]);
+        assert!(occurrences(&node(Value::Null), "x").is_empty());
     }
 }

@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use crate::cardinality::{check_run_cardinality, own_descendants, subtree, without_own_slices};
 use crate::diagnostic::{Diagnostic, Severity};
-use crate::fixed_pattern::{self, occurrences};
+use crate::fixed_pattern;
 use crate::invariants;
-use crate::resolve::{canonical_parts, complex_type};
+use crate::resolve::{canonical_parts, complex_type, occurrences};
 use crate::slicing::{self, Assigned, Item};
 use fhir_definitions::{capitalise, is_primitive_type};
 

@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
 use crate::embedded::{concrete_resource, holds_resource, typed_element};
-use crate::resolve::{complex_type, resolve};
+use crate::resolve::{complex_type, items, resolve};
 use fhir_definitions::is_primitive_type;
 
 type Fields = IndexMap<Arc<str>, Node>;
@@ -100,18 +100,6 @@ struct Shaper<'a> {
     registry: &'a Registry,
     trimmed: HashSet<(u32, &'a str)>,
     diagnostics: Vec<Diagnostic>,
-}
-
-/// The items of a node: itself, or each element of an array with its indexed path.
-fn items<'n>(node: &'n Node, path: &str) -> Vec<(&'n Node, String)> {
-    match &node.value {
-        Value::Array(items) => items
-            .iter()
-            .enumerate()
-            .map(|(i, item)| (item, format!("{path}[{i}]")))
-            .collect(),
-        _ => vec![(node, path.to_owned())],
-    }
 }
 
 impl Shaper<'_> {

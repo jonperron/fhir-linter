@@ -32,7 +32,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
-use crate::resolve::canonical_parts;
+use crate::resolve::{canonical_parts, string};
 
 /// Check the StructureDefinition `resource` at instance `path`; other resources pass.
 pub(crate) fn validate(
@@ -697,13 +697,6 @@ fn is_profile(resource: &Resource, registry: &Registry) -> bool {
             .core(type_name)
             .is_some_and(|type_sd| &*type_sd.url == base);
     !defines_extension
-}
-
-fn string<'a>(fields: &'a IndexMap<Arc<str>, Node>, name: &str) -> Option<&'a str> {
-    match &fields.get(name)?.value {
-        Value::Str(s) => Some(s),
-        _ => None,
-    }
 }
 
 /// The items of a repeating element: an array, or a single object (XML grouping).

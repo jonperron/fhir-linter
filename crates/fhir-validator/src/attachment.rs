@@ -10,6 +10,7 @@ use indexmap::IndexMap;
 use std::sync::Arc;
 
 use crate::diagnostic::Diagnostic;
+use crate::resolve::string;
 
 /// Check the `size` and `hash` of the Attachment object `fields` (instance `path`) against
 /// its decoded `data`. Without `data`, or when a value does not decode, there is nothing to
@@ -65,14 +66,6 @@ pub(crate) fn check(
                 .with_location(span),
             );
         }
-    }
-}
-
-/// The string value of child `name`, if it has one.
-fn string<'a>(fields: &'a IndexMap<Arc<str>, Node>, name: &str) -> Option<&'a str> {
-    match &fields.get(name)?.value {
-        Value::Str(s) => Some(s),
-        _ => None,
     }
 }
 

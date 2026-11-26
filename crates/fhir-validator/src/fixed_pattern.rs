@@ -2,25 +2,12 @@
 //! match `value`/`pattern` slice discriminators.
 use fhir_definitions::ElementDefinition;
 use fhir_fhirpath::Value as FhirPathValue;
-use fhir_parser::{Decimal, Node, Value};
+use fhir_parser::{Decimal, Node};
 use serde_json::Value as Json;
 
 use crate::diagnostic::Diagnostic;
 use crate::min_max_value;
-
-/// The non-null occurrences of `node` (instance `path`): the items of an array, or the node.
-pub(crate) fn occurrences<'a>(node: &'a Node, path: &str) -> Vec<(&'a Node, String)> {
-    match &node.value {
-        Value::Array(items) => items
-            .iter()
-            .enumerate()
-            .filter(|(_, item)| !matches!(item.value, Value::Null))
-            .map(|(i, item)| (item, format!("{path}[{i}]")))
-            .collect(),
-        Value::Null => Vec::new(),
-        _ => vec![(node, path.to_owned())],
-    }
-}
+use crate::resolve::occurrences;
 
 /// Check each occurrence of `node` (instance `path`) against the `fixed[x]` of `elem`, which
 /// it SHALL be exactly (`PROFILE_004`), and its `pattern[x]`, which it SHALL follow
